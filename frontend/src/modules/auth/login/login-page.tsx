@@ -46,12 +46,12 @@ export function LoginPage() {
                     <Card className="border border-white/70 bg-card/92 shadow-[0_24px_60px_-28px_oklch(0.58_0.19_252/0.24)] backdrop-blur-sm">
                         <CardHeader className="gap-4 px-6 pt-6 sm:px-8 sm:pt-8">
                             <div className="flex items-center gap-3">
-                <BrandLogo
-                  width={184}
-                  height={46}
-                  priority
-                  className="h-11 w-auto object-contain"
-                />
+                                <BrandLogo
+                                    width={184}
+                                    height={46}
+                                    priority
+                                    className="h-11 w-auto object-contain"
+                                />
                                 <div>
                                     <p className="text-sm font-semibold leading-none">
                                         FinTrack OS
@@ -90,7 +90,7 @@ export function LoginPage() {
                                     {proofPoints.map((point) => (
                                         <div key={point} className="flex gap-2.5">
                                             <CheckCircle2
-                                                className="mt-0.5 size-4 shrink-0 text-[var(--accent)]"
+                                                className="mt-0.5 size-4 shrink-0 text-accent"
                                                 aria-hidden="true"
                                             />
                                             <p>{point}</p>
