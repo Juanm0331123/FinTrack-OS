@@ -2,7 +2,6 @@ import Link from "next/link";
 import {
   ArrowRight,
   BadgeDollarSign,
-  ChartNoAxesCombined,
   CreditCard,
   LogIn,
   PiggyBank,
@@ -11,6 +10,7 @@ import {
 
 import { APP_ROUTES } from "@/shared/config/routes";
 import { Badge } from "@/shared/ui/badge";
+import { BrandLogo } from "@/shared/ui/brand-logo";
 import { Button } from "@/shared/ui/button";
 import {
   Card,
@@ -60,12 +60,12 @@ export function HomePage() {
       <div className="mx-auto flex min-h-dvh w-full max-w-7xl flex-col px-5 py-5 sm:px-8 lg:px-10">
         <header className="flex items-center justify-between gap-4 rounded-xl bg-card/80 px-4 py-3 ring-1 ring-border backdrop-blur">
           <div className="flex items-center gap-3">
-            <div
-              aria-hidden="true"
-              className="grid size-10 place-items-center rounded-lg bg-primary text-primary-foreground"
-            >
-              <ChartNoAxesCombined className="size-5" />
-            </div>
+            <BrandLogo
+              width={156}
+              height={39}
+              priority
+              className="h-10 w-auto object-contain"
+            />
             <div>
               <p className="text-sm font-semibold leading-none">FinTrack OS</p>
               <p className="mt-1 text-xs text-muted-foreground">
