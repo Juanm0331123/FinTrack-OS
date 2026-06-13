@@ -14,3 +14,18 @@ export const apiRateLimiter = rateLimit({
         )
     },
 })
+
+export const authRateLimiter = rateLimit({
+    legacyHeaders: false,
+    limit: env.AUTH_RATE_LIMIT_MAX,
+    skipSuccessfulRequests: true,
+    standardHeaders: 'draft-8',
+    windowMs: env.AUTH_RATE_LIMIT_WINDOW_MS,
+    handler: (_req, res) => {
+        return res.status(429).json(
+            ApiResponse.error(
+                'Too many authentication attempts. Please try again later.',
+            ),
+        )
+    },
+})

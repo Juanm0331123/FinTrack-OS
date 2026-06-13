@@ -1,4 +1,5 @@
 import type { Request, Response } from 'express'
+import { toAuthenticatedRequest } from '../../middlewares/auth.middleware.ts'
 import { ApiResponse } from '../../utils/api-response.ts'
 import {
     createUserSchema,
@@ -37,9 +38,14 @@ export class UsersController {
     }
 
     updateUser = async (req: Request, res: Response) => {
+        const authenticatedRequest = toAuthenticatedRequest(req)
         const { id } = updateUserSchema.shape.params.parse(req.params)
         const body = updateUserSchema.shape.body.parse(req.body)
-        const user = await this.usersService.updateUser(id, body)
+        const user = await this.usersService.updateUser(
+            id,
+            body,
+            authenticatedRequest.auth.user,
+        )
 
         return res.status(200).json(ApiResponse.success(user))
     }

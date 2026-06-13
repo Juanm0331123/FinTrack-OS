@@ -11,6 +11,7 @@ import { ApiResponse } from './utils/api-response.ts'
 import { ForbiddenError } from './utils/app-error.ts'
 
 const corsOptions: CorsOptions = {
+    credentials: true,
     origin(origin, callback) {
         if (!origin || env.allowedOrigins.includes(origin)) {
             return callback(null, true)
