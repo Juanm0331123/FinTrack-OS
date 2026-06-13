@@ -30,3 +30,4 @@ Git history is minimal, so use Conventional Commits going forward, for example `
 ## Agent-Specific Instructions
 
 Before any Git commit, read this file and use the installed `git-commit` skill. Use `grill-me` automatically for architecture or best-practice decisions that need stress testing. For any frontend design, UX, UI polish, layout, accessibility, or visual decision, use both `ui-ux-pro-max` and `impeccable`. Use these canonical installed skill names exactly.
+For any Node.js, Express, backend, REST API, middleware, server configuration, or Prisma backend task, use the installed `nodejs-backend-patterns` skill automatically. Use this canonical installed skill name exactly.
