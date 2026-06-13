@@ -1,4 +1,9 @@
 import { Router } from 'express'
+import {
+    requireAuth,
+    requireRole,
+    requireSelfOrRole,
+} from '../../middlewares/auth.middleware.ts'
 import { validate } from '../../middlewares/validate.middleware.ts'
 import { UsersController } from './users.controller.ts'
 import { UsersRepository } from './users.repository.ts'
@@ -15,14 +20,41 @@ const usersRepository = new UsersRepository()
 const usersService = new UsersService(usersRepository)
 const usersController = new UsersController(usersService)
 
-router.get('/', validate(listUsersQuerySchema), usersController.getUsers)
+router.use(requireAuth)
 
-router.get('/:id', validate(userIdParamSchema), usersController.getUserById)
+router.get(
+    '/',
+    requireRole('ADMIN'),
+    validate(listUsersQuerySchema),
+    usersController.getUsers,
+)
 
-router.post('/', validate(createUserSchema), usersController.createUser)
+router.get(
+    '/:id',
+    validate(userIdParamSchema),
+    requireSelfOrRole('id', 'ADMIN'),
+    usersController.getUserById,
+)
 
-router.patch('/:id', validate(updateUserSchema), usersController.updateUser)
+router.post(
+    '/',
+    requireRole('ADMIN'),
+    validate(createUserSchema),
+    usersController.createUser,
+)
 
-router.delete('/:id', validate(userIdParamSchema), usersController.deleteUser)
+router.patch(
+    '/:id',
+    validate(updateUserSchema),
+    requireSelfOrRole('id', 'ADMIN'),
+    usersController.updateUser,
+)
+
+router.delete(
+    '/:id',
+    validate(userIdParamSchema),
+    requireSelfOrRole('id', 'ADMIN'),
+    usersController.deleteUser,
+)
 
 export { router as usersRoutes }

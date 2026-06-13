@@ -31,9 +31,21 @@ export class ConflictError extends AppError {
     }
 }
 
+export class UnauthorizedError extends AppError {
+    constructor(message = 'Unauthorized.') {
+        super(message, 401)
+    }
+}
+
 export class ForbiddenError extends AppError {
     constructor(message = 'Forbidden.') {
         super(message, 403)
+    }
+}
+
+export class ServiceUnavailableError extends AppError {
+    constructor(message = 'Service unavailable.') {
+        super(message, 503)
     }
 }
 

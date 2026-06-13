@@ -1,13 +1,17 @@
 import type { Prisma } from '@prisma/client'
 import bcrypt from 'bcryptjs'
-import { ConflictError, NotFoundError } from '../../utils/app-error.ts'
+import {
+    ConflictError,
+    ForbiddenError,
+    NotFoundError,
+} from '../../utils/app-error.ts'
 import { UsersRepository } from './users.repository.ts'
 import type {
     CreateUserInput,
     ListUsersQueryInput,
     UpdateUserInput,
 } from './users.schemas.ts'
-import type { ListUsersResult } from './users.types.ts'
+import type { ListUsersResult, PublicUser } from './users.types.ts'
 
 export class UsersService {
     private readonly usersRepository: UsersRepository
@@ -73,9 +77,16 @@ export class UsersService {
         })
     }
 
-    async updateUser(id: string, input: UpdateUserInput) {
+    async updateUser(id: string, input: UpdateUserInput, actor: PublicUser) {
         await this.getUserById(id)
         const data: Prisma.UserUpdateInput = {}
+        const isAdmin = actor.role === 'ADMIN'
+
+        if (!isAdmin && (input.role !== undefined || input.status !== undefined)) {
+            throw new ForbiddenError(
+                'You are not allowed to update privileged user fields.',
+            )
+        }
 
         if (input.email) {
             const normalizedEmail = this.normalizeEmail(input.email)
