@@ -75,12 +75,17 @@ export function HomePage() {
                             </p>
                         </div>
                     </div>
-                    <Button asChild variant="outline" className="h-10">
-                        <Link href={APP_ROUTES.login}>
-                            <LogIn className="size-4" aria-hidden="true" />
-                            Login
-                        </Link>
-                    </Button>
+                    <div className="flex items-center gap-2">
+                        <Button asChild variant="ghost" className="h-10 px-3">
+                            <Link href={APP_ROUTES.register}>Crear cuenta</Link>
+                        </Button>
+                        <Button asChild variant="outline" className="h-10">
+                            <Link href={APP_ROUTES.login}>
+                                <LogIn className="size-4" aria-hidden="true" />
+                                Login
+                            </Link>
+                        </Button>
+                    </div>
                 </header>
 
                 <section className="grid flex-1 items-center gap-8 py-10 lg:grid-cols-[minmax(0,0.95fr)_minmax(360px,0.65fr)] lg:py-14">
@@ -99,13 +104,13 @@ export function HomePage() {
                         </p>
                         <div className="mt-7 flex flex-col gap-3 sm:flex-row">
                             <Button asChild variant="brand" className="h-11 px-5">
-                                <Link href={APP_ROUTES.login}>
-                                    Entrar a mi cuenta
+                                <Link href={APP_ROUTES.register}>
+                                    Crear mi cuenta
                                     <ArrowRight className="size-4" aria-hidden="true" />
                                 </Link>
                             </Button>
-                            <Button variant="outline" className="h-11 px-5">
-                                Ver resumen mensual
+                            <Button asChild variant="outline" className="h-11 px-5">
+                                <Link href={APP_ROUTES.login}>Entrar a mi cuenta</Link>
                             </Button>
                         </div>
                     </div>

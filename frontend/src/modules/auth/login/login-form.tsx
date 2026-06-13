@@ -8,6 +8,7 @@ import { useForm } from 'react-hook-form'
 import { Button } from '@/shared/ui/button'
 import { Input } from '@/shared/ui/input'
 import { Label } from '@/shared/ui/label'
+import { AuthSocialButtons } from '../auth-social-buttons'
 import { loginSchema, type LoginFormValues } from './login.schema'
 
 export function LoginForm() {
@@ -33,6 +34,8 @@ export function LoginForm() {
 
     return (
         <form className="space-y-5" onSubmit={handleSubmit(onSubmit)} noValidate>
+            <AuthSocialButtons />
+
             <div className="space-y-2">
                 <Label htmlFor="email">Correo electronico</Label>
                 <div className="relative">
@@ -111,8 +114,8 @@ export function LoginForm() {
 
             {submittedEmail ? (
                 <p className="rounded-lg bg-accent/12 px-3 py-2 text-sm text-foreground">
-                    Validaciones listas para {submittedEmail}. La autenticacion real se
-                    conectara en una siguiente fase.
+                    Validaciones listas para {submittedEmail}. El siguiente paso sera
+                    conectar este formulario al login real del backend.
                 </p>
             ) : null}
         </form>
