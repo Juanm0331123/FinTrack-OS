@@ -1,5 +1,6 @@
 export const APP_ROUTES = {
     home: '/',
+    dashboard: '/dashboard',
     login: '/login',
     register: '/register',
 } as const
