@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useEffect, useSyncExternalStore } from 'react'
+import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 
 import { APP_ROUTES } from '@/shared/config/routes'
@@ -8,46 +8,44 @@ import { logoutSession } from '../auth/auth.api'
 import {
     clearAuthSession,
     clearPendingVerification,
-    getAuthSessionSnapshot,
-    isAuthSessionExpired,
-    parseAuthSessionSnapshot,
-    subscribeAuthSessionStore,
 } from '../auth/auth.storage'
-import { DashboardShell } from './dashboard-shell'
+import { useResolvedAuthSession } from '../auth/auth-session'
+import {
+    DashboardShell,
+    type DashboardShellUser,
+} from './dashboard-shell'
+
+function buildDashboardUser(sessionUser: {
+    email: string
+    firstName: string
+    lastName: string | null
+}): DashboardShellUser {
+    const firstName = sessionUser.firstName.trim()
+    const lastName = sessionUser.lastName?.trim() ?? ''
+    const displayName = [firstName, lastName].filter(Boolean).join(' ')
+    const initials = [firstName, lastName]
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase())
+        .join('')
+        .slice(0, 2)
+
+    return {
+        displayName,
+        email: sessionUser.email,
+        firstName,
+        initials: initials || firstName.charAt(0).toUpperCase(),
+    }
+}
 
 export function DashboardPage() {
     const router = useRouter()
-    const redirectedRef = useRef(false)
-    const sessionSnapshot = useSyncExternalStore(
-        subscribeAuthSessionStore,
-        getAuthSessionSnapshot,
-        () => '',
-    )
-    const session = parseAuthSessionSnapshot(sessionSnapshot)
-    const sessionExpiresAt = session?.accessTokenExpiresAt ?? ''
-    const hasValidSession = Boolean(sessionExpiresAt) && !isAuthSessionExpired(sessionExpiresAt)
+    const { isLoading, session, status } = useResolvedAuthSession()
 
     useEffect(() => {
-        if (redirectedRef.current) {
-            return
-        }
-
-        if (!session) {
-            redirectedRef.current = true
-            router.replace(APP_ROUTES.home)
-            return
-        }
-
-        if (!sessionExpiresAt) {
-            return
-        }
-
-        if (isAuthSessionExpired(sessionExpiresAt)) {
-            redirectedRef.current = true
-            clearAuthSession()
+        if (status === 'unauthenticated') {
             router.replace(APP_ROUTES.home)
         }
-    }, [router, session, sessionExpiresAt])
+    }, [router, status])
 
     async function handleLogout() {
         try {
@@ -61,9 +59,11 @@ export function DashboardPage() {
         }
     }
 
-    if (!hasValidSession) {
+    if (isLoading || !session) {
         return null
     }
 
-    return <DashboardShell onLogout={handleLogout} />
+    const dashboardUser = buildDashboardUser(session.user)
+
+    return <DashboardShell user={dashboardUser} onLogout={handleLogout} />
 }

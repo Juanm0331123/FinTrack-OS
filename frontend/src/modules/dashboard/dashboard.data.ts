@@ -8,11 +8,6 @@ import {
     TrendingUp,
 } from 'lucide-react'
 
-export const dashboardUser = {
-    name: 'Juan Medina',
-    email: 'juan.medina@example.com',
-}
-
 export const dashboardNavigation = [
     {
         label: 'Dashboard',

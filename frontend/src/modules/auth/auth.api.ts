@@ -74,6 +74,12 @@ export function loginWithEmail(input: { email: string; password: string }) {
     })
 }
 
+export function refreshSession(input?: { deviceName?: string }) {
+    return request<AuthenticatedResponse>('/api/auth/refresh', {
+        body: input ?? {},
+    })
+}
+
 export function verifyEmailCode(input: { code: string; email: string }) {
     return request<AuthenticatedResponse>('/api/auth/verify-email-code', {
         body: input,

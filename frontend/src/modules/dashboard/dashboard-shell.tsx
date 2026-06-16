@@ -3,13 +3,10 @@
 import {
     ArrowUpRight,
     BellDot,
-    ChevronLeft,
-    ChevronRight,
     LogOut,
     Menu,
     MoveRight,
     Sparkles,
-    WalletCards,
     X,
 } from 'lucide-react'
 import Link from 'next/link'
@@ -32,18 +29,25 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/ui/tooltip'
 import {
     dashboardMetrics,
     dashboardNavigation,
-    dashboardUser,
     monthlyAllocation,
     nextActions,
     recentActivity,
 } from './dashboard.data'
 
-type DashboardShellProps = {
-    onLogout?: () => void
+export type DashboardShellUser = {
+    displayName: string
+    email: string
+    firstName: string
+    initials: string
 }
 
-export function DashboardShell({ onLogout }: DashboardShellProps) {
-    const [isDesktopCollapsed, setIsDesktopCollapsed] = useState(false)
+type DashboardShellProps = {
+    onLogout?: () => void
+    user: DashboardShellUser
+}
+
+export function DashboardShell({ onLogout, user }: DashboardShellProps) {
+    const [isDesktopSidebarOpen, setIsDesktopSidebarOpen] = useState(false)
     const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
 
     const handleEscape = useEffectEvent((event: KeyboardEvent) => {
@@ -69,49 +73,68 @@ export function DashboardShell({ onLogout }: DashboardShellProps) {
         }
     }, [isMobileSidebarOpen])
 
-    const userInitial = dashboardUser.name.charAt(0).toUpperCase()
+    const greetingName = user.firstName || user.displayName.split(' ')[0] || 'Hola'
+    const mobileMotionDuration = isMobileSidebarOpen
+        ? 'var(--motion-shell-enter)'
+        : 'var(--motion-shell-exit)'
 
     return (
         <main className="bg-app-gradient min-h-dvh text-foreground">
             <div className="flex min-h-dvh">
-                <div className="hidden md:block">
-                    <DashboardSidebar
-                        collapsed={isDesktopCollapsed}
-                        onToggleCollapse={() =>
-                            setIsDesktopCollapsed((currentState) => !currentState)
+                <div
+                    className="hidden md:block"
+                    onBlur={(event) => {
+                        if (
+                            !event.currentTarget.contains(
+                                event.relatedTarget as Node | null,
+                            )
+                        ) {
+                            setIsDesktopSidebarOpen(false)
                         }
+                    }}
+                    onFocusCapture={() => setIsDesktopSidebarOpen(true)}
+                    onMouseEnter={() => setIsDesktopSidebarOpen(true)}
+                    onMouseLeave={() => setIsDesktopSidebarOpen(false)}
+                >
+                    <DashboardSidebar
+                        collapsed={!isDesktopSidebarOpen}
+                        onLogout={onLogout}
+                        user={user}
                     />
                 </div>
 
                 <div
                     className={cn(
-                        'fixed inset-0 z-40 bg-foreground/22 backdrop-blur-[2px] transition-opacity duration-200 md:hidden',
+                        'fixed inset-0 z-40 bg-foreground/18 transition-[opacity,backdrop-filter] shell-transition-fast md:hidden',
                         isMobileSidebarOpen
-                            ? 'pointer-events-auto opacity-100'
-                            : 'pointer-events-none opacity-0',
+                            ? 'pointer-events-auto opacity-100 backdrop-blur-[4px]'
+                            : 'pointer-events-none opacity-0 backdrop-blur-[0px]',
                     )}
                     aria-hidden={!isMobileSidebarOpen}
+                    style={{ transitionDuration: mobileMotionDuration }}
                     onClick={() => setIsMobileSidebarOpen(false)}
                 />
 
                 <div
                     className={cn(
-                        'fixed inset-y-0 left-0 z-50 w-[18rem] transition-transform duration-200 ease-out md:hidden',
-                        isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-full',
+                        'fixed inset-y-0 left-0 z-50 w-[19rem] max-w-[calc(100vw-1rem)] pr-2 transition-[transform,opacity] shell-transition md:hidden',
+                        isMobileSidebarOpen
+                            ? 'pointer-events-auto translate-x-0 opacity-100'
+                            : 'pointer-events-none -translate-x-[calc(100%+1rem)] opacity-0',
                     )}
                     aria-hidden={!isMobileSidebarOpen}
+                    style={{ transitionDuration: mobileMotionDuration }}
                 >
                     <DashboardSidebar
                         mobile
                         onCloseMobile={() => setIsMobileSidebarOpen(false)}
+                        onLogout={onLogout}
+                        user={user}
                     />
                 </div>
 
                 <div className="flex min-w-0 flex-1 flex-col">
                     <DashboardNavbar
-                        userInitial={userInitial}
-                        userName={dashboardUser.name}
-                        onLogout={onLogout}
                         onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}
                     />
 
@@ -134,8 +157,8 @@ export function DashboardShell({ onLogout }: DashboardShellProps) {
                                         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
                                             <div className="max-w-2xl">
                                                 <CardTitle className="text-2xl font-semibold tracking-[-0.02em] sm:text-[2rem]">
-                                                    Hola, {dashboardUser.name.split(' ')[0]}.
-                                                    Tu mes va con una lectura clara.
+                                                    Hola, {greetingName}. Tu mes va con una
+                                                    lectura clara.
                                                 </CardTitle>
                                                 <CardDescription className="mt-2 max-w-xl text-[0.95rem] leading-6">
                                                     Ya tienes suficientes datos para ver
@@ -209,7 +232,7 @@ export function DashboardShell({ onLogout }: DashboardShellProps) {
                                                                 {item.label}
                                                             </p>
                                                             <p className="finance-number text-sm text-muted-foreground">
-                                                                {item.current} · {item.goal}
+                                                                {item.current} / {item.goal}
                                                             </p>
                                                         </div>
                                                         <div className="h-2 overflow-hidden rounded-full bg-muted/80">
@@ -391,55 +414,66 @@ type DashboardSidebarProps = {
     collapsed?: boolean
     mobile?: boolean
     onCloseMobile?: () => void
-    onToggleCollapse?: () => void
+    onLogout?: () => void
+    user: DashboardShellUser
 }
 
 function DashboardSidebar({
     collapsed = false,
     mobile = false,
     onCloseMobile,
-    onToggleCollapse,
+    onLogout,
+    user,
 }: DashboardSidebarProps) {
     const expanded = mobile || !collapsed
 
     return (
         <aside
             className={cn(
-                'flex h-dvh flex-col border-r border-sidebar-border bg-sidebar/96 backdrop-blur-md',
+                'flex h-dvh flex-col border-r border-sidebar-border bg-sidebar/96 backdrop-blur-xl',
                 mobile
-                    ? 'w-full rounded-r-[1.4rem] shadow-[0_24px_48px_-28px_oklch(0.19_0.025_255/0.4)]'
-                    : 'sticky top-0 transition-[width] duration-200 ease-out',
-                mobile ? 'px-4 py-4' : expanded ? 'w-[16.5rem] px-4 py-5' : 'w-[5.5rem] px-3 py-5',
+                    ? 'w-full rounded-r-[1.5rem] px-4 py-4 shadow-[0_24px_48px_-28px_oklch(0.19_0.025_255/0.35)]'
+                    : 'sticky top-0 transition-[width] shell-transition',
+                mobile ? '' : expanded ? 'w-[16.75rem] px-4 py-5' : 'w-[6.75rem] px-3 py-5',
             )}
         >
-            <div className="flex items-center justify-between gap-3">
+            <div
+                className={cn(
+                    'flex items-center gap-3',
+                    mobile || expanded ? 'justify-between' : 'justify-center',
+                )}
+            >
                 <Link
                     href={APP_ROUTES.dashboard}
                     className={cn(
-                        'flex min-w-0 items-center gap-3 rounded-xl px-2 py-1.5 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50',
-                        expanded ? 'justify-start' : 'justify-center',
+                        'flex min-w-0 items-center rounded-[1.1rem] outline-none transition-[background-color,box-shadow,transform] duration-150 ease-[var(--ease-shell)] focus-visible:ring-2 focus-visible:ring-ring/50',
+                        expanded
+                            ? 'gap-3 px-2 py-2 hover:bg-white/55'
+                            : 'justify-center px-1.5 py-1.5 hover:bg-white/45',
                     )}
                     onClick={() => onCloseMobile?.()}
                 >
+                    <div
+                        className={cn(
+                            'flex items-center justify-center rounded-[1rem] bg-white/78 ring-1 ring-white/70 shadow-[0_16px_30px_-24px_oklch(0.58_0.19_252/0.45)] shell-fade-transition',
+                            expanded ? 'h-12 w-12 px-2' : 'h-11 w-[4.85rem] px-3',
+                        )}
+                    >
+                        <BrandLogo
+                            width={expanded ? 132 : 94}
+                            height={expanded ? 32 : 24}
+                            priority
+                            className="h-auto w-full object-contain"
+                        />
+                    </div>
                     {expanded ? (
-                        <>
-                            <BrandLogo
-                                width={146}
-                                height={36}
-                                className="h-9 w-auto object-contain"
-                            />
-                            <div className="min-w-0">
-                                <p className="truncate text-sm font-semibold">FinTrack OS</p>
-                                <p className="truncate text-xs text-muted-foreground">
-                                    Workspace mensual
-                                </p>
-                            </div>
-                        </>
-                    ) : (
-                        <div className="grid size-11 place-items-center rounded-xl bg-primary text-primary-foreground shadow-[0_12px_24px_-18px_oklch(0.58_0.19_252/0.5)]">
-                            <WalletCards className="size-5" aria-hidden="true" />
+                        <div className="min-w-0 shell-fade-transition">
+                            <p className="truncate text-sm font-semibold">FinTrack OS</p>
+                            <p className="truncate text-xs text-muted-foreground">
+                                Workspace mensual
+                            </p>
                         </div>
-                    )}
+                    ) : null}
                 </Link>
 
                 {mobile ? (
@@ -448,25 +482,12 @@ function DashboardSidebar({
                         variant="ghost"
                         size="icon-sm"
                         aria-label="Cerrar menu"
+                        className="shell-press-transition"
                         onClick={onCloseMobile}
                     >
                         <X className="size-4" aria-hidden="true" />
                     </Button>
-                ) : (
-                    <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={collapsed ? 'Expandir sidebar' : 'Colapsar sidebar'}
-                        onClick={onToggleCollapse}
-                    >
-                        {collapsed ? (
-                            <ChevronRight className="size-4" aria-hidden="true" />
-                        ) : (
-                            <ChevronLeft className="size-4" aria-hidden="true" />
-                        )}
-                    </Button>
-                )}
+                ) : null}
             </div>
 
             <nav className="mt-6 flex-1" aria-label="Navegacion principal">
@@ -477,7 +498,7 @@ function DashboardSidebar({
                                 <item.icon className="size-4 shrink-0" aria-hidden="true" />
                                 {expanded ? (
                                     <>
-                                        <span className="min-w-0 flex-1 truncate text-left">
+                                        <span className="min-w-0 flex-1 truncate text-left shell-fade-transition">
                                             {item.label}
                                         </span>
                                         {!item.available ? (
@@ -494,10 +515,12 @@ function DashboardSidebar({
                         )
 
                         const classes = cn(
-                            'flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
-                            expanded ? 'justify-start' : 'justify-center px-0',
+                            'flex w-full items-center gap-3 rounded-xl text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring/50 transition-[background-color,color,transform,box-shadow] duration-150 ease-[var(--ease-shell)] active:translate-y-px',
+                            expanded
+                                ? 'justify-start px-3 py-3'
+                                : 'justify-center px-0 py-3',
                             item.current
-                                ? 'bg-primary/10 text-primary'
+                                ? 'bg-primary/10 text-primary shadow-[inset_0_0_0_1px_oklch(0.58_0.19_252/0.08)]'
                                 : 'text-sidebar-foreground/78 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
                             !item.available &&
                                 !item.current &&
@@ -561,92 +584,126 @@ function DashboardSidebar({
                 </div>
             </nav>
 
-            <div
-                className={cn(
-                    'rounded-xl border border-sidebar-border bg-background/78 p-3',
-                    !expanded && 'px-2',
-                )}
-            >
-                {expanded ? (
-                    <>
-                        <p className="text-sm font-medium">Base visual lista</p>
-                        <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                            Este shell ya esta preparado para conectar rutas y datos reales.
-                        </p>
-                    </>
-                ) : (
-                    <div className="flex justify-center">
-                        <Badge className="bg-primary/10 text-primary hover:bg-primary/10">
-                            V1
-                        </Badge>
-                    </div>
-                )}
-            </div>
+            <SidebarAccountPanel
+                compact={!expanded}
+                email={user.email}
+                initials={user.initials}
+                mobile={mobile}
+                name={user.displayName}
+                onLogout={onLogout}
+            />
         </aside>
     )
 }
 
-type DashboardNavbarProps = {
+function SidebarAccountPanel({
+    compact,
+    email,
+    initials,
+    mobile,
+    name,
+    onLogout,
+}: {
+    compact: boolean
+    email: string
+    initials: string
+    mobile: boolean
+    name: string
     onLogout?: () => void
-    onOpenMobileSidebar: () => void
-    userInitial: string
-    userName: string
+}) {
+    if (compact) {
+        return (
+            <div className="rounded-[1.25rem] border border-sidebar-border/90 bg-background/80 px-2.5 py-3 shadow-[0_16px_34px_-30px_oklch(0.19_0.025_255/0.45)]">
+                <div className="flex flex-col items-center gap-2">
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <div className="grid size-10 place-items-center rounded-full bg-primary text-sm font-semibold text-primary-foreground shadow-[0_14px_24px_-20px_oklch(0.58_0.19_252/0.55)]">
+                                {initials}
+                            </div>
+                        </TooltipTrigger>
+                        <TooltipContent side="right" sideOffset={12}>
+                            <p className="font-medium">{name}</p>
+                            <p className="text-xs text-muted-foreground">{email}</p>
+                        </TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                aria-label="Cerrar sesion"
+                                className="size-10 rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive shell-press-transition"
+                                disabled={!onLogout}
+                                onClick={onLogout}
+                            >
+                                <LogOut className="size-4" aria-hidden="true" />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="right" sideOffset={12}>
+                            Cerrar sesion
+                        </TooltipContent>
+                    </Tooltip>
+                </div>
+            </div>
+        )
+    }
+
+    return (
+        <div className="rounded-[1.25rem] border border-sidebar-border/90 bg-background/80 p-3 shadow-[0_18px_38px_-32px_oklch(0.19_0.025_255/0.45)]">
+            <div className="flex items-start gap-3">
+                <div className="grid size-11 shrink-0 place-items-center rounded-full bg-primary text-sm font-semibold text-primary-foreground shadow-[0_16px_28px_-22px_oklch(0.58_0.19_252/0.55)]">
+                    {initials}
+                </div>
+                <div className="min-w-0 flex-1 shell-fade-transition">
+                    <p className="truncate text-sm font-semibold">{name}</p>
+                    <p className="mt-1 truncate text-xs text-muted-foreground">
+                        {email}
+                    </p>
+                </div>
+            </div>
+            <Button
+                type="button"
+                variant="outline"
+                className={cn(
+                    'mt-3 h-10 w-full justify-start border-destructive/20 bg-background/85 text-destructive hover:bg-destructive/10 hover:text-destructive shell-press-transition',
+                    mobile && 'h-11',
+                )}
+                disabled={!onLogout}
+                onClick={onLogout}
+            >
+                <LogOut className="size-4" aria-hidden="true" />
+                Cerrar sesion
+            </Button>
+        </div>
+    )
 }
 
-function DashboardNavbar({
-    onLogout,
-    onOpenMobileSidebar,
-    userInitial,
-    userName,
-}: DashboardNavbarProps) {
-    return (
-        <header className="sticky top-0 z-30 border-b border-border/75 bg-background/88 backdrop-blur-xl">
-            <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
-                <div className="flex min-w-0 items-center gap-3">
-                    <Button
-                        type="button"
-                        variant="outline"
-                        size="icon-sm"
-                        className="md:hidden"
-                        aria-label="Abrir menu"
-                        onClick={onOpenMobileSidebar}
-                    >
-                        <Menu className="size-4" aria-hidden="true" />
-                    </Button>
-                    <div className="min-w-0">
-                        <p className="text-sm font-medium text-muted-foreground">
-                            Dashboard
-                        </p>
-                        <h1 className="truncate text-base font-semibold tracking-[-0.01em] sm:text-lg">
-                            Vista general del mes
-                        </h1>
-                    </div>
-                </div>
+type DashboardNavbarProps = {
+    onOpenMobileSidebar: () => void
+}
 
-                <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-                    <div className="hidden items-center gap-3 rounded-full border border-border/80 bg-card/80 px-2.5 py-2 sm:flex">
-                        <div className="grid size-9 place-items-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
-                            {userInitial}
-                        </div>
-                        <div className="pr-1">
-                            <p className="text-sm font-medium leading-none">{userName}</p>
-                            <p className="mt-1 text-xs text-muted-foreground">
-                                Perfil personal
-                            </p>
-                        </div>
-                    </div>
-                    <div className="grid size-10 place-items-center rounded-full border border-border/80 bg-card/80 text-sm font-semibold sm:hidden">
-                        {userInitial}
-                    </div>
-                    <Button
-                        type="button"
-                        variant="outline"
-                        className="h-10 bg-card/80"
-                        onClick={onLogout}
-                    >
-                        <LogOut className="size-4" aria-hidden="true" />
-                        <span className="hidden sm:inline">Logout</span>
-                    </Button>
+function DashboardNavbar({ onOpenMobileSidebar }: DashboardNavbarProps) {
+    return (
+        <header className="sticky top-0 z-30 border-b border-border/75 bg-background/86 backdrop-blur-xl">
+            <div className="mx-auto flex w-full max-w-7xl items-center gap-3 px-4 py-3 sm:px-6 lg:px-8">
+                <Button
+                    type="button"
+                    variant="outline"
+                    size="icon-sm"
+                    className="md:hidden shell-press-transition"
+                    aria-label="Abrir menu"
+                    onClick={onOpenMobileSidebar}
+                >
+                    <Menu className="size-4" aria-hidden="true" />
+                </Button>
+                <div className="min-w-0">
+                    <p className="text-sm font-medium text-muted-foreground">
+                        Dashboard
+                    </p>
+                    <h1 className="truncate text-base font-semibold tracking-[-0.01em] sm:text-lg">
+                        Vista general del mes
+                    </h1>
                 </div>
             </div>
         </header>

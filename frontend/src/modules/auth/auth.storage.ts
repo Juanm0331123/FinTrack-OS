@@ -69,6 +69,14 @@ export function isAuthSessionExpired(accessTokenExpiresAt: string) {
     return new Date(accessTokenExpiresAt).getTime() <= Date.now()
 }
 
+export function isAuthSessionActive(session: AuthSession | null | undefined) {
+    if (!session?.accessToken || !session.accessTokenExpiresAt) {
+        return false
+    }
+
+    return !isAuthSessionExpired(session.accessTokenExpiresAt)
+}
+
 export function getAuthSessionSnapshot() {
     if (!isBrowser()) {
         return ''
@@ -112,12 +120,11 @@ export function subscribeAuthSessionStore(onStoreChange: () => void) {
 export function loadActiveAuthSession() {
     const session = parseAuthSessionSnapshot(getAuthSessionSnapshot())
 
-    if (!session) {
-        return null
-    }
+    if (!isAuthSessionActive(session)) {
+        if (session) {
+            clearAuthSession()
+        }
 
-    if (isAuthSessionExpired(session.accessTokenExpiresAt)) {
-        clearAuthSession()
         return null
     }
 
@@ -129,8 +136,12 @@ export function clearAuthSession() {
         return
     }
 
+    const hadSession = window.localStorage.getItem(AUTH_SESSION_STORAGE_KEY) !== null
     window.localStorage.removeItem(AUTH_SESSION_STORAGE_KEY)
-    notifyAuthSessionChange()
+
+    if (hadSession) {
+        notifyAuthSessionChange()
+    }
 }
 
 export function savePendingVerification(state: PendingVerificationState) {

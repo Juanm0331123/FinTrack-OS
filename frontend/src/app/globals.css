@@ -75,6 +75,9 @@
   --brand-rose: oklch(0.65 0.22 354.5);
   --brand-cyan: oklch(0.72 0.14 215);
   --radius: 0.75rem;
+  --motion-shell-enter: 220ms;
+  --motion-shell-exit: 170ms;
+  --ease-shell: cubic-bezier(0.22, 1, 0.36, 1);
   --sidebar: oklch(0.965 0.01 255);
   --sidebar-foreground: oklch(0.19 0.025 255);
   --sidebar-primary: oklch(0.58 0.19 252);
@@ -219,6 +222,28 @@
 
   .finance-number {
     font-variant-numeric: tabular-nums;
+  }
+
+  .shell-transition {
+    transition-duration: var(--motion-shell-enter);
+    transition-timing-function: var(--ease-shell);
+  }
+
+  .shell-transition-fast {
+    transition-duration: var(--motion-shell-exit);
+    transition-timing-function: var(--ease-shell);
+  }
+
+  .shell-fade-transition {
+    transition-duration: var(--motion-shell-enter);
+    transition-property: opacity, transform, filter;
+    transition-timing-function: var(--ease-shell);
+  }
+
+  .shell-press-transition {
+    transition-duration: 140ms;
+    transition-property: background-color, border-color, box-shadow, color, opacity, transform;
+    transition-timing-function: var(--ease-shell);
   }
 }
 

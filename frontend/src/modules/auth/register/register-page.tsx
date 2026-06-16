@@ -1,8 +1,27 @@
+'use client'
+
+import { useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+
 import { APP_ROUTES } from '@/shared/config/routes'
+import { useResolvedAuthSession } from '../auth-session'
 import { AuthShell } from '../auth-shell'
 import { RegisterForm } from './register-form'
 
 export function RegisterPage() {
+    const router = useRouter()
+    const { isAuthenticated, isLoading } = useResolvedAuthSession()
+
+    useEffect(() => {
+        if (isAuthenticated) {
+            router.replace(APP_ROUTES.dashboard)
+        }
+    }, [isAuthenticated, router])
+
+    if (isLoading || isAuthenticated) {
+        return null
+    }
+
     return (
         <AuthShell
             badgeLabel="Crear cuenta"

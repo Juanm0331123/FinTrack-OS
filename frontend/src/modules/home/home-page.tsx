@@ -1,17 +1,12 @@
 import {
-    ArrowRight,
     BadgeDollarSign,
     CreditCard,
-    LogIn,
     PiggyBank,
     WalletCards,
 } from 'lucide-react'
-import Link from 'next/link'
 
-import { APP_ROUTES } from '@/shared/config/routes'
 import { Badge } from '@/shared/ui/badge'
 import { BrandLogo } from '@/shared/ui/brand-logo'
-import { Button } from '@/shared/ui/button'
 import {
     Card,
     CardAction,
@@ -21,6 +16,7 @@ import {
     CardTitle,
 } from '@/shared/ui/card'
 import { Progress } from '@/shared/ui/progress'
+import { HomeAuthButton } from './home-auth-actions'
 import { HomeSummaryCard } from './home-summary-card'
 
 const summaryCards = [
@@ -76,15 +72,21 @@ export function HomePage() {
                         </div>
                     </div>
                     <div className="flex items-center gap-2">
-                        <Button asChild variant="ghost" className="h-10 px-3">
-                            <Link href={APP_ROUTES.register}>Crear cuenta</Link>
-                        </Button>
-                        <Button asChild variant="outline" className="h-10">
-                            <Link href={APP_ROUTES.login}>
-                                <LogIn className="size-4" aria-hidden="true" />
-                                Login
-                            </Link>
-                        </Button>
+                        <HomeAuthButton
+                            destination="register"
+                            variant="ghost"
+                            className="h-10 px-3"
+                        >
+                            Crear cuenta
+                        </HomeAuthButton>
+                        <HomeAuthButton
+                            destination="login"
+                            variant="outline"
+                            className="h-10"
+                            withLoginIcon
+                        >
+                            Login
+                        </HomeAuthButton>
                     </div>
                 </header>
 
@@ -103,15 +105,21 @@ export function HomePage() {
                             con claridad y tomar mejores decisiones sin friccion.
                         </p>
                         <div className="mt-7 flex flex-col gap-3 sm:flex-row">
-                            <Button asChild variant="brand" className="h-11 px-5">
-                                <Link href={APP_ROUTES.register}>
-                                    Crear mi cuenta
-                                    <ArrowRight className="size-4" aria-hidden="true" />
-                                </Link>
-                            </Button>
-                            <Button asChild variant="outline" className="h-11 px-5">
-                                <Link href={APP_ROUTES.login}>Entrar a mi cuenta</Link>
-                            </Button>
+                            <HomeAuthButton
+                                destination="register"
+                                variant="brand"
+                                className="h-11 px-5"
+                                withArrowIcon
+                            >
+                                Crear mi cuenta
+                            </HomeAuthButton>
+                            <HomeAuthButton
+                                destination="login"
+                                variant="outline"
+                                className="h-11 px-5"
+                            >
+                                Entrar a mi cuenta
+                            </HomeAuthButton>
                         </div>
                     </div>
 
