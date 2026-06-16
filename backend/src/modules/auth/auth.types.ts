@@ -36,6 +36,8 @@ export type SessionContext = {
     userAgent?: string | null
 }
 
+export type OAuthIntent = 'login' | 'register'
+
 export type TokenPair = {
     accessToken: string
     accessTokenExpiresInSeconds: number
@@ -43,6 +45,28 @@ export type TokenPair = {
     refreshTokenExpiresAt: Date
     refreshTokenMaxAgeMs: number
     sessionId: string
+}
+
+export type PendingEmailVerificationResult = {
+    email: string
+    expiresAt: Date
+    requiresEmailVerification: true
+}
+
+export type PasswordResetRequestAcceptedResult = {
+    accepted: true
+    email: string
+    expiresAt: Date
+}
+
+export type PasswordResetVerificationResult = {
+    email: string
+    resetToken: string
+    resetTokenExpiresAt: Date
+}
+
+export type AuthenticatedSessionResult = TokenPair & {
+    user: import('../users/users.types.ts').PublicUser
 }
 
 export type NormalizedOAuthProfile = {

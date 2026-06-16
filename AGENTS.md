@@ -19,6 +19,8 @@ Add backend `dev`, `build`, and test scripts before relying on backend automatio
 
 Use TypeScript for application code. Follow the frontend's existing two-space indentation, Tailwind utility classes, and shadcn components from `@/shared/ui`. Feature code belongs in module folders such as `src/modules/home` or `src/modules/auth/login`; cross-cutting helpers belong in `src/shared`. Backend files currently use ESM imports; keep backend modules small and named by responsibility, such as `auth.service.ts`, `transactions.route.ts`, or `monthly-summary.schema.ts`.
 
+For React work, prefer stable props, derived values, and event handlers that avoid unnecessary rerenders. Use `useMemo`, `useCallback`, `useEffectEvent`, `memo`, and related patterns only when they materially reduce render work or preserve identity for child components, and keep the dependency arrays minimal and correct. Do not add memoization by reflex, but do add it when it prevents repeated expensive calculation, child churn, or callback identity thrash.
+
 ## Testing Guidelines
 
 No test framework is fully configured yet. When adding tests, colocate focused unit tests near the code or place integration tests in a dedicated `tests/` folder inside the relevant app. Use descriptive names such as `transactions.service.test.ts` or `dashboard-summary.spec.ts`. Cover finance calculations, authentication, monthly rollups, and debt-payment rules before shipping related features.

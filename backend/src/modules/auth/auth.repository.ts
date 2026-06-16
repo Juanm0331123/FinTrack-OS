@@ -32,6 +32,7 @@ export class AuthRepository {
     }
 
     createRegisteredUser(input: {
+        tokenSalt: string
         tokenExpiresAt: Date
         tokenHash: string
         userData: Prisma.UserCreateInput
@@ -46,6 +47,7 @@ export class AuthRepository {
                 data: {
                     expiresAt: input.tokenExpiresAt,
                     tokenHash: input.tokenHash,
+                    tokenSalt: input.tokenSalt,
                     type: AuthTokenType.EMAIL_VERIFICATION,
                     userId: user.id,
                 },
@@ -73,6 +75,73 @@ export class AuthRepository {
         })
     }
 
+    findLatestEmailVerificationTokenByUserId(userId: string) {
+        return prisma.authToken.findFirst({
+            where: {
+                type: AuthTokenType.EMAIL_VERIFICATION,
+                userId,
+            },
+            orderBy: {
+                createdAt: 'desc',
+            },
+            select: {
+                expiresAt: true,
+                id: true,
+                revokedAt: true,
+                tokenHash: true,
+                tokenSalt: true,
+                usedAt: true,
+                userId: true,
+            },
+        })
+    }
+
+    findLatestPasswordResetCodeTokenByUserId(userId: string) {
+        return prisma.authToken.findFirst({
+            where: {
+                tokenSalt: {
+                    not: null,
+                },
+                type: AuthTokenType.PASSWORD_RESET,
+                userId,
+            },
+            orderBy: {
+                createdAt: 'desc',
+            },
+            select: {
+                expiresAt: true,
+                id: true,
+                revokedAt: true,
+                tokenHash: true,
+                tokenSalt: true,
+                usedAt: true,
+                userId: true,
+            },
+        })
+    }
+
+    findLatestPasswordResetSessionTokenByUserId(userId: string) {
+        return prisma.authToken.findFirst({
+            where: {
+                tokenSalt: null,
+                type: AuthTokenType.PASSWORD_RESET,
+                userId,
+            },
+            orderBy: {
+                createdAt: 'desc',
+            },
+            select: {
+                expiresAt: true,
+                id: true,
+                revokedAt: true,
+                tokenHash: true,
+                tokenSalt: true,
+                usedAt: true,
+                userId: true,
+            },
+        })
+    }
+
     activateUserAndConsumeVerificationToken(tokenId: string, userId: string) {
         return prisma.$transaction(async (transaction) => {
             await transaction.authToken.update({
@@ -93,6 +162,189 @@ export class AuthRepository {
                 },
                 select: publicUserSelect,
             })
+        })
+    }
+
+    issueEmailVerificationCode(input: {
+        userId: string
+        tokenExpiresAt: Date
+        tokenHash: string
+        tokenSalt: string
+    }) {
+        return prisma.$transaction(async (transaction) => {
+            await transaction.authToken.updateMany({
+                where: {
+                    revokedAt: null,
+                    type: AuthTokenType.EMAIL_VERIFICATION,
+                    usedAt: null,
+                    userId: input.userId,
+                },
+                data: {
+                    revokedAt: new Date(),
+                },
+            })
+
+            return transaction.authToken.create({
+                data: {
+                    expiresAt: input.tokenExpiresAt,
+                    tokenHash: input.tokenHash,
+                    tokenSalt: input.tokenSalt,
+                    type: AuthTokenType.EMAIL_VERIFICATION,
+                    userId: input.userId,
+                },
+                select: {
+                    expiresAt: true,
+                    id: true,
+                },
+            })
+        })
+    }
+
+    issuePasswordResetCode(input: {
+        userId: string
+        tokenExpiresAt: Date
+        tokenHash: string
+        tokenSalt: string
+    }) {
+        return prisma.$transaction(async (transaction) => {
+            await transaction.authToken.updateMany({
+                where: {
+                    revokedAt: null,
+                    type: AuthTokenType.PASSWORD_RESET,
+                    usedAt: null,
+                    userId: input.userId,
+                },
+                data: {
+                    revokedAt: new Date(),
+                },
+            })
+
+            return transaction.authToken.create({
+                data: {
+                    expiresAt: input.tokenExpiresAt,
+                    tokenHash: input.tokenHash,
+                    tokenSalt: input.tokenSalt,
+                    type: AuthTokenType.PASSWORD_RESET,
+                    userId: input.userId,
+                },
+                select: {
+                    expiresAt: true,
+                    id: true,
+                },
+            })
+        })
+    }
+
+    consumePasswordResetCodeAndIssueSessionToken(input: {
+        codeTokenId: string
+        resetTokenExpiresAt: Date
+        resetTokenHash: string
+        userId: string
+    }) {
+        return prisma.$transaction(async (transaction) => {
+            await transaction.authToken.update({
+                where: {
+                    id: input.codeTokenId,
+                },
+                data: {
+                    usedAt: new Date(),
+                },
+            })
+
+            await transaction.authToken.updateMany({
+                where: {
+                    id: {
+                        not: input.codeTokenId,
+                    },
+                    revokedAt: null,
+                    type: AuthTokenType.PASSWORD_RESET,
+                    usedAt: null,
+                    userId: input.userId,
+                },
+                data: {
+                    revokedAt: new Date(),
+                },
+            })
+
+            return transaction.authToken.create({
+                data: {
+                    expiresAt: input.resetTokenExpiresAt,
+                    tokenHash: input.resetTokenHash,
+                    type: AuthTokenType.PASSWORD_RESET,
+                    userId: input.userId,
+                },
+                select: {
+                    expiresAt: true,
+                    id: true,
+                },
+            })
+        })
+    }
+
+    consumePasswordResetSessionAndUpdatePassword(input: {
+        passwordHash: string
+        resetTokenId: string
+        userId: string
+    }) {
+        return prisma.$transaction(async (transaction) => {
+            await transaction.authToken.update({
+                where: {
+                    id: input.resetTokenId,
+                },
+                data: {
+                    usedAt: new Date(),
+                },
+            })
+
+            await transaction.authToken.updateMany({
+                where: {
+                    id: {
+                        not: input.resetTokenId,
+                    },
+                    revokedAt: null,
+                    type: AuthTokenType.PASSWORD_RESET,
+                    usedAt: null,
+                    userId: input.userId,
+                },
+                data: {
+                    revokedAt: new Date(),
+                },
+            })
+
+            await transaction.refreshToken.updateMany({
+                where: {
+                    revokedAt: null,
+                    userId: input.userId,
+                },
+                data: {
+                    revokedAt: new Date(),
+                },
+            })
+
+            return transaction.user.update({
+                where: {
+                    id: input.userId,
+                },
+                data: {
+                    passwordHash: input.passwordHash,
+                },
+                select: {
+                    id: true,
+                },
+            })
+        })
+    }
+
+    updatePendingRegisteredUser(input: {
+        userId: string
+        userData: Prisma.UserUpdateInput
+    }) {
+        return prisma.user.update({
+            where: {
+                id: input.userId,
+            },
+            data: input.userData,
+            select: publicUserSelect,
         })
     }
 
@@ -244,7 +496,11 @@ export class AuthRepository {
         })
     }
 
-    linkOAuthAccountToUser(userId: string, profile: NormalizedOAuthProfile) {
+    linkOAuthAccountToUser(
+        userId: string,
+        profile: NormalizedOAuthProfile,
+        status: UserStatus,
+    ) {
         return prisma.$transaction(async (transaction) => {
             await transaction.oAuthAccount.create({
                 data: {
@@ -262,7 +518,7 @@ export class AuthRepository {
                     id: userId,
                 },
                 data: {
-                    status: UserStatus.ACTIVE,
+                    status,
                 },
                 select: publicUserSelect,
             })
@@ -277,7 +533,7 @@ export class AuthRepository {
                     firstName: profile.firstName,
                     lastName: profile.lastName,
                     passwordHash,
-                    status: UserStatus.ACTIVE,
+                    status: UserStatus.PENDING_VERIFICATION,
                     timezone: 'UTC',
                 },
                 select: publicUserSelect,

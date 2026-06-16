@@ -9,7 +9,8 @@ export function RegisterPage() {
             title="Crea tu acceso"
             description={
                 <>
-                    Registra tu cuenta con lo esencial para empezar en{' '}
+                    Registra tu cuenta con lo esencial para empezar. Antes de entrar,
+                    validaremos tu correo con un codigo obligatorio en{' '}
                     <span className="font-medium text-primary">FinTrack OS</span>.
                 </>
             }

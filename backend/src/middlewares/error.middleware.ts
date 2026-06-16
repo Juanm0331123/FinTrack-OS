@@ -12,7 +12,14 @@ export function errorMiddleware(
     if (error instanceof AppError) {
         return res
             .status(error.statusCode)
-            .json(ApiResponse.error(error.message, error.errors))
+            .json(
+                ApiResponse.error(
+                    error.message,
+                    error.errors,
+                    error.code,
+                    error.details,
+                ),
+            )
     }
 
     if (error instanceof Prisma.PrismaClientKnownRequestError) {

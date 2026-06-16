@@ -61,6 +61,10 @@ export function getOAuthStateCookieName(provider: OAuthProvider) {
     return `oauth_state_${provider.toLowerCase()}`
 }
 
+export function getOAuthIntentCookieName(provider: OAuthProvider) {
+    return `oauth_intent_${provider.toLowerCase()}`
+}
+
 export function setOAuthStateCookie(
     res: Response,
     provider: OAuthProvider,
@@ -73,9 +77,28 @@ export function setOAuthStateCookie(
     )
 }
 
+export function setOAuthIntentCookie(
+    res: Response,
+    provider: OAuthProvider,
+    intent: 'login' | 'register',
+) {
+    res.cookie(
+        getOAuthIntentCookieName(provider),
+        intent,
+        createCookieOptions(`/api/auth/oauth/${provider.toLowerCase()}`, 10 * 60 * 1000),
+    )
+}
+
 export function clearOAuthStateCookie(res: Response, provider: OAuthProvider) {
     res.clearCookie(
         getOAuthStateCookieName(provider),
+        createCookieOptions(`/api/auth/oauth/${provider.toLowerCase()}`),
+    )
+}
+
+export function clearOAuthIntentCookie(res: Response, provider: OAuthProvider) {
+    res.clearCookie(
+        getOAuthIntentCookieName(provider),
         createCookieOptions(`/api/auth/oauth/${provider.toLowerCase()}`),
     )
 }

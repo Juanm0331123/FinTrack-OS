@@ -30,8 +30,15 @@ const rawEnvSchema = z.object({
     COOKIE_SAME_SITE: z.enum(['lax', 'strict', 'none']).default('lax'),
     COOKIE_SECURE: z.string().default('false'),
     DATABASE_URL: z.string().min(1, 'DATABASE_URL is required.'),
-    EMAIL_VERIFICATION_TTL: z.string().default('1d'),
+    EMAIL_FROM: optionalTextValue,
+    EMAIL_PASSWORD: optionalTextValue,
+    EMAIL_PROVIDER: z.enum(['gmail', 'resend']).optional(),
+    EMAIL_REPLY_TO: optionalTextValue,
+    PASSWORD_RESET_SESSION_TTL: z.string().default('10m'),
+    PASSWORD_RESET_TTL: z.string().default('10m'),
+    EMAIL_VERIFICATION_TTL: z.string().default('10m'),
     EXPOSE_DEV_AUTH_TOKENS: z.string().optional(),
+    FRONTEND_APP_URL: optionalUrlValue,
     GITHUB_OAUTH_CALLBACK_URL: optionalUrlValue,
     GITHUB_OAUTH_CLIENT_ID: optionalTextValue,
     GITHUB_OAUTH_CLIENT_SECRET: optionalTextValue,
@@ -46,6 +53,7 @@ const rawEnvSchema = z.object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
     PORT: z.coerce.number().int().min(1).max(65535).default(3001),
     REFRESH_TOKEN_COOKIE_NAME: z.string().trim().min(1).default('refresh_token'),
+    RESEND_API_KEY: optionalTextValue,
     TRUST_PROXY: z.string().optional(),
     URLENCODED_BODY_LIMIT: z.string().default('1mb'),
 })
@@ -97,10 +105,19 @@ if (parsedEnv.COOKIE_SAME_SITE === 'none' && !parseBoolean(parsedEnv.COOKIE_SECU
     throw new Error('COOKIE_SECURE must be true when COOKIE_SAME_SITE is "none".')
 }
 
+if (parsedEnv.EMAIL_PROVIDER === 'resend' && !parsedEnv.EMAIL_FROM) {
+    throw new Error('EMAIL_FROM is required when EMAIL_PROVIDER is "resend".')
+}
+
+if (parsedEnv.EMAIL_PROVIDER === 'gmail' && !parsedEnv.EMAIL_PASSWORD) {
+    throw new Error('EMAIL_PASSWORD is required when EMAIL_PROVIDER is "gmail".')
+}
+
 export const env = {
     ...parsedEnv,
     allowedOrigins: parseAllowedOrigins(parsedEnv.ALLOWED_ORIGINS),
     cookieSecure: parseBoolean(parsedEnv.COOKIE_SECURE),
     exposeDevAuthTokens,
+    frontendAppUrl: parsedEnv.FRONTEND_APP_URL ?? parseAllowedOrigins(parsedEnv.ALLOWED_ORIGINS)[0],
     trustProxy: parseTrustProxy(parsedEnv.TRUST_PROXY),
 }

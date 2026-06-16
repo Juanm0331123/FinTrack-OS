@@ -3,7 +3,11 @@ export type ValidationIssue = {
     message: string
 }
 
+export type ErrorDetails = Record<string, unknown>
+
 export class AppError extends Error {
+    readonly code?: string
+    readonly details?: ErrorDetails
     readonly errors?: ValidationIssue[]
     readonly statusCode: number
 
@@ -11,8 +15,12 @@ export class AppError extends Error {
         message: string,
         statusCode = 500,
         errors?: ValidationIssue[],
+        code?: string,
+        details?: ErrorDetails,
     ) {
         super(message)
+        this.code = code
+        this.details = details
         this.errors = errors
         this.name = this.constructor.name
         this.statusCode = statusCode
@@ -20,37 +28,46 @@ export class AppError extends Error {
 }
 
 export class NotFoundError extends AppError {
-    constructor(message = 'Resource not found.') {
-        super(message, 404)
+    constructor(message = 'Resource not found.', code?: string, details?: ErrorDetails) {
+        super(message, 404, undefined, code, details)
     }
 }
 
 export class ConflictError extends AppError {
-    constructor(message = 'Conflict.') {
-        super(message, 409)
+    constructor(message = 'Conflict.', code?: string, details?: ErrorDetails) {
+        super(message, 409, undefined, code, details)
     }
 }
 
 export class UnauthorizedError extends AppError {
-    constructor(message = 'Unauthorized.') {
-        super(message, 401)
+    constructor(message = 'Unauthorized.', code?: string, details?: ErrorDetails) {
+        super(message, 401, undefined, code, details)
     }
 }
 
 export class ForbiddenError extends AppError {
-    constructor(message = 'Forbidden.') {
-        super(message, 403)
+    constructor(message = 'Forbidden.', code?: string, details?: ErrorDetails) {
+        super(message, 403, undefined, code, details)
     }
 }
 
 export class ServiceUnavailableError extends AppError {
-    constructor(message = 'Service unavailable.') {
-        super(message, 503)
+    constructor(
+        message = 'Service unavailable.',
+        code?: string,
+        details?: ErrorDetails,
+    ) {
+        super(message, 503, undefined, code, details)
     }
 }
 
 export class RequestValidationError extends AppError {
-    constructor(message = 'Validation failed.', errors: ValidationIssue[] = []) {
-        super(message, 422, errors)
+    constructor(
+        message = 'Validation failed.',
+        errors: ValidationIssue[] = [],
+        code?: string,
+        details?: ErrorDetails,
+    ) {
+        super(message, 422, errors, code, details)
     }
 }

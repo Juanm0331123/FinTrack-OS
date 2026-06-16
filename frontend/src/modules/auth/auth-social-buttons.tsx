@@ -2,23 +2,29 @@ import { ArrowUpRight } from 'lucide-react'
 
 import { Button } from '@/shared/ui/button'
 import { Separator } from '@/shared/ui/separator'
+import { getOAuthStartUrl, type OAuthIntent } from './auth.config'
 import { AuthProviderIcon } from './auth-provider-icon'
-import { getOAuthStartUrl } from './auth.config'
 
 const providers = [
     {
-        description: 'Crea o accede con tu cuenta verificada de Google.',
+        description: 'Continua con Google y completa la verificacion obligatoria si aplica.',
         key: 'google',
         label: 'Continuar con Google',
     },
     {
-        description: 'Usa GitHub para abrir o crear tu acceso rapidamente.',
+        description: 'Usa GitHub y termina el acceso con codigo si el correo sigue pendiente.',
         key: 'github',
         label: 'Continuar con GitHub',
     },
 ] as const
 
-export function AuthSocialButtons() {
+type AuthSocialButtonsProps = {
+    intent: OAuthIntent
+}
+
+export function AuthSocialButtons({ intent }: AuthSocialButtonsProps) {
+    const actionCopy = intent === 'register' ? 'Crear con' : 'Continuar con'
+
     return (
         <div className="space-y-4">
             <div className="space-y-2">
@@ -29,7 +35,7 @@ export function AuthSocialButtons() {
                         variant="outline"
                         className="h-12 w-full justify-between bg-card text-left hover:bg-muted/72"
                     >
-                        <a href={getOAuthStartUrl(provider.key)}>
+                        <a href={getOAuthStartUrl(provider.key, intent)}>
                             <span className="flex min-w-0 items-center gap-3">
                                 <span className="flex size-9 items-center justify-center rounded-full bg-muted/80 text-foreground ring-1 ring-border/70">
                                     <AuthProviderIcon
@@ -39,7 +45,10 @@ export function AuthSocialButtons() {
                                 </span>
                                 <span className="min-w-0">
                                     <span className="block truncate text-sm font-medium">
-                                        {provider.label}
+                                        {actionCopy}{' '}
+                                        {provider.key === 'google'
+                                            ? 'Google'
+                                            : 'GitHub'}
                                     </span>
                                     <span className="block truncate text-xs text-muted-foreground">
                                         {provider.description}
@@ -55,7 +64,9 @@ export function AuthSocialButtons() {
             <div className="flex items-center gap-3">
                 <Separator className="flex-1" />
                 <span className="text-xs font-medium text-muted-foreground">
-                    o continua con correo
+                    {intent === 'register'
+                        ? 'o crea con correo'
+                        : 'o continua con correo'}
                 </span>
                 <Separator className="flex-1" />
             </div>

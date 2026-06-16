@@ -2,18 +2,37 @@
 
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Eye, EyeOff, LoaderCircle, Mail } from 'lucide-react'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 
+import { APP_ROUTES } from '@/shared/config/routes'
 import { Button } from '@/shared/ui/button'
 import { Input } from '@/shared/ui/input'
 import { Label } from '@/shared/ui/label'
+import { AuthApiError, loginWithEmail } from '../auth.api'
+import { EmailVerificationForm } from '../email-verification-form'
+import {
+    clearPendingVerification,
+    loadPendingVerification,
+    saveAuthSession,
+    savePendingVerification,
+} from '../auth.storage'
+import type { PendingVerificationState } from '../auth.types'
 import { AuthSocialButtons } from '../auth-social-buttons'
 import { loginSchema, type LoginFormValues } from './login.schema'
 
+function getFallbackPendingVerificationExpiry() {
+    return new Date(Date.now() + 10 * 60 * 1000).toISOString()
+}
+
 export function LoginForm() {
+    const router = useRouter()
+    const [pendingVerification, setPendingVerification] =
+        useState<PendingVerificationState | null>(() => loadPendingVerification())
+    const [serverErrorMessage, setServerErrorMessage] = useState<string | null>(null)
     const [showPassword, setShowPassword] = useState(false)
-    const [submittedEmail, setSubmittedEmail] = useState<string | null>(null)
     const {
         formState: { errors, isSubmitting },
         handleSubmit,
@@ -27,14 +46,89 @@ export function LoginForm() {
         resolver: zodResolver(loginSchema),
     })
 
+    function handlePendingVerificationChange(nextState: PendingVerificationState) {
+        setServerErrorMessage(null)
+        savePendingVerification(nextState)
+        setPendingVerification(nextState)
+    }
+
+    function handlePendingVerificationClear() {
+        clearPendingVerification()
+        setPendingVerification(null)
+    }
+
+    function handleAuthenticated(session: {
+        accessToken: string
+        accessTokenExpiresInSeconds: number
+        user: Parameters<typeof saveAuthSession>[0]['user']
+    }) {
+        clearPendingVerification()
+        saveAuthSession(session)
+        router.replace(APP_ROUTES.dashboard)
+    }
+
     async function onSubmit(values: LoginFormValues) {
-        await new Promise((resolve) => setTimeout(resolve, 650))
-        setSubmittedEmail(values.email)
+        setServerErrorMessage(null)
+
+        try {
+            const session = await loginWithEmail(values)
+            handleAuthenticated(session)
+        } catch (error) {
+            if (
+                error instanceof AuthApiError &&
+                error.code === 'EMAIL_VERIFICATION_REQUIRED'
+            ) {
+                const nextPendingVerification: PendingVerificationState = {
+                    email:
+                        typeof error.details?.email === 'string'
+                            ? error.details.email
+                            : values.email.trim().toLowerCase(),
+                    expiresAt:
+                        typeof error.details?.expiresAt === 'string'
+                            ? error.details.expiresAt
+                            : getFallbackPendingVerificationExpiry(),
+                    source: 'login',
+                    ...(typeof error.details?.verificationCode === 'string'
+                        ? { verificationCode: error.details.verificationCode }
+                        : {}),
+                }
+
+                handlePendingVerificationChange(nextPendingVerification)
+                return
+            }
+
+            setServerErrorMessage(
+                error instanceof Error
+                    ? error.message
+                    : 'No pudimos iniciar sesion. Intenta nuevamente.',
+            )
+        }
+    }
+
+    if (pendingVerification) {
+        return (
+            <EmailVerificationForm
+                key={`${pendingVerification.email}-${pendingVerification.expiresAt}`}
+                pendingVerification={pendingVerification}
+                onPendingVerificationChange={handlePendingVerificationChange}
+                onCancelPendingVerification={handlePendingVerificationClear}
+                onVerified={handleAuthenticated}
+            />
+        )
     }
 
     return (
         <form className="space-y-5" onSubmit={handleSubmit(onSubmit)} noValidate>
-            <AuthSocialButtons />
+            <AuthSocialButtons intent="login" />
+
+            {serverErrorMessage ? (
+                <p
+                    role="alert"
+                    className="rounded-xl border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+                >
+                    {serverErrorMessage}
+                </p>
+            ) : null}
 
             <div className="space-y-2">
                 <Label htmlFor="email">Correo electronico</Label>
@@ -98,6 +192,14 @@ export function LoginForm() {
                         {errors.password.message}
                     </p>
                 ) : null}
+                <div className="flex justify-end">
+                    <Link
+                        href={APP_ROUTES.forgotPassword}
+                        className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+                    >
+                        Olvide mi contrasena
+                    </Link>
+                </div>
             </div>
 
             <Button
@@ -111,13 +213,6 @@ export function LoginForm() {
                 ) : null}
                 Acceder a FinTrack OS
             </Button>
-
-            {submittedEmail ? (
-                <p className="rounded-lg bg-accent/12 px-3 py-2 text-sm text-foreground">
-                    Validaciones listas para {submittedEmail}. El siguiente paso sera
-                    conectar este formulario al login real del backend.
-                </p>
-            ) : null}
         </form>
     )
 }

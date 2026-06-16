@@ -1,4 +1,6 @@
 export const APP_ROUTES = {
+    authOAuthCallback: '/auth/oauth/callback',
+    forgotPassword: '/forgot-password',
     home: '/',
     dashboard: '/dashboard',
     login: '/login',

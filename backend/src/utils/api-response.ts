@@ -6,9 +6,16 @@ type PaginationMeta = {
 }
 
 export const ApiResponse = {
-    error(message: string, errors?: Array<{ field: string; message: string }>) {
+    error(
+        message: string,
+        errors?: Array<{ field: string; message: string }>,
+        code?: string,
+        details?: Record<string, unknown>,
+    ) {
         return {
             success: false,
+            ...(code ? { code } : {}),
+            ...(details ? { details } : {}),
             ...(errors?.length ? { errors } : {}),
             message,
         }

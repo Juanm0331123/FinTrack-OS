@@ -6,9 +6,13 @@ import {
     loginSchema,
     logoutSchema,
     oauthCallbackSchema,
+    requestPasswordResetSchema,
+    resetPasswordSchema,
+    resendEmailCodeSchema,
     refreshSessionSchema,
     registerSchema,
     verifyEmailSchema,
+    verifyPasswordResetCodeSchema,
 } from './auth.schemas.ts'
 import { AuthController } from './auth.controller.ts'
 import { AuthRepository } from './auth.repository.ts'
@@ -21,10 +25,34 @@ const authController = new AuthController(authService)
 
 router.post('/register', authRateLimiter, validate(registerSchema), authController.register)
 router.post(
-    '/verify-email',
+    '/verify-email-code',
     authRateLimiter,
     validate(verifyEmailSchema),
     authController.verifyEmail,
+)
+router.post(
+    '/resend-email-code',
+    authRateLimiter,
+    validate(resendEmailCodeSchema),
+    authController.resendEmailCode,
+)
+router.post(
+    '/forgot-password/request',
+    authRateLimiter,
+    validate(requestPasswordResetSchema),
+    authController.requestPasswordReset,
+)
+router.post(
+    '/forgot-password/verify-code',
+    authRateLimiter,
+    validate(verifyPasswordResetCodeSchema),
+    authController.verifyPasswordResetCode,
+)
+router.post(
+    '/forgot-password/reset',
+    authRateLimiter,
+    validate(resetPasswordSchema),
+    authController.resetPassword,
 )
 router.post('/login', authRateLimiter, validate(loginSchema), authController.login)
 router.post(

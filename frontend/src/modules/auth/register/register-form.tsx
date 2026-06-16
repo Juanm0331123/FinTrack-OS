@@ -2,22 +2,36 @@
 
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Eye, EyeOff, LoaderCircle, Mail, UserRound } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 
-import { AuthSocialButtons } from '../auth-social-buttons'
+import { APP_ROUTES } from '@/shared/config/routes'
 import { Button } from '@/shared/ui/button'
 import { Input } from '@/shared/ui/input'
 import { Label } from '@/shared/ui/label'
+import { AuthApiError, registerWithEmail } from '../auth.api'
+import { EmailVerificationForm } from '../email-verification-form'
+import {
+    clearPendingVerification,
+    loadPendingVerification,
+    saveAuthSession,
+    savePendingVerification,
+} from '../auth.storage'
+import type { PendingVerificationState } from '../auth.types'
+import { AuthSocialButtons } from '../auth-social-buttons'
 import {
     registerSchema,
     type RegisterFormValues,
 } from './register.schema'
 
 export function RegisterForm() {
+    const router = useRouter()
+    const [pendingVerification, setPendingVerification] =
+        useState<PendingVerificationState | null>(() => loadPendingVerification())
+    const [serverErrorMessage, setServerErrorMessage] = useState<string | null>(null)
     const [showConfirmPassword, setShowConfirmPassword] = useState(false)
     const [showPassword, setShowPassword] = useState(false)
-    const [submittedEmail, setSubmittedEmail] = useState<string | null>(null)
     const {
         formState: { errors, isSubmitting },
         handleSubmit,
@@ -34,14 +48,77 @@ export function RegisterForm() {
         resolver: zodResolver(registerSchema),
     })
 
+    function handlePendingVerificationChange(nextState: PendingVerificationState) {
+        setServerErrorMessage(null)
+        savePendingVerification(nextState)
+        setPendingVerification(nextState)
+    }
+
+    function handlePendingVerificationClear() {
+        clearPendingVerification()
+        setPendingVerification(null)
+    }
+
+    function handleAuthenticated(session: {
+        accessToken: string
+        accessTokenExpiresInSeconds: number
+        user: Parameters<typeof saveAuthSession>[0]['user']
+    }) {
+        clearPendingVerification()
+        saveAuthSession(session)
+        router.replace(APP_ROUTES.dashboard)
+    }
+
     async function onSubmit(values: RegisterFormValues) {
-        await new Promise((resolve) => setTimeout(resolve, 750))
-        setSubmittedEmail(values.email)
+        setServerErrorMessage(null)
+
+        try {
+            const response = await registerWithEmail({
+                email: values.email,
+                firstName: values.firstName,
+                lastName: values.lastName || undefined,
+                password: values.password,
+            })
+
+            handlePendingVerificationChange({
+                email: response.email,
+                expiresAt: response.expiresAt,
+                source: 'register',
+                verificationCode: response.verificationCode,
+            })
+        } catch (error) {
+            setServerErrorMessage(
+                error instanceof AuthApiError || error instanceof Error
+                    ? error.message
+                    : 'No pudimos crear tu cuenta. Intenta nuevamente.',
+            )
+        }
+    }
+
+    if (pendingVerification) {
+        return (
+            <EmailVerificationForm
+                key={`${pendingVerification.email}-${pendingVerification.expiresAt}`}
+                pendingVerification={pendingVerification}
+                onPendingVerificationChange={handlePendingVerificationChange}
+                onCancelPendingVerification={handlePendingVerificationClear}
+                onVerified={handleAuthenticated}
+            />
+        )
     }
 
     return (
         <form className="space-y-5" onSubmit={handleSubmit(onSubmit)} noValidate>
-            <AuthSocialButtons />
+            <AuthSocialButtons intent="register" />
+
+            {serverErrorMessage ? (
+                <p
+                    role="alert"
+                    className="rounded-xl border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+                >
+                    {serverErrorMessage}
+                </p>
+            ) : null}
 
             <div className="grid gap-5 sm:grid-cols-2">
                 <div className="space-y-2">
@@ -219,13 +296,6 @@ export function RegisterForm() {
                 ) : null}
                 Crear cuenta en FinTrack OS
             </Button>
-
-            {submittedEmail ? (
-                <p className="rounded-lg bg-accent/12 px-3 py-2 text-sm text-foreground">
-                    Registro visual listo para {submittedEmail}. En el flujo real,
-                    aqui te avisaremos que revises el correo de verificacion.
-                </p>
-            ) : null}
         </form>
     )
 }

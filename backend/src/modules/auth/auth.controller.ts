@@ -1,14 +1,18 @@
 import { OAuthProvider } from '@prisma/client'
 import type { Request, Response } from 'express'
+import { env } from '../../config/env.ts'
 import { toAuthenticatedRequest } from '../../middlewares/auth.middleware.ts'
 import { ApiResponse } from '../../utils/api-response.ts'
-import { RequestValidationError } from '../../utils/app-error.ts'
+import { AppError } from '../../utils/app-error.ts'
 import {
+    clearOAuthIntentCookie,
     clearOAuthStateCookie,
     clearRefreshTokenCookie,
     getCookieValue,
+    getOAuthIntentCookieName,
     getOAuthStateCookieName,
     getRefreshTokenFromRequest,
+    setOAuthIntentCookie,
     setOAuthStateCookie,
     setRefreshTokenCookie,
 } from './auth.cookies.ts'
@@ -16,11 +20,19 @@ import {
     loginSchema,
     logoutSchema,
     oauthCallbackSchema,
+    requestPasswordResetSchema,
+    resetPasswordSchema,
+    resendEmailCodeSchema,
     refreshSessionSchema,
     registerSchema,
     verifyEmailSchema,
+    verifyPasswordResetCodeSchema,
 } from './auth.schemas.ts'
 import { AuthService } from './auth.service.ts'
+
+function parseOAuthIntent(value: unknown) {
+    return value === 'register' ? 'register' : 'login'
+}
 
 export class AuthController {
     private readonly authService: AuthService
@@ -38,9 +50,53 @@ export class AuthController {
 
     verifyEmail = async (req: Request, res: Response) => {
         const body = verifyEmailSchema.shape.body.parse(req.body)
-        const user = await this.authService.verifyEmail(body.token)
+        const result = await this.authService.verifyEmailCode(body, {
+            deviceName: body.deviceName,
+            ipAddress: req.ip,
+            userAgent: req.get('user-agent') ?? null,
+        })
 
-        return res.status(200).json(ApiResponse.success(user))
+        setRefreshTokenCookie(
+            res,
+            result.refreshToken,
+            result.refreshTokenMaxAgeMs,
+        )
+
+        return res.status(200).json(
+            ApiResponse.success({
+                accessToken: result.accessToken,
+                accessTokenExpiresInSeconds: result.accessTokenExpiresInSeconds,
+                user: result.user,
+            }),
+        )
+    }
+
+    resendEmailCode = async (req: Request, res: Response) => {
+        const body = resendEmailCodeSchema.shape.body.parse(req.body)
+        const result = await this.authService.resendEmailCode(body)
+
+        return res.status(200).json(ApiResponse.success(result))
+    }
+
+    requestPasswordReset = async (req: Request, res: Response) => {
+        const body = requestPasswordResetSchema.shape.body.parse(req.body)
+        const result = await this.authService.requestPasswordReset(body)
+
+        return res.status(200).json(ApiResponse.success(result))
+    }
+
+    verifyPasswordResetCode = async (req: Request, res: Response) => {
+        const body = verifyPasswordResetCodeSchema.shape.body.parse(req.body)
+        const result = await this.authService.verifyPasswordResetCode(body)
+
+        return res.status(200).json(ApiResponse.success(result))
+    }
+
+    resetPassword = async (req: Request, res: Response) => {
+        const body = resetPasswordSchema.shape.body.parse(req.body)
+        const result = await this.authService.resetPassword(body)
+
+        return res.status(200).json(ApiResponse.success(result))
     }
 
     login = async (req: Request, res: Response) => {
@@ -50,6 +106,29 @@ export class AuthController {
             ipAddress: req.ip,
             userAgent: req.get('user-agent') ?? null,
         })
+
+        if ('requiresEmailVerification' in result) {
+            return res.status(403).json(
+                ApiResponse.error(
+                    'Please verify your email address before signing in.',
+                    undefined,
+                    'EMAIL_VERIFICATION_REQUIRED',
+                    {
+                        email: result.email,
+                        expiresAt: result.expiresAt.toISOString(),
+                        ...(Object.hasOwn(result, 'verificationCode')
+                            ? {
+                                  verificationCode: (
+                                      result as {
+                                          verificationCode?: string
+                                      }
+                                  ).verificationCode,
+                              }
+                            : {}),
+                    },
+                ),
+            )
+        }
 
         setRefreshTokenCookie(
             res,
@@ -136,97 +215,172 @@ export class AuthController {
         return res.status(200).json(ApiResponse.success(user))
     }
 
-    startGoogleOAuth = async (_req: Request, res: Response) => {
+    startGoogleOAuth = async (req: Request, res: Response) => {
         const result = await this.authService.startOAuth(OAuthProvider.GOOGLE)
+        const intent = parseOAuthIntent(req.query.intent)
 
         setOAuthStateCookie(res, OAuthProvider.GOOGLE, result.state)
+        setOAuthIntentCookie(res, OAuthProvider.GOOGLE, intent)
 
         return res.redirect(302, result.authorizationUrl)
     }
 
-    startGitHubOAuth = async (_req: Request, res: Response) => {
+    startGitHubOAuth = async (req: Request, res: Response) => {
         const result = await this.authService.startOAuth(OAuthProvider.GITHUB)
+        const intent = parseOAuthIntent(req.query.intent)
 
         setOAuthStateCookie(res, OAuthProvider.GITHUB, result.state)
+        setOAuthIntentCookie(res, OAuthProvider.GITHUB, intent)
 
         return res.redirect(302, result.authorizationUrl)
     }
 
     handleGoogleOAuthCallback = async (req: Request, res: Response) => {
-        const query = oauthCallbackSchema.shape.query.parse(req.query)
-
-        if (query.error) {
-            throw new RequestValidationError(
-                query.error_description ?? `Google OAuth failed: ${query.error}.`,
-            )
-        }
-
-        const storedState = getCookieValue(
-            req,
-            getOAuthStateCookieName(OAuthProvider.GOOGLE),
-        )
-        const result = await this.authService.handleOAuthCallback({
-            code: query.code!,
-            deviceName: 'google-oauth',
-            ipAddress: req.ip,
-            provider: OAuthProvider.GOOGLE,
-            state: query.state!,
-            storedState,
-            userAgent: req.get('user-agent') ?? null,
-        })
-
-        clearOAuthStateCookie(res, OAuthProvider.GOOGLE)
-        setRefreshTokenCookie(
-            res,
-            result.refreshToken,
-            result.refreshTokenMaxAgeMs,
-        )
-
-        return res.status(200).json(
-            ApiResponse.success({
-                accessToken: result.accessToken,
-                accessTokenExpiresInSeconds: result.accessTokenExpiresInSeconds,
-                user: result.user,
-            }),
-        )
+        return this.handleOAuthCallback(req, res, OAuthProvider.GOOGLE, 'google-oauth')
     }
 
     handleGitHubOAuthCallback = async (req: Request, res: Response) => {
+        return this.handleOAuthCallback(req, res, OAuthProvider.GITHUB, 'github-oauth')
+    }
+
+    private async handleOAuthCallback(
+        req: Request,
+        res: Response,
+        provider: OAuthProvider,
+        deviceName: string,
+    ) {
         const query = oauthCallbackSchema.shape.query.parse(req.query)
 
         if (query.error) {
-            throw new RequestValidationError(
-                query.error_description ?? `GitHub OAuth failed: ${query.error}.`,
+            const intent = parseOAuthIntent(
+                getCookieValue(req, getOAuthIntentCookieName(provider)),
+            )
+            clearOAuthStateCookie(res, provider)
+            clearOAuthIntentCookie(res, provider)
+
+            return res.redirect(
+                302,
+                this.buildFrontendOAuthRedirectUrl({
+                    code: 'OAUTH_CALLBACK_ERROR',
+                    intent,
+                    message:
+                        query.error_description ??
+                        `${provider} OAuth failed: ${query.error}.`,
+                    provider: provider.toLowerCase(),
+                    status: 'error',
+                }),
             )
         }
 
         const storedState = getCookieValue(
             req,
-            getOAuthStateCookieName(OAuthProvider.GITHUB),
+            getOAuthStateCookieName(provider),
         )
-        const result = await this.authService.handleOAuthCallback({
-            code: query.code!,
-            deviceName: 'github-oauth',
-            ipAddress: req.ip,
-            provider: OAuthProvider.GITHUB,
-            state: query.state!,
-            storedState,
-            userAgent: req.get('user-agent') ?? null,
-        })
-
-        clearOAuthStateCookie(res, OAuthProvider.GITHUB)
-        setRefreshTokenCookie(
-            res,
-            result.refreshToken,
-            result.refreshTokenMaxAgeMs,
+        const storedIntent = parseOAuthIntent(
+            getCookieValue(req, getOAuthIntentCookieName(provider)),
         )
 
-        return res.status(200).json(
-            ApiResponse.success({
-                accessToken: result.accessToken,
-                accessTokenExpiresInSeconds: result.accessTokenExpiresInSeconds,
-                user: result.user,
-            }),
-        )
+        try {
+            const result = await this.authService.handleOAuthCallback({
+                code: query.code!,
+                deviceName,
+                intent: storedIntent,
+                ipAddress: req.ip,
+                provider,
+                state: query.state!,
+                storedState,
+                userAgent: req.get('user-agent') ?? null,
+            })
+
+            clearOAuthStateCookie(res, provider)
+            clearOAuthIntentCookie(res, provider)
+
+            if ('requiresEmailVerification' in result) {
+                return res.redirect(
+                    302,
+                    this.buildFrontendOAuthRedirectUrl({
+                        email: result.email,
+                        expiresAt: result.expiresAt.toISOString(),
+                        intent: storedIntent,
+                        provider: provider.toLowerCase(),
+                        status: 'pending_verification',
+                        ...(Object.hasOwn(result, 'verificationCode')
+                            ? {
+                                  verificationCode: (
+                                      result as {
+                                          verificationCode?: string
+                                      }
+                                  ).verificationCode,
+                              }
+                            : {}),
+                    }),
+                )
+            }
+
+            setRefreshTokenCookie(
+                res,
+                result.refreshToken,
+                result.refreshTokenMaxAgeMs,
+            )
+
+            return res.redirect(
+                302,
+                this.buildFrontendOAuthRedirectUrl({
+                    accessToken: result.accessToken,
+                    accessTokenExpiresInSeconds: String(
+                        result.accessTokenExpiresInSeconds,
+                    ),
+                    intent: storedIntent,
+                    provider: provider.toLowerCase(),
+                    status: 'success',
+                    user: JSON.stringify(result.user),
+                }),
+            )
+        } catch (error) {
+            clearOAuthStateCookie(res, provider)
+            clearOAuthIntentCookie(res, provider)
+
+            return res.redirect(
+                302,
+                this.buildFrontendOAuthRedirectUrl({
+                    code:
+                        error instanceof AppError && error.code
+                            ? error.code
+                            : 'OAUTH_CALLBACK_ERROR',
+                    expiresAt:
+                        error instanceof AppError &&
+                        typeof error.details?.expiresAt === 'string'
+                            ? error.details.expiresAt
+                            : undefined,
+                    intent: storedIntent,
+                    message:
+                        error instanceof Error
+                            ? error.message
+                            : 'OAuth authentication failed.',
+                    ...(error instanceof AppError &&
+                    typeof error.details?.email === 'string'
+                        ? { email: error.details.email }
+                        : {}),
+                    provider: provider.toLowerCase(),
+                    status: 'error',
+                }),
+            )
+        }
+    }
+
+    private buildFrontendOAuthRedirectUrl(
+        params: Record<string, string | undefined>,
+    ) {
+        const redirectUrl = new URL('/auth/oauth/callback', env.frontendAppUrl)
+        const hashParams = new URLSearchParams()
+
+        for (const [key, value] of Object.entries(params)) {
+            if (value) {
+                hashParams.set(key, value)
+            }
+        }
+
+        redirectUrl.hash = hashParams.toString()
+        return redirectUrl.toString()
     }
 }

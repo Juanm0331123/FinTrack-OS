@@ -73,6 +73,61 @@ export const loginSchema = z.object({
 export const verifyEmailSchema = z.object({
     body: z
         .object({
+            code: z
+                .string()
+                .trim()
+                .regex(/^\d{6}$/, 'El codigo debe tener 6 digitos.'),
+            deviceName: deviceNameSchema.optional(),
+            email: emailSchema,
+        })
+        .strict(),
+})
+
+export const resendEmailCodeSchema = z.object({
+    body: z
+        .object({
+            email: emailSchema,
+        })
+        .strict(),
+})
+
+export const requestPasswordResetSchema = z.object({
+    body: z
+        .object({
+            email: emailSchema,
+        })
+        .strict(),
+})
+
+export const verifyPasswordResetCodeSchema = z.object({
+    body: z
+        .object({
+            code: z
+                .string()
+                .trim()
+                .regex(/^\d{6}$/, 'El codigo debe tener 6 digitos.'),
+            email: emailSchema,
+        })
+        .strict(),
+})
+
+export const resetPasswordSchema = z.object({
+    body: z
+        .object({
+            email: emailSchema,
+            password: passwordSchema,
+            resetToken: z
+                .string()
+                .trim()
+                .min(1, 'El token de recuperacion es obligatorio.')
+                .max(255, 'El token de recuperacion es demasiado largo.'),
+        })
+        .strict(),
+})
+
+export const legacyVerifyEmailSchema = z.object({
+    body: z
+        .object({
             token: z
                 .string()
                 .trim()
@@ -115,5 +170,12 @@ export const oauthCallbackSchema = z.object({
 
 export type LoginInput = z.infer<typeof loginSchema>['body']
 export type LogoutInput = z.infer<typeof logoutSchema>['body']
+export type RequestPasswordResetInput = z.infer<typeof requestPasswordResetSchema>['body']
 export type RefreshSessionInput = z.infer<typeof refreshSessionSchema>['body']
 export type RegisterInput = z.infer<typeof registerSchema>['body']
+export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>['body']
+export type ResendEmailCodeInput = z.infer<typeof resendEmailCodeSchema>['body']
+export type VerifyEmailCodeInput = z.infer<typeof verifyEmailSchema>['body']
+export type VerifyPasswordResetCodeInput = z.infer<
+    typeof verifyPasswordResetCodeSchema
+>['body']

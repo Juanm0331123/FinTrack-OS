@@ -10,8 +10,11 @@ import {
 } from '../../utils/app-error.ts'
 import { type PublicUser } from '../users/users.types.ts'
 import { AuthRepository } from './auth.repository.ts'
+import { EmailService } from './email.service.ts'
 import {
+    createNumericCode,
     createOpaqueToken,
+    createTokenSalt,
     hashToken,
     signAccessToken,
     signRefreshToken,
@@ -19,12 +22,22 @@ import {
 } from './auth.tokens.ts'
 import type {
     LoginInput,
+    RequestPasswordResetInput,
     RefreshSessionInput,
     RegisterInput,
+    ResetPasswordInput,
+    ResendEmailCodeInput,
+    VerifyEmailCodeInput,
+    VerifyPasswordResetCodeInput,
 } from './auth.schemas.ts'
 import type {
+    AuthenticatedSessionResult,
     AuthCredentialsUser,
     NormalizedOAuthProfile,
+    OAuthIntent,
+    PendingEmailVerificationResult,
+    PasswordResetRequestAcceptedResult,
+    PasswordResetVerificationResult,
     SessionContext,
     TokenPair,
 } from './auth.types.ts'
@@ -43,26 +56,54 @@ const GITHUB_EMAILS_ENDPOINT = 'https://api.github.com/user/emails'
 
 export class AuthService {
     private readonly authRepository: AuthRepository
+    private readonly emailService: EmailService
 
-    constructor(authRepository = new AuthRepository()) {
+    constructor(
+        authRepository = new AuthRepository(),
+        emailService = new EmailService(),
+    ) {
         this.authRepository = authRepository
+        this.emailService = emailService
     }
 
     async register(input: RegisterInput) {
         const email = this.normalizeEmail(input.email)
         const existingUser = await this.authRepository.findUserByEmailForAuth(email)
+        const passwordHash = await bcrypt.hash(input.password, PASSWORD_HASH_ROUNDS)
 
-        if (existingUser) {
+        if (existingUser?.status === UserStatus.ACTIVE) {
             throw new ConflictError('An account with that email already exists.')
         }
 
-        const passwordHash = await bcrypt.hash(input.password, PASSWORD_HASH_ROUNDS)
-        const verificationToken = createOpaqueToken()
-        const verificationTokenHash = hashToken(verificationToken)
-        const verificationExpiresAt = this.createFutureDate(env.EMAIL_VERIFICATION_TTL)
+        if (existingUser?.status === UserStatus.INACTIVE) {
+            throw new ForbiddenError('This user account is inactive.')
+        }
+
+        if (existingUser) {
+            const updatedUser = await this.authRepository.updatePendingRegisteredUser({
+                userId: existingUser.id,
+                userData: {
+                    email,
+                    firstName: input.firstName,
+                    lastName: input.lastName,
+                    passwordHash,
+                    preferredCurrencyCode: input.preferredCurrencyCode ?? 'COP',
+                    role: UserRole.USER,
+                    timezone: input.timezone ?? 'UTC',
+                },
+            })
+
+            return this.issueAndSendEmailVerificationCode(updatedUser)
+        }
+
+        const verificationCode = createNumericCode(6)
+        const tokenSalt = createTokenSalt()
+        const expiresAt = this.createFutureDate(env.EMAIL_VERIFICATION_TTL)
+
         const user = await this.authRepository.createRegisteredUser({
-            tokenExpiresAt: verificationExpiresAt,
-            tokenHash: verificationTokenHash,
+            tokenExpiresAt: expiresAt,
+            tokenHash: hashToken(verificationCode, tokenSalt),
+            tokenSalt,
             userData: {
                 email,
                 firstName: input.firstName,
@@ -75,37 +116,271 @@ export class AuthService {
             },
         })
 
-        return {
-            requiresEmailVerification: true,
-            user,
-            ...(env.exposeDevAuthTokens ? { verificationToken } : {}),
-        }
+        return this.issueAndSendEmailVerificationCode(user, {
+            code: verificationCode,
+            expiresAt,
+            persistToken: false,
+        })
     }
 
-    async verifyEmail(token: string) {
-        const tokenHash = hashToken(token)
-        const verificationRecord =
-            await this.authRepository.findEmailVerificationToken(tokenHash)
+    async verifyEmailCode(
+        input: VerifyEmailCodeInput,
+        sessionContext: SessionContext,
+    ) {
+        const email = this.normalizeEmail(input.email)
+        const user = await this.authRepository.findUserByEmailForAuth(email)
 
-        if (!verificationRecord || verificationRecord.user.deletedAt) {
-            throw new UnauthorizedError('Invalid email verification token.')
+        if (!user || user.deletedAt) {
+            throw new UnauthorizedError(
+                'Invalid email verification code.',
+                'EMAIL_VERIFICATION_INVALID',
+            )
         }
 
-        if (verificationRecord.usedAt) {
-            throw new UnauthorizedError('Email verification token has already been used.')
+        if (user.status === UserStatus.ACTIVE) {
+            throw new ConflictError(
+                'This email is already verified.',
+                'EMAIL_ALREADY_VERIFIED',
+            )
+        }
+
+        if (user.status === UserStatus.INACTIVE) {
+            throw new ForbiddenError('This user account is inactive.')
+        }
+
+        const verificationRecord =
+            await this.authRepository.findLatestEmailVerificationTokenByUserId(user.id)
+
+        if (!verificationRecord || !verificationRecord.tokenSalt) {
+            throw new UnauthorizedError(
+                'Invalid email verification code.',
+                'EMAIL_VERIFICATION_INVALID',
+            )
         }
 
         if (verificationRecord.expiresAt.getTime() <= Date.now()) {
-            throw new UnauthorizedError('Email verification token has expired.')
+            throw new UnauthorizedError(
+                'Email verification code has expired.',
+                'EMAIL_VERIFICATION_EXPIRED',
+                {
+                    email,
+                    expiresAt: verificationRecord.expiresAt.toISOString(),
+                },
+            )
         }
 
-        return this.authRepository.activateUserAndConsumeVerificationToken(
-            verificationRecord.id,
-            verificationRecord.userId,
-        )
+        if (
+            verificationRecord.usedAt ||
+            verificationRecord.revokedAt ||
+            hashToken(input.code, verificationRecord.tokenSalt) !==
+                verificationRecord.tokenHash
+        ) {
+            throw new UnauthorizedError(
+                'Invalid email verification code.',
+                'EMAIL_VERIFICATION_INVALID',
+            )
+        }
+
+        const verifiedUser =
+            await this.authRepository.activateUserAndConsumeVerificationToken(
+                verificationRecord.id,
+                verificationRecord.userId,
+            )
+
+        const tokenPair = await this.createTokenPair(verifiedUser.id, verifiedUser.role)
+        await this.authRepository.createRefreshTokenSession({
+            ...sessionContext,
+            expiresAt: tokenPair.refreshTokenExpiresAt,
+            sessionId: tokenPair.sessionId,
+            tokenHash: hashToken(tokenPair.refreshToken),
+            userId: verifiedUser.id,
+        })
+        await this.authRepository.touchLastLogin(verifiedUser.id)
+
+        return {
+            ...tokenPair,
+            user: verifiedUser,
+        } satisfies AuthenticatedSessionResult
     }
 
-    async login(input: LoginInput, sessionContext: SessionContext) {
+    async resendEmailCode(input: ResendEmailCodeInput) {
+        const email = this.normalizeEmail(input.email)
+        const user = await this.authRepository.findUserByEmailForAuth(email)
+
+        if (!user || user.deletedAt) {
+            throw new UnauthorizedError(
+                'No pending email verification request was found.',
+                'EMAIL_VERIFICATION_NOT_FOUND',
+            )
+        }
+
+        if (user.status === UserStatus.ACTIVE) {
+            throw new ConflictError(
+                'This email is already verified.',
+                'EMAIL_ALREADY_VERIFIED',
+            )
+        }
+
+        if (user.status === UserStatus.INACTIVE) {
+            throw new ForbiddenError('This user account is inactive.')
+        }
+
+        return this.issueAndSendEmailVerificationCode(user)
+    }
+
+    async requestPasswordReset(
+        input: RequestPasswordResetInput,
+    ): Promise<PasswordResetRequestAcceptedResult> {
+        const email = this.normalizeEmail(input.email)
+        const expiresAt = this.createFutureDate(env.PASSWORD_RESET_TTL)
+        const user = await this.authRepository.findUserByEmailForAuth(email)
+
+        if (!user || user.deletedAt || user.status === UserStatus.INACTIVE) {
+            return {
+                accepted: true,
+                email,
+                expiresAt,
+            }
+        }
+
+        await this.issueAndSendPasswordResetCode(user, expiresAt)
+
+        return {
+            accepted: true,
+            email,
+            expiresAt,
+        }
+    }
+
+    async verifyPasswordResetCode(
+        input: VerifyPasswordResetCodeInput,
+    ): Promise<PasswordResetVerificationResult> {
+        const email = this.normalizeEmail(input.email)
+        const user = await this.authRepository.findUserByEmailForAuth(email)
+
+        if (!user || user.deletedAt || user.status === UserStatus.INACTIVE) {
+            throw new UnauthorizedError(
+                'Invalid password reset code.',
+                'PASSWORD_RESET_CODE_INVALID',
+            )
+        }
+
+        const resetCodeRecord =
+            await this.authRepository.findLatestPasswordResetCodeTokenByUserId(
+                user.id,
+            )
+
+        if (!resetCodeRecord || !resetCodeRecord.tokenSalt) {
+            throw new UnauthorizedError(
+                'Invalid password reset code.',
+                'PASSWORD_RESET_CODE_INVALID',
+            )
+        }
+
+        if (resetCodeRecord.expiresAt.getTime() <= Date.now()) {
+            throw new UnauthorizedError(
+                'Password reset code has expired.',
+                'PASSWORD_RESET_CODE_EXPIRED',
+                {
+                    email,
+                    expiresAt: resetCodeRecord.expiresAt.toISOString(),
+                },
+            )
+        }
+
+        if (
+            resetCodeRecord.usedAt ||
+            resetCodeRecord.revokedAt ||
+            hashToken(input.code, resetCodeRecord.tokenSalt) !==
+                resetCodeRecord.tokenHash
+        ) {
+            throw new UnauthorizedError(
+                'Invalid password reset code.',
+                'PASSWORD_RESET_CODE_INVALID',
+            )
+        }
+
+        const resetToken = createOpaqueToken()
+        const resetTokenExpiresAt = this.createFutureDate(
+            env.PASSWORD_RESET_SESSION_TTL,
+        )
+
+        await this.authRepository.consumePasswordResetCodeAndIssueSessionToken({
+            codeTokenId: resetCodeRecord.id,
+            resetTokenExpiresAt,
+            resetTokenHash: hashToken(resetToken),
+            userId: user.id,
+        })
+
+        return {
+            email,
+            resetToken,
+            resetTokenExpiresAt,
+        }
+    }
+
+    async resetPassword(input: ResetPasswordInput) {
+        const email = this.normalizeEmail(input.email)
+        const user = await this.authRepository.findUserByEmailForAuth(email)
+
+        if (!user || user.deletedAt || user.status === UserStatus.INACTIVE) {
+            throw new UnauthorizedError(
+                'Invalid password reset session.',
+                'PASSWORD_RESET_TOKEN_INVALID',
+            )
+        }
+
+        const resetSessionRecord =
+            await this.authRepository.findLatestPasswordResetSessionTokenByUserId(
+                user.id,
+            )
+
+        if (!resetSessionRecord || resetSessionRecord.tokenSalt) {
+            throw new UnauthorizedError(
+                'Invalid password reset session.',
+                'PASSWORD_RESET_TOKEN_INVALID',
+            )
+        }
+
+        if (resetSessionRecord.expiresAt.getTime() <= Date.now()) {
+            throw new UnauthorizedError(
+                'Password reset session has expired.',
+                'PASSWORD_RESET_TOKEN_EXPIRED',
+                {
+                    email,
+                    expiresAt: resetSessionRecord.expiresAt.toISOString(),
+                },
+            )
+        }
+
+        if (
+            resetSessionRecord.usedAt ||
+            resetSessionRecord.revokedAt ||
+            hashToken(input.resetToken) !== resetSessionRecord.tokenHash
+        ) {
+            throw new UnauthorizedError(
+                'Invalid password reset session.',
+                'PASSWORD_RESET_TOKEN_INVALID',
+            )
+        }
+
+        const passwordHash = await bcrypt.hash(input.password, PASSWORD_HASH_ROUNDS)
+
+        await this.authRepository.consumePasswordResetSessionAndUpdatePassword({
+            passwordHash,
+            resetTokenId: resetSessionRecord.id,
+            userId: user.id,
+        })
+
+        return {
+            passwordReset: true,
+        }
+    }
+
+    async login(
+        input: LoginInput,
+        sessionContext: SessionContext,
+    ): Promise<AuthenticatedSessionResult | PendingEmailVerificationResult> {
         const email = this.normalizeEmail(input.email)
         const user = await this.authRepository.findUserByEmailForAuth(email)
 
@@ -122,7 +397,11 @@ export class AuthService {
             throw new UnauthorizedError('Invalid email or password.')
         }
 
-        this.assertUserCanUsePasswordLogin(user)
+        if (user.status === UserStatus.PENDING_VERIFICATION) {
+            return this.issueAndSendEmailVerificationCode(user)
+        }
+
+        this.assertUserCanStartSession(user)
 
         const tokenPair = await this.createTokenPair(user.id, user.role)
         await this.authRepository.createRefreshTokenSession({
@@ -241,6 +520,7 @@ export class AuthService {
 
     async handleOAuthCallback(input: {
         code: string
+        intent: OAuthIntent
         provider: OAuthProvider
         state: string
         storedState?: string
@@ -268,7 +548,27 @@ export class AuthService {
         let user: PublicUser
 
         if (existingOAuthAccount) {
-            this.assertUserCanStartSession(existingOAuthAccount.user)
+            if (existingOAuthAccount.user.deletedAt) {
+                throw new UnauthorizedError(
+                    'This user account is no longer available.',
+                )
+            }
+
+            if (existingOAuthAccount.user.status === UserStatus.INACTIVE) {
+                throw new ForbiddenError('This user account is inactive.')
+            }
+
+            if (input.intent === 'register') {
+                throw new ConflictError(
+                    'An account with this email already exists. Sign in instead of creating a new account.',
+                    'OAUTH_ACCOUNT_ALREADY_EXISTS',
+                    {
+                        email: profile.email,
+                        provider: profile.provider.toLowerCase(),
+                    },
+                )
+            }
+
             await this.authRepository.updateOAuthAccountMetadata(
                 existingOAuthAccount.id,
                 profile,
@@ -284,9 +584,21 @@ export class AuthService {
                     throw new ForbiddenError('This user account is inactive.')
                 }
 
+                if (input.intent === 'register') {
+                    throw new ConflictError(
+                        'An account with this email already exists. Sign in instead of creating a new account.',
+                        'OAUTH_ACCOUNT_ALREADY_EXISTS',
+                        {
+                            email: profile.email,
+                            provider: profile.provider.toLowerCase(),
+                        },
+                    )
+                }
+
                 user = await this.authRepository.linkOAuthAccountToUser(
                     existingUser.id,
                     profile,
+                    existingUser.status,
                 )
             } else {
                 const placeholderPasswordHash = await bcrypt.hash(
@@ -298,6 +610,10 @@ export class AuthService {
                     placeholderPasswordHash,
                 )
             }
+        }
+
+        if (user.status === UserStatus.PENDING_VERIFICATION) {
+            return this.issueAndSendEmailVerificationCode(user)
         }
 
         const tokenPair = await this.createTokenPair(user.id, user.role)
@@ -330,10 +646,6 @@ export class AuthService {
         if (user.status === UserStatus.INACTIVE) {
             throw new ForbiddenError('This user account is inactive.')
         }
-    }
-
-    private assertUserCanUsePasswordLogin(user: AuthCredentialsUser) {
-        this.assertUserCanStartSession(user)
     }
 
     private async createTokenPair(userId: string, role: UserRole): Promise<TokenPair> {
@@ -585,6 +897,65 @@ export class AuthService {
 
     private normalizeEmail(email: string) {
         return email.trim().toLowerCase()
+    }
+
+    private async issueAndSendEmailVerificationCode(
+        user: PublicUser,
+        options?: {
+            code?: string
+            expiresAt?: Date
+            persistToken?: boolean
+        },
+    ): Promise<PendingEmailVerificationResult & { verificationCode?: string }> {
+        const code = options?.code ?? createNumericCode(6)
+        const expiresAt = options?.expiresAt ?? this.createFutureDate(env.EMAIL_VERIFICATION_TTL)
+
+        if (options?.persistToken !== false) {
+            const tokenSalt = createTokenSalt()
+
+            await this.authRepository.issueEmailVerificationCode({
+                userId: user.id,
+                tokenExpiresAt: expiresAt,
+                tokenHash: hashToken(code, tokenSalt),
+                tokenSalt,
+            })
+        }
+
+        await this.emailService.sendVerificationCodeEmail({
+            code,
+            email: user.email,
+            expiresAt,
+            firstName: user.firstName,
+        })
+
+        return {
+            email: user.email,
+            expiresAt,
+            requiresEmailVerification: true,
+            ...(env.exposeDevAuthTokens ? { verificationCode: code } : {}),
+        }
+    }
+
+    private async issueAndSendPasswordResetCode(
+        user: PublicUser,
+        expiresAt = this.createFutureDate(env.PASSWORD_RESET_TTL),
+    ) {
+        const code = createNumericCode(6)
+        const tokenSalt = createTokenSalt()
+
+        await this.authRepository.issuePasswordResetCode({
+            userId: user.id,
+            tokenExpiresAt: expiresAt,
+            tokenHash: hashToken(code, tokenSalt),
+            tokenSalt,
+        })
+
+        await this.emailService.sendPasswordResetCodeEmail({
+            code,
+            email: user.email,
+            expiresAt,
+            firstName: user.firstName,
+        })
     }
 
     private async parseJsonResponse<T>(response: globalThis.Response, message: string) {

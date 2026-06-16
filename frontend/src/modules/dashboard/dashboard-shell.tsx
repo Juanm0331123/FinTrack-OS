@@ -38,7 +38,11 @@ import {
     recentActivity,
 } from './dashboard.data'
 
-export function DashboardShell() {
+type DashboardShellProps = {
+    onLogout?: () => void
+}
+
+export function DashboardShell({ onLogout }: DashboardShellProps) {
     const [isDesktopCollapsed, setIsDesktopCollapsed] = useState(false)
     const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false)
 
@@ -107,6 +111,7 @@ export function DashboardShell() {
                     <DashboardNavbar
                         userInitial={userInitial}
                         userName={dashboardUser.name}
+                        onLogout={onLogout}
                         onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}
                     />
 
@@ -582,12 +587,14 @@ function DashboardSidebar({
 }
 
 type DashboardNavbarProps = {
+    onLogout?: () => void
     onOpenMobileSidebar: () => void
     userInitial: string
     userName: string
 }
 
 function DashboardNavbar({
+    onLogout,
     onOpenMobileSidebar,
     userInitial,
     userName,
@@ -631,11 +638,14 @@ function DashboardNavbar({
                     <div className="grid size-10 place-items-center rounded-full border border-border/80 bg-card/80 text-sm font-semibold sm:hidden">
                         {userInitial}
                     </div>
-                    <Button asChild variant="outline" className="h-10 bg-card/80">
-                        <Link href={APP_ROUTES.login}>
-                            <LogOut className="size-4" aria-hidden="true" />
-                            <span className="hidden sm:inline">Logout</span>
-                        </Link>
+                    <Button
+                        type="button"
+                        variant="outline"
+                        className="h-10 bg-card/80"
+                        onClick={onLogout}
+                    >
+                        <LogOut className="size-4" aria-hidden="true" />
+                        <span className="hidden sm:inline">Logout</span>
                     </Button>
                 </div>
             </div>

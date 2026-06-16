@@ -9,8 +9,9 @@ export function LoginPage() {
             title="Accede a tu espacio financiero"
             description={
                 <>
-                    Ingresa con tus datos o usa Google y GitHub para entrar a{' '}
-                    <span className="font-medium text-primary">FinTrack OS</span>.
+                    Ingresa con tus datos o usa Google y GitHub. Si tu correo aun no
+                    ha sido validado, te pediremos un codigo obligatorio antes de
+                    entrar a <span className="font-medium text-primary">FinTrack OS</span>.
                 </>
             }
             switchPrompt="Aun no tienes cuenta?"

@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto'
+import { createHash, randomBytes, randomInt } from 'node:crypto'
 import { SignJWT, jwtVerify } from 'jose'
 import { env } from '../../config/env.ts'
 import { UnauthorizedError } from '../../utils/app-error.ts'
@@ -55,8 +55,18 @@ export function createOpaqueToken() {
     return randomBytes(32).toString('base64url')
 }
 
-export function hashToken(token: string) {
-    return createHash('sha256').update(token).digest('hex')
+export function createNumericCode(length = 6) {
+    return Array.from({ length }, () => randomInt(0, 10).toString()).join('')
+}
+
+export function createTokenSalt() {
+    return randomBytes(16).toString('hex')
+}
+
+export function hashToken(token: string, salt?: string) {
+    return createHash('sha256')
+        .update(salt ? `${salt}:${token}` : token)
+        .digest('hex')
 }
 
 export async function signAccessToken(input: {

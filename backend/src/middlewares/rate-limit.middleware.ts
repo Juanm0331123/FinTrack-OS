@@ -10,7 +10,11 @@ export const apiRateLimiter = rateLimit({
     skip: (req) => req.path === '/health',
     handler: (_req, res) => {
         return res.status(429).json(
-            ApiResponse.error('Too many requests. Please try again later.'),
+            ApiResponse.error(
+                'Too many requests. Please try again later.',
+                undefined,
+                'RATE_LIMITED',
+            ),
         )
     },
 })
@@ -25,6 +29,8 @@ export const authRateLimiter = rateLimit({
         return res.status(429).json(
             ApiResponse.error(
                 'Too many authentication attempts. Please try again later.',
+                undefined,
+                'AUTH_RATE_LIMITED',
             ),
         )
     },
