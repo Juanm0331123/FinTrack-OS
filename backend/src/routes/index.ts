@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { env } from '../config/env.ts'
 import { authRoutes } from '../modules/auth/auth.routes.ts'
+import { financeRoutes } from '../modules/finance/finance.routes.ts'
 import { usersRoutes } from '../modules/users/users.routes.ts'
 import { ApiResponse } from '../utils/api-response.ts'
 
@@ -18,4 +19,5 @@ apiRoutes.get('/health', (_req, res) => {
 })
 
 apiRoutes.use('/auth', authRoutes)
+apiRoutes.use('/', financeRoutes)
 apiRoutes.use('/users', usersRoutes)

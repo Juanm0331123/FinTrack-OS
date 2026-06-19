@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 
 import { APP_ROUTES } from '@/shared/config/routes'
 import { logoutSession } from '../auth/auth.api'
@@ -14,6 +14,12 @@ import {
     DashboardShell,
     type DashboardShellUser,
 } from './dashboard-shell'
+import {
+    getDashboardNavigation,
+    resolveDashboardView,
+    type DashboardView,
+} from './dashboard.data'
+import { DashboardWorkspace } from './dashboard-workspace'
 
 function buildDashboardUser(sessionUser: {
     email: string
@@ -39,7 +45,9 @@ function buildDashboardUser(sessionUser: {
 
 export function DashboardPage() {
     const router = useRouter()
+    const searchParams = useSearchParams()
     const { isLoading, session, status } = useResolvedAuthSession()
+    const activeView = resolveDashboardView(searchParams.get('view'))
 
     useEffect(() => {
         if (status === 'unauthenticated') {
@@ -64,6 +72,36 @@ export function DashboardPage() {
     }
 
     const dashboardUser = buildDashboardUser(session.user)
+    const navigation = getDashboardNavigation(activeView)
+    const viewCopy = getDashboardViewCopy(activeView)
 
-    return <DashboardShell user={dashboardUser} onLogout={handleLogout} />
+    return (
+        <DashboardShell
+            navigation={navigation}
+            user={dashboardUser}
+            onLogout={handleLogout}
+            pageLabel={viewCopy.pageLabel}
+            pageTitle={viewCopy.pageTitle}
+        >
+            <DashboardWorkspace
+                accessToken={session.accessToken}
+                currencyCode={session.user.preferredCurrencyCode}
+                view={activeView}
+            />
+        </DashboardShell>
+    )
+}
+
+function getDashboardViewCopy(view: DashboardView) {
+    if (view === 'current-month') {
+        return {
+            pageLabel: 'Mes actual',
+            pageTitle: 'Gestion diaria del mes en curso',
+        }
+    }
+
+    return {
+        pageLabel: 'Dashboard mensual',
+        pageTitle: 'Estado financiero del mes actual',
+    }
 }
