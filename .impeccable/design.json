@@ -1,0 +1,1076 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-08T00:30:10+00:00",
+  "title": "Design System: FinTrack OS",
+  "extensions": {
+    "colorMeta": {
+      "action-blue": {
+        "role": "primary",
+        "displayName": "Action Blue",
+        "canonical": "oklch(49.8% 0.207 264.6)",
+        "tonalRamp": [
+          "#000036",
+          "#020078",
+          "#0626aa",
+          "#1f4dd0",
+          "#4074fa",
+          "#77a1fe",
+          "#b2cbfe",
+          "#e7efff"
+        ]
+      },
+      "action-blue-hover": {
+        "role": "primary",
+        "displayName": "Action Blue Hover",
+        "canonical": "oklch(43.4% 0.183 265.0)",
+        "tonalRamp": [
+          "#000035",
+          "#030078",
+          "#0e2e9e",
+          "#2952c3",
+          "#4978ec",
+          "#78a1ff",
+          "#b2caff",
+          "#e7effe"
+        ]
+      },
+      "action-blue-wash": {
+        "role": "primary",
+        "displayName": "Action Blue Wash",
+        "canonical": "oklch(96.6% 0.016 262.8)",
+        "tonalRamp": [
+          "#080b12",
+          "#20242c",
+          "#3b4049",
+          "#595e67",
+          "#7b808a",
+          "#9fa5af",
+          "#c5cbd5",
+          "#e9effa"
+        ]
+      },
+      "focus-blue": {
+        "role": "primary",
+        "displayName": "Focus Blue",
+        "canonical": "oklch(75.1% 0.127 263.4)",
+        "tonalRamp": [
+          "#00042f",
+          "#021a60",
+          "#1a3a82",
+          "#375aa5",
+          "#587ecc",
+          "#7ba3f4",
+          "#b1cbfe",
+          "#e6efff"
+        ]
+      },
+      "focus-blue-halo": {
+        "role": "primary",
+        "displayName": "Focus Blue Halo",
+        "canonical": "oklch(90.5% 0.046 264.9)",
+        "tonalRamp": [
+          "#030a1e",
+          "#19233a",
+          "#343f58",
+          "#515d78",
+          "#73809c",
+          "#97a5c2",
+          "#bccbe9",
+          "#e7efff"
+        ]
+      },
+      "positive-ink": {
+        "role": "secondary",
+        "displayName": "Positive Ink",
+        "canonical": "oklch(49.9% 0.117 157.1)",
+        "tonalRamp": [
+          "#001005",
+          "#012c18",
+          "#024d2c",
+          "#047043",
+          "#369564",
+          "#5fbb87",
+          "#86e2ac",
+          "#c4ffda"
+        ]
+      },
+      "positive-wash": {
+        "role": "secondary",
+        "displayName": "Positive Wash",
+        "canonical": "oklch(97.9% 0.022 160.2)",
+        "tonalRamp": [
+          "#040e08",
+          "#1b2720",
+          "#36443c",
+          "#536259",
+          "#75857c",
+          "#99a9a0",
+          "#bfcfc6",
+          "#e2f3e9"
+        ]
+      },
+      "positive-edge": {
+        "role": "secondary",
+        "displayName": "Positive Edge",
+        "canonical": "oklch(89.6% 0.089 157.6)",
+        "tonalRamp": [
+          "#000f06",
+          "#012c18",
+          "#014d2d",
+          "#2a6c4a",
+          "#4f906b",
+          "#74b68f",
+          "#99ddb4",
+          "#c4ffdb"
+        ]
+      },
+      "positive-signal": {
+        "role": "secondary",
+        "displayName": "Positive Signal",
+        "canonical": "oklch(67.3% 0.160 155.6)",
+        "tonalRamp": [
+          "#001005",
+          "#002d16",
+          "#014d2a",
+          "#057040",
+          "#059959",
+          "#33c178",
+          "#63e99d",
+          "#c5ffd9"
+        ]
+      },
+      "negative-ink": {
+        "role": "secondary",
+        "displayName": "Negative Ink",
+        "canonical": "oklch(52.0% 0.201 12.5)",
+        "tonalRamp": [
+          "#1e0005",
+          "#490116",
+          "#7a012a",
+          "#ae023f",
+          "#dd375e",
+          "#fe6e86",
+          "#ffb3bb",
+          "#ffe8ea"
+        ]
+      },
+      "negative-wash": {
+        "role": "secondary",
+        "displayName": "Negative Wash",
+        "canonical": "oklch(97.0% 0.015 7.5)",
+        "tonalRamp": [
+          "#11090a",
+          "#2b2123",
+          "#473d3e",
+          "#665a5c",
+          "#897d7e",
+          "#aea1a3",
+          "#d4c7c9",
+          "#f8eaec"
+        ]
+      },
+      "negative-edge": {
+        "role": "secondary",
+        "displayName": "Negative Edge",
+        "canonical": "oklch(89.3% 0.056 5.9)",
+        "tonalRamp": [
+          "#1d0108",
+          "#3a1720",
+          "#59333b",
+          "#795059",
+          "#9e727b",
+          "#c4969f",
+          "#ecbcc5",
+          "#fee8ec"
+        ]
+      },
+      "negative-signal": {
+        "role": "secondary",
+        "displayName": "Negative Signal",
+        "canonical": "oklch(63.7% 0.210 28.5)",
+        "tonalRamp": [
+          "#1f0000",
+          "#4b0001",
+          "#7c0103",
+          "#b20006",
+          "#e2352c",
+          "#ff7363",
+          "#feb6ab",
+          "#ffe9e5"
+        ]
+      },
+      "caution-ink": {
+        "role": "secondary",
+        "displayName": "Caution Ink",
+        "canonical": "oklch(53.9% 0.156 43.0)",
+        "tonalRamp": [
+          "#1a0400",
+          "#411400",
+          "#6c2701",
+          "#9c3a00",
+          "#ca5a25",
+          "#f3804e",
+          "#ffb79a",
+          "#ffe9e1"
+        ]
+      },
+      "caution-wash": {
+        "role": "secondary",
+        "displayName": "Caution Wash",
+        "canonical": "oklch(98.5% 0.020 91.6)",
+        "tonalRamp": [
+          "#0e0b03",
+          "#282419",
+          "#444034",
+          "#625d51",
+          "#858073",
+          "#a9a497",
+          "#cfcabc",
+          "#f3eedf"
+        ]
+      },
+      "caution-edge": {
+        "role": "secondary",
+        "displayName": "Caution Edge",
+        "canonical": "oklch(91.1% 0.111 90.3)",
+        "tonalRamp": [
+          "#100a00",
+          "#2e2200",
+          "#4f3d01",
+          "#735a03",
+          "#9a7d21",
+          "#bfa14b",
+          "#e6c872",
+          "#ffeebf"
+        ]
+      },
+      "caution-signal": {
+        "role": "secondary",
+        "displayName": "Caution Signal",
+        "canonical": "oklch(74.7% 0.170 62.1)",
+        "tonalRamp": [
+          "#150700",
+          "#381c00",
+          "#5e3401",
+          "#884d01",
+          "#b86a07",
+          "#eb8907",
+          "#feba7e",
+          "#ffead9"
+        ]
+      },
+      "subscription-violet": {
+        "role": "tertiary",
+        "displayName": "Subscription Violet",
+        "canonical": "oklch(49.8% 0.195 291.5)",
+        "tonalRamp": [
+          "#0e002b",
+          "#2a0062",
+          "#480f9b",
+          "#643bc0",
+          "#8562e9",
+          "#a790fe",
+          "#cbc1fe",
+          "#eeecff"
+        ]
+      },
+      "subscription-wash": {
+        "role": "tertiary",
+        "displayName": "Subscription Wash",
+        "canonical": "oklch(96.8% 0.016 289.9)",
+        "tonalRamp": [
+          "#0b0a11",
+          "#24232b",
+          "#3f3e48",
+          "#5d5c66",
+          "#807f89",
+          "#a4a3ae",
+          "#cac9d5",
+          "#eeedf9"
+        ]
+      },
+      "subscription-fill": {
+        "role": "tertiary",
+        "displayName": "Subscription Fill",
+        "canonical": "oklch(58.9% 0.224 286.6)",
+        "tonalRamp": [
+          "#0c002d",
+          "#260067",
+          "#4302a6",
+          "#5d33d2",
+          "#7d5efc",
+          "#9f94fe",
+          "#c6c3fe",
+          "#edecfe"
+        ]
+      },
+      "fixed-sky": {
+        "role": "tertiary",
+        "displayName": "Fixed Sky",
+        "canonical": "oklch(50.3% 0.120 242.5)",
+        "tonalRamp": [
+          "#000c19",
+          "#00273f",
+          "#01446a",
+          "#036398",
+          "#3287c1",
+          "#5aade9",
+          "#99d2fe",
+          "#e0f1ff"
+        ]
+      },
+      "fixed-wash": {
+        "role": "tertiary",
+        "displayName": "Fixed Wash",
+        "canonical": "oklch(97.7% 0.012 236.6)",
+        "tonalRamp": [
+          "#070c10",
+          "#1e2529",
+          "#3a4146",
+          "#575f64",
+          "#798187",
+          "#9ea6ab",
+          "#c3ccd2",
+          "#e7f0f6"
+        ]
+      },
+      "fixed-fill": {
+        "role": "tertiary",
+        "displayName": "Fixed Fill",
+        "canonical": "oklch(59.3% 0.140 241.5)",
+        "tonalRamp": [
+          "#000d19",
+          "#01273e",
+          "#024468",
+          "#046496",
+          "#0788cb",
+          "#44aef4",
+          "#97d2ff",
+          "#e0f1ff"
+        ]
+      },
+      "pocket-amber": {
+        "role": "tertiary",
+        "displayName": "Pocket Amber",
+        "canonical": "oklch(53.9% 0.156 43.0)",
+        "tonalRamp": [
+          "#1a0400",
+          "#411400",
+          "#6c2701",
+          "#9c3a00",
+          "#ca5a25",
+          "#f3804e",
+          "#ffb79a",
+          "#ffe9e1"
+        ]
+      },
+      "pocket-wash": {
+        "role": "tertiary",
+        "displayName": "Pocket Wash",
+        "canonical": "oklch(98.5% 0.020 91.6)",
+        "tonalRamp": [
+          "#0e0b03",
+          "#282419",
+          "#444034",
+          "#625d51",
+          "#858073",
+          "#a9a497",
+          "#cfcabc",
+          "#f3eedf"
+        ]
+      },
+      "pocket-fill": {
+        "role": "tertiary",
+        "displayName": "Pocket Fill",
+        "canonical": "oklch(64.6% 0.170 50.2)",
+        "tonalRamp": [
+          "#180600",
+          "#3d1801",
+          "#672d00",
+          "#934302",
+          "#c75d02",
+          "#f67f2f",
+          "#ffb891",
+          "#ffeade"
+        ]
+      },
+      "savings-green": {
+        "role": "tertiary",
+        "displayName": "Savings Green",
+        "canonical": "oklch(49.9% 0.117 157.1)",
+        "tonalRamp": [
+          "#001005",
+          "#012c18",
+          "#024d2c",
+          "#047043",
+          "#369564",
+          "#5fbb87",
+          "#86e2ac",
+          "#c4ffda"
+        ]
+      },
+      "savings-wash": {
+        "role": "tertiary",
+        "displayName": "Savings Wash",
+        "canonical": "oklch(97.9% 0.022 160.2)",
+        "tonalRamp": [
+          "#040e08",
+          "#1b2720",
+          "#36443c",
+          "#536259",
+          "#75857c",
+          "#99a9a0",
+          "#bfcfc6",
+          "#e2f3e9"
+        ]
+      },
+      "savings-fill": {
+        "role": "tertiary",
+        "displayName": "Savings Fill",
+        "canonical": "oklch(58.6% 0.143 155.2)",
+        "tonalRamp": [
+          "#000f05",
+          "#012d16",
+          "#014d29",
+          "#04703f",
+          "#149859",
+          "#4abe7c",
+          "#75e6a1",
+          "#c5ffd8"
+        ]
+      },
+      "debt-magenta": {
+        "role": "tertiary",
+        "displayName": "Debt Magenta",
+        "canonical": "oklch(53.6% 0.210 354.8)",
+        "tonalRamp": [
+          "#1d000d",
+          "#470027",
+          "#760244",
+          "#a90263",
+          "#d83487",
+          "#ff65ab",
+          "#feb0ce",
+          "#fee8ef"
+        ]
+      },
+      "debt-wash": {
+        "role": "tertiary",
+        "displayName": "Debt Wash",
+        "canonical": "oklch(97.2% 0.016 335.1)",
+        "tonalRamp": [
+          "#0f090e",
+          "#292127",
+          "#453d43",
+          "#645a61",
+          "#877d84",
+          "#aba1a8",
+          "#d1c7cf",
+          "#f6ebf3"
+        ]
+      },
+      "debt-fill": {
+        "role": "tertiary",
+        "displayName": "Debt Fill",
+        "canonical": "oklch(60.3% 0.230 351.6)",
+        "tonalRamp": [
+          "#1c000e",
+          "#47002a",
+          "#750148",
+          "#a7026a",
+          "#dc248f",
+          "#fe63b3",
+          "#ffafd2",
+          "#ffe7f1"
+        ]
+      },
+      "other-slate": {
+        "role": "tertiary",
+        "displayName": "Other Slate",
+        "canonical": "oklch(44.2% 0.035 257.8)",
+        "tonalRamp": [
+          "#030b1a",
+          "#192435",
+          "#344053",
+          "#515f72",
+          "#738196",
+          "#97a6bb",
+          "#bdcce2",
+          "#e5efff"
+        ]
+      },
+      "other-wash": {
+        "role": "tertiary",
+        "displayName": "Other Wash",
+        "canonical": "oklch(96.6% 0.005 258.3)",
+        "tonalRamp": [
+          "#0a0b0d",
+          "#232426",
+          "#3e4042",
+          "#5c5e60",
+          "#7e8083",
+          "#a3a5a7",
+          "#c9cbcd",
+          "#edeff2"
+        ]
+      },
+      "other-fill": {
+        "role": "tertiary",
+        "displayName": "Other Fill",
+        "canonical": "oklch(54.4% 0.035 265.1)",
+        "tonalRamp": [
+          "#050a1a",
+          "#1c2435",
+          "#374053",
+          "#545e72",
+          "#768096",
+          "#9aa5bb",
+          "#bfcbe2",
+          "#e7efff"
+        ]
+      },
+      "chart-income": {
+        "role": "tertiary",
+        "displayName": "Chart Income",
+        "canonical": "oklch(49.8% 0.207 264.6)",
+        "tonalRamp": [
+          "#000036",
+          "#020078",
+          "#0626aa",
+          "#1f4dd0",
+          "#4074fa",
+          "#77a1fe",
+          "#b2cbfe",
+          "#e7efff"
+        ]
+      },
+      "chart-expense": {
+        "role": "tertiary",
+        "displayName": "Chart Expense",
+        "canonical": "oklch(64.9% 0.219 12.9)",
+        "tonalRamp": [
+          "#1e0005",
+          "#4a0015",
+          "#7a0129",
+          "#af013e",
+          "#e4275a",
+          "#ff6e85",
+          "#feb3ba",
+          "#fee8ea"
+        ]
+      },
+      "desk-gray": {
+        "role": "neutral",
+        "displayName": "Desk Gray",
+        "canonical": "oklch(97.3% 0.003 264.5)",
+        "tonalRamp": [
+          "#0b0b0c",
+          "#232425",
+          "#3f4041",
+          "#5d5e5f",
+          "#7f8082",
+          "#a4a4a6",
+          "#c9cacc",
+          "#edeef0"
+        ]
+      },
+      "sheet-white": {
+        "role": "neutral",
+        "displayName": "Sheet White",
+        "canonical": "oklch(100.0% 0.000 89.9)",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#242424",
+          "#404040",
+          "#5d5d5d",
+          "#808080",
+          "#a4a4a4",
+          "#cacaca",
+          "#eeeeee"
+        ]
+      },
+      "muted-fill": {
+        "role": "neutral",
+        "displayName": "Muted Fill",
+        "canonical": "oklch(96.6% 0.005 258.3)",
+        "tonalRamp": [
+          "#0a0b0d",
+          "#232426",
+          "#3e4042",
+          "#5c5e60",
+          "#7e8083",
+          "#a3a5a7",
+          "#c9cbcd",
+          "#edeff2"
+        ]
+      },
+      "hover-wash": {
+        "role": "neutral",
+        "displayName": "Hover Wash",
+        "canonical": "oklch(98.5% 0.002 247.8)",
+        "tonalRamp": [
+          "#0b0b0c",
+          "#232425",
+          "#3f4041",
+          "#5d5e5e",
+          "#7f8081",
+          "#a4a5a5",
+          "#cacacb",
+          "#edeeef"
+        ]
+      },
+      "hairline": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "canonical": "oklch(92.7% 0.007 260.7)",
+        "tonalRamp": [
+          "#090b0e",
+          "#222428",
+          "#3d4044",
+          "#5b5e62",
+          "#7e8085",
+          "#a2a5a9",
+          "#c8cbcf",
+          "#eceff4"
+        ]
+      },
+      "hairline-soft": {
+        "role": "neutral",
+        "displayName": "Hairline Soft",
+        "canonical": "oklch(95.4% 0.005 258.3)",
+        "tonalRamp": [
+          "#0a0b0d",
+          "#232426",
+          "#3e4042",
+          "#5c5e60",
+          "#7e8083",
+          "#a3a5a7",
+          "#c9cbcd",
+          "#edeff2"
+        ]
+      },
+      "control-edge": {
+        "role": "neutral",
+        "displayName": "Control Edge",
+        "canonical": "oklch(87.2% 0.012 259.8)",
+        "tonalRamp": [
+          "#080b10",
+          "#21242a",
+          "#3c4046",
+          "#5a5e65",
+          "#7c8088",
+          "#a0a5ac",
+          "#c6cbd3",
+          "#eaeff7"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "oklch(20.8% 0.040 265.8)",
+        "tonalRamp": [
+          "#040a1c",
+          "#1b2337",
+          "#363f55",
+          "#535d75",
+          "#758099",
+          "#99a5be",
+          "#becbe5",
+          "#e7effe"
+        ]
+      },
+      "ink-secondary": {
+        "role": "neutral",
+        "displayName": "Ink Secondary",
+        "canonical": "oklch(44.2% 0.035 257.8)",
+        "tonalRamp": [
+          "#030b1a",
+          "#192435",
+          "#344053",
+          "#515f72",
+          "#738196",
+          "#97a6bb",
+          "#bdcce2",
+          "#e5efff"
+        ]
+      },
+      "ink-tertiary": {
+        "role": "neutral",
+        "displayName": "Ink Tertiary",
+        "canonical": "oklch(54.4% 0.035 265.1)",
+        "tonalRamp": [
+          "#050a1a",
+          "#1c2435",
+          "#374053",
+          "#545e72",
+          "#768096",
+          "#9aa5bb",
+          "#bfcbe2",
+          "#e7efff"
+        ]
+      },
+      "ink-quiet": {
+        "role": "neutral",
+        "displayName": "Ink Quiet",
+        "canonical": "oklch(71.0% 0.027 261.1)",
+        "tonalRamp": [
+          "#050b17",
+          "#1d2431",
+          "#38404e",
+          "#555e6d",
+          "#778191",
+          "#9ba5b6",
+          "#c1cbdd",
+          "#e6efff"
+        ]
+      },
+      "brand-ground": {
+        "role": "brand",
+        "displayName": "Brand Ground",
+        "canonical": "oklch(0.982 0.006 255)",
+        "tonalRamp": [
+          "#090b0e",
+          "#222427",
+          "#3e4043",
+          "#5b5e61",
+          "#7e8084",
+          "#a2a5a8",
+          "#c8cbce",
+          "#eceff2"
+        ]
+      },
+      "brand-ink": {
+        "role": "brand",
+        "displayName": "Brand Ink",
+        "canonical": "oklch(0.19 0.025 255)",
+        "tonalRamp": [
+          "#050b16",
+          "#1c2530",
+          "#37414d",
+          "#545f6c",
+          "#76818f",
+          "#9aa6b4",
+          "#c0ccdb",
+          "#e4f0fe"
+        ]
+      },
+      "brand-blue": {
+        "role": "brand",
+        "displayName": "Brand Blue",
+        "canonical": "oklch(0.58 0.19 252)",
+        "tonalRamp": [
+          "#000b1e",
+          "#002448",
+          "#014077",
+          "#035eaa",
+          "#0581e6",
+          "#59a8fe",
+          "#a5cffe",
+          "#e3f0ff"
+        ]
+      },
+      "brand-rose": {
+        "role": "brand",
+        "displayName": "Brand Rose",
+        "canonical": "oklch(0.65 0.22 354.5)",
+        "tonalRamp": [
+          "#1d000d",
+          "#470127",
+          "#760044",
+          "#a80364",
+          "#db2c88",
+          "#ff64ac",
+          "#ffafce",
+          "#ffe7ef"
+        ]
+      },
+      "brand-violet": {
+        "role": "brand",
+        "displayName": "Brand Violet",
+        "canonical": "oklch(0.67 0.17 305)",
+        "tonalRamp": [
+          "#130024",
+          "#340156",
+          "#561685",
+          "#753ba8",
+          "#9860d0",
+          "#be85f9",
+          "#d9bbfe",
+          "#f3eafe"
+        ]
+      },
+      "brand-mint": {
+        "role": "brand",
+        "displayName": "Brand Mint",
+        "canonical": "oklch(0.72 0.18 168)",
+        "tonalRamp": [
+          "#000f09",
+          "#012c1f",
+          "#024c38",
+          "#046e53",
+          "#089772",
+          "#0ec193",
+          "#01edb5",
+          "#c0ffe5"
+        ]
+      },
+      "brand-cyan": {
+        "role": "brand",
+        "displayName": "Brand Cyan",
+        "canonical": "oklch(0.72 0.14 215)",
+        "tonalRamp": [
+          "#000e12",
+          "#002932",
+          "#034855",
+          "#03697b",
+          "#0090a8",
+          "#0bb8d6",
+          "#4edffe",
+          "#d3f6ff"
+        ]
+      },
+      "brand-coral": {
+        "role": "brand",
+        "displayName": "Brand Coral",
+        "canonical": "oklch(0.62 0.22 25)",
+        "tonalRamp": [
+          "#1f0001",
+          "#4b0106",
+          "#7c000f",
+          "#b1011b",
+          "#e62b34",
+          "#ff726b",
+          "#feb5ae",
+          "#fee9e6"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Page titles such as the month name; 24px on phones, 26px from 640px."
+      },
+      "metric": {
+        "displayName": "Metric",
+        "purpose": "KPI figures and pocket headlines in tabular numerals; 20px on phones, 22px from 640px."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Panel titles; drawer titles use 18px."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Table cells, form values, list rows and explanations."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Field labels, segmented options and panel asides."
+      },
+      "caption": {
+        "displayName": "Caption",
+        "purpose": "Table headers, pills, badges, row metadata and hints."
+      }
+    },
+    "shadows": [
+      {
+        "name": "drawer",
+        "value": "0 20px 48px -16px rgba(16,24,40,0.28)",
+        "purpose": "Right-hand detail sheet and confirmation dialog over a rgba(15,23,42,0.32) scrim."
+      },
+      {
+        "name": "menu",
+        "value": "0 12px 32px -12px rgba(16,24,40,0.24)",
+        "purpose": "Dropdowns and the account menu."
+      },
+      {
+        "name": "tooltip",
+        "value": "0 8px 24px -12px rgba(16,24,40,0.3)",
+        "purpose": "Chart tooltips."
+      },
+      {
+        "name": "floating-action",
+        "value": "0 8px 16px -8px rgba(36,83,214,0.6)",
+        "purpose": "Mobile \"Nuevo gasto\" button."
+      },
+      {
+        "name": "micro-lift",
+        "value": "0 1px 2px rgba(16,24,40,0.08)",
+        "purpose": "Primary buttons and the selected segment."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-out-quint",
+        "value": "cubic-bezier(0.22, 1, 0.36, 1)",
+        "purpose": "Drawer entrance and exit, shell transitions."
+      },
+      {
+        "name": "drawer-in",
+        "value": "220ms",
+        "purpose": "Drawer slides 24px from the right while fading in."
+      },
+      {
+        "name": "drawer-out",
+        "value": "160ms",
+        "purpose": "Drawer exit."
+      },
+      {
+        "name": "state-change",
+        "value": "150ms",
+        "purpose": "Hover, focus and color changes on controls and rows."
+      },
+      {
+        "name": "progress",
+        "value": "300ms",
+        "purpose": "Width changes of meters and usage bars."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "640px"
+      },
+      {
+        "name": "md",
+        "value": "768px"
+      },
+      {
+        "name": "lg",
+        "value": "1024px"
+      },
+      {
+        "name": "xl",
+        "value": "1280px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one primary action per view, such as \"Nuevo gasto\".",
+      "html": "<button class=\"ds-btn-primary\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" aria-hidden=\"true\"><path d=\"M12 5v14M5 12h14\"/></svg>Nuevo gasto</button>",
+      "css": ".ds-btn-primary { font-family: Geist, ui-sans-serif, system-ui, sans-serif; display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px; border: 0; border-radius: 8px; background: #2453d6; color: #fff; font-size: 14px; font-weight: 600; box-shadow: 0 1px 2px rgba(16,24,40,0.08); cursor: pointer; transition: background-color 150ms; } .ds-btn-primary:hover { background: #1d43b3; } .ds-btn-primary:focus-visible { outline: 2px solid #84adff; outline-offset: 2px; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Supporting actions next to the primary, such as copying the previous month.",
+      "html": "<button class=\"ds-btn-secondary\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><rect x=\"8\" y=\"8\" width=\"14\" height=\"14\" rx=\"2\"/><path d=\"M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2\"/></svg>Copiar mes anterior</button>",
+      "css": ".ds-btn-secondary { font-family: Geist, ui-sans-serif, system-ui, sans-serif; display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px; border: 1px solid #e4e7ec; border-radius: 8px; background: #fff; color: #0f172a; font-size: 14px; font-weight: 600; cursor: pointer; transition: background-color 150ms; } .ds-btn-secondary:hover { background: #f9fafb; } .ds-btn-secondary:focus-visible { outline: 2px solid #84adff; outline-offset: 2px; }"
+    },
+    {
+      "name": "Money Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Labeled amount field with a muted currency prefix and tabular digits.",
+      "html": "<label class=\"ds-field\"><span class=\"ds-field-label\">Salario</span><span class=\"ds-money\"><span class=\"ds-money-prefix\">$</span><input class=\"ds-money-input\" inputmode=\"numeric\" value=\"2.500.000\"></span></label>",
+      "css": ".ds-field { font-family: Geist, ui-sans-serif, system-ui, sans-serif; display: grid; gap: 6px; width: 240px; } .ds-field-label { font-size: 13px; font-weight: 500; color: #475467; } .ds-money { display: flex; align-items: center; gap: 6px; height: 40px; padding: 0 12px; border: 1px solid #e4e7ec; border-radius: 8px; background: #fff; transition: border-color 150ms, box-shadow 150ms; } .ds-money:focus-within { border-color: #84adff; box-shadow: 0 0 0 3px #d1e0ff; } .ds-money-prefix { font-size: 13px; color: #667085; } .ds-money-input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font: inherit; font-size: 14px; font-weight: 500; color: #0f172a; font-variant-numeric: tabular-nums; }"
+    },
+    {
+      "name": "Payment Status Badges",
+      "kind": "chip",
+      "refersTo": "badge-paid",
+      "description": "Toggleable payment states, always a dot plus a word.",
+      "html": "<div class=\"ds-badges\"><button class=\"ds-badge ds-badge-paid\"><span class=\"ds-dot\"></span>Pagado</button><button class=\"ds-badge ds-badge-pending\"><span class=\"ds-dot\"></span>Pendiente</button><button class=\"ds-badge ds-badge-late\"><span class=\"ds-dot\"></span>Vencido</button></div>",
+      "css": ".ds-badges { display: flex; gap: 8px; } .ds-badge { font-family: Geist, ui-sans-serif, system-ui, sans-serif; display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border: 1px solid; border-radius: 999px; font-size: 12.5px; font-weight: 500; cursor: pointer; } .ds-badge:focus-visible { outline: 2px solid #84adff; outline-offset: 2px; } .ds-dot { width: 6px; height: 6px; border-radius: 999px; background: currentColor; } .ds-badge-paid { border-color: #abefc6; background: #ecfdf3; color: #067647; } .ds-badge-paid .ds-dot { background: #17b26a; } .ds-badge-pending { border-color: #e4e7ec; background: #fff; color: #475467; } .ds-badge-pending .ds-dot { background: #98a2b3; } .ds-badge-late { border-color: #fecdd6; background: #fff1f3; color: #c01048; } .ds-badge-late .ds-dot { background: #f04438; }"
+    },
+    {
+      "name": "Category Pills",
+      "kind": "chip",
+      "refersTo": "badge-pending",
+      "description": "Category hues contained in a wash pill with a fill dot.",
+      "html": "<div class=\"ds-pills\"><span class=\"ds-pill ds-pocket\"><span></span>Bolsillo</span><span class=\"ds-pill ds-fixed\"><span></span>Fijo</span><span class=\"ds-pill ds-debt\"><span></span>Deuda</span><span class=\"ds-pill ds-savings\"><span></span>Ahorro</span></div>",
+      "css": ".ds-pills { display: flex; flex-wrap: wrap; gap: 8px; } .ds-pill { font-family: Geist, ui-sans-serif, system-ui, sans-serif; display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border-radius: 999px; font-size: 12.5px; font-weight: 500; } .ds-pill span { width: 6px; height: 6px; border-radius: 999px; } .ds-pocket { background: #fffaeb; color: #b54708; } .ds-pocket span { background: #dc6803; } .ds-fixed { background: #f0f9ff; color: #026aa2; } .ds-fixed span { background: #0086c9; } .ds-debt { background: #fdf2fa; color: #c11574; } .ds-debt span { background: #dd2590; } .ds-savings { background: #ecfdf3; color: #067647; } .ds-savings span { background: #079455; }"
+    },
+    {
+      "name": "Sidebar Navigation",
+      "kind": "nav",
+      "refersTo": "nav-item-active",
+      "description": "Workspace navigation; the current page sits in Blue Wash.",
+      "html": "<nav class=\"ds-nav\" aria-label=\"Navegación\"><a class=\"ds-nav-item is-active\" aria-current=\"page\">Hoja del mes</a><a class=\"ds-nav-item\">Resumen</a><a class=\"ds-nav-item\">Deudas</a><a class=\"ds-nav-item\">Calendario</a></nav>",
+      "css": ".ds-nav { font-family: Geist, ui-sans-serif, system-ui, sans-serif; display: flex; flex-direction: column; gap: 2px; width: 224px; padding: 12px; background: #fff; border-right: 1px solid #e4e7ec; } .ds-nav-item { display: flex; align-items: center; height: 40px; padding: 0 10px; border-radius: 8px; font-size: 14px; font-weight: 500; color: #475467; text-decoration: none; cursor: pointer; transition: background-color 150ms, color 150ms; } .ds-nav-item:hover { background: #f2f4f7; color: #0f172a; } .ds-nav-item.is-active { background: #eef4ff; color: #2453d6; font-weight: 600; } .ds-nav-item:focus-visible { outline: 2px solid #84adff; }"
+    },
+    {
+      "name": "Panel",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Flat white sheet with a hairline edge, a title and a quiet aside.",
+      "html": "<section class=\"ds-panel\"><header class=\"ds-panel-head\"><h2>Gastos</h2><span>Pagado <b>$ 930.000</b> de $ 1.755.000</span></header><div class=\"ds-panel-row\"><span>Arriendo</span><b>$ 900.000</b></div><div class=\"ds-panel-row\"><span>Internet</span><b>$ 80.000</b></div></section>",
+      "css": ".ds-panel { font-family: Geist, ui-sans-serif, system-ui, sans-serif; width: 360px; background: #fff; border: 1px solid #e4e7ec; border-radius: 11.2px; } .ds-panel-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; padding: 16px 18px; } .ds-panel-head h2 { margin: 0; font-size: 16px; font-weight: 600; color: #0f172a; } .ds-panel-head span { font-size: 13px; color: #667085; font-variant-numeric: tabular-nums; } .ds-panel-head b { color: #0f172a; font-weight: 600; } .ds-panel-row { display: flex; justify-content: space-between; padding: 12px 18px; border-top: 1px solid #eef0f3; font-size: 14px; color: #0f172a; } .ds-panel-row b { font-weight: 600; font-variant-numeric: tabular-nums; }"
+    },
+    {
+      "name": "Segmented Control",
+      "kind": "custom",
+      "refersTo": "input",
+      "description": "Two to six exclusive options on a muted track.",
+      "html": "<div class=\"ds-seg\" role=\"group\" aria-label=\"Destino del sobrante\"><button aria-pressed=\"true\">Al disponible</button><button aria-pressed=\"false\">Al ahorro</button></div>",
+      "css": ".ds-seg { font-family: Geist, ui-sans-serif, system-ui, sans-serif; display: inline-flex; gap: 2px; padding: 3px; border-radius: 9px; background: #f2f4f7; } .ds-seg button { height: 32px; padding: 0 10px; border: 0; border-radius: 7px; background: transparent; font: inherit; font-size: 13px; font-weight: 500; color: #475467; cursor: pointer; } .ds-seg button:hover { color: #0f172a; } .ds-seg button[aria-pressed=\"true\"] { background: #fff; color: #0f172a; box-shadow: 0 1px 2px rgba(16,24,40,0.1); } .ds-seg button:focus-visible { outline: 2px solid #84adff; outline-offset: 1px; }"
+    },
+    {
+      "name": "Pocket Tile",
+      "kind": "custom",
+      "refersTo": "card",
+      "description": "Signature budget tile: what remains, how fast it is going and a register-spend affordance.",
+      "html": "<button class=\"ds-pocket-tile\"><span class=\"ds-pt-head\"><b>Mercado</b><span class=\"ds-pt-pace\">Vas bien</span></span><span class=\"ds-pt-figure\"><span><small>Quedan</small> $ 244.500</span><small>de $ 400.000</small></span><span class=\"ds-pt-bar\"><span style=\"width:39%\"></span></span><span class=\"ds-pt-foot\"><span>Usado $ 155.500 · ≈ $ 9.780 por día</span><span class=\"ds-pt-cta\">+ Registrar gasto</span></span></button>",
+      "css": ".ds-pocket-tile { font-family: Geist, ui-sans-serif, system-ui, sans-serif; display: flex; flex-direction: column; gap: 8px; width: 280px; padding: 14px; border: 1px solid #e4e7ec; border-radius: 8px; background: #fff; text-align: left; cursor: pointer; transition: border-color 150ms, background-color 150ms; } .ds-pocket-tile:hover { border-color: #d0d5dd; background: #f9fafb; } .ds-pocket-tile:focus-visible { outline: 2px solid #84adff; outline-offset: 2px; } .ds-pt-head { display: flex; justify-content: space-between; align-items: center; font-size: 14px; color: #0f172a; } .ds-pt-pace { height: 22px; padding: 0 8px; border-radius: 999px; background: #ecfdf3; color: #067647; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; } .ds-pt-figure { display: flex; justify-content: space-between; align-items: baseline; font-size: 18px; font-weight: 600; color: #0f172a; font-variant-numeric: tabular-nums; } .ds-pt-figure small { font-size: 12.5px; font-weight: 400; color: #667085; } .ds-pt-bar { display: block; height: 6px; border-radius: 999px; background: #f2f4f7; overflow: hidden; } .ds-pt-bar span { display: block; height: 100%; border-radius: 999px; background: #17b26a; } .ds-pt-foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; font-size: 12.5px; color: #667085; font-variant-numeric: tabular-nums; } .ds-pt-cta { color: #2453d6; font-weight: 600; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "La hoja que se calcula sola",
+    "overview": "FinTrack OS lives in two places. The public surfaces (home and sign-in) are the brand's front door: a bright studio desk with controlled flashes of gradient color. Everything after sign-in is the workspace, where people do their money every month, and that workspace is the monthly spreadsheet rebuilt as a calm, modern tool: one sheet per month, rows of expenses by account and category, a minimum cushion, an annual summary, a debt plan, and every number recalculating the moment a value is typed.\n\nThe workspace follows the category standard for personal-finance dashboards (sidebar, white cards, one blue primary, editable tables) executed with the precision of Monarch Money, YNAB and Copilot Money. Density is medium-high and quiet: a cool gray desk, flat white sheets edged by hairlines, Geist with tabular numerals, one blue reserved for action and selection, and color that only ever means status or category. Brand personality lives in precise details (the status words, the cushion meter, the pocket pace), not in decoration.\n\nThe workspace rejects the decorative card-soup dashboard the product shipped before (hero metrics, gradients, quick-action tiles), legacy bank chrome, beige finance templates, crypto-trader styling and dark-only terminal aesthetics.",
+    "keyCharacteristics": [
+      "Flat white sheets on a cool gray desk, separated by 1px hairlines, never by resting shadows.",
+      "One action blue for buttons, selection and the current page; everything else is ink, status or category.",
+      "Every amount in tabular numerals, Colombian grouping and no decimals.",
+      "Status is always a word plus a dot or bar, never color alone.",
+      "Edits are inline and instant; panels slide in from the right for detail."
+    ],
+    "rules": [
+      {
+        "name": "The One Blue Rule",
+        "body": "Action Blue means \"you can act here\" or \"this is selected\". It never marks a category, decorates a card, or colors a number.",
+        "section": "colors"
+      },
+      {
+        "name": "The Contained Hue Rule",
+        "body": "Category hues live only inside pills, dots, bars and calendar chips. Amounts, panel backgrounds and headings stay in ink.",
+        "section": "colors"
+      },
+      {
+        "name": "The Two Worlds Rule",
+        "body": "Brand gradients, radial backdrops and the gradient brand-action button belong to public surfaces. The workspace never uses them.",
+        "section": "colors"
+      },
+      {
+        "name": "The Tabular Rule",
+        "body": "Every amount uses tabular numerals and Colombian grouping with no decimals ($ 1.234.567), with a true minus sign for negatives. Money is never set in a display size or a gradient inside the workspace.",
+        "section": "typography"
+      },
+      {
+        "name": "The Hairline Rule",
+        "body": "Cards are separated by 1px Hairline edges on Desk Gray, never by resting shadows. If something casts a shadow, it floats.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do reserve Action Blue (#2453d6) for actions, selection, the current page, today and income in charts.",
+      "Do separate workspace surfaces with 1px Hairline (#e4e7ec) edges on Desk Gray (#f5f6f8) and keep cards flat.",
+      "Do pair every status color with a word and a dot or bar (Pagado, Pendiente, Vencido, Vas bien, Excedido).",
+      "Do set every amount in tabular numerals with Colombian grouping and no decimals.",
+      "Do keep category hues inside pills, dots, bars and calendar chips.",
+      "Do keep controls at 8px radius and cards at 11.2px, with 40px controls and 44px touch targets on phones.",
+      "Do keep brand gradients, radial backdrops and the gradient brand-action button on public surfaces only."
+    ],
+    "donts": [
+      "Don't add resting shadows, gradients, glass or glow to workspace cards.",
+      "Don't bring back hero metrics, oversized numbers or quick-action tiles in the workspace.",
+      "Don't color amounts, headings or panel backgrounds with category hues.",
+      "Don't let color carry a status alone.",
+      "Don't give pockets a paid toggle; they show used, remaining and pace.",
+      "Don't use dark-only terminal styling, legacy bank chrome, beige finance templates or crypto-trader aesthetics."
+    ]
+  }
+}

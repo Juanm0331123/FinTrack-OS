@@ -16,6 +16,11 @@ The product helps users build a monthly financial picture: what came in, what we
 
 Confident, clear, and alive. The interface should feel professional and trustworthy, but not cold or old-fashioned. Brand moments can use vivid gradients and energetic chart colors, while task surfaces stay clean, readable, and calm.
 
+## Brand Commitments
+
+- The post-login app follows the category standard for modern personal-finance dashboards (sidebar, white cards, one blue primary, editable tables), executed at the craft level of Monarch Money, YNAB and Copilot Money. The user chose it on 2026-10-07 over a banknote-inspired and a ledger-inspired direction.
+- The app mirrors the user's monthly spreadsheet workflow: one sheet per month (incomes, expense rows by account and category, minimum cushion), an annual summary, an avalanche debt plan and a configuration sheet. Its formulas are the functional specification.
+
 ## Anti-references
 
 Avoid legacy bank dashboards, beige finance templates, crypto-trader aesthetics, gamified money apps, and dark-only "terminal" fintech interfaces. Do not let decorative gradients, oversized metrics, or flashy cards compete with financial clarity.
