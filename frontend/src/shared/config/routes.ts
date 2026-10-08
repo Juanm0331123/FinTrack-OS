@@ -3,6 +3,10 @@ export const APP_ROUTES = {
     forgotPassword: '/forgot-password',
     home: '/',
     dashboard: '/dashboard',
+    dashboardCalendar: '/dashboard/calendar',
+    dashboardDebts: '/dashboard/debts',
+    dashboardSettings: '/dashboard/settings',
+    dashboardSummary: '/dashboard/summary',
     login: '/login',
     register: '/register',
 } as const

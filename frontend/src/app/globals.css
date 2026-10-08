@@ -74,6 +74,19 @@
   --chart-5: oklch(0.78 0.17 82);
   --brand-rose: oklch(0.65 0.22 354.5);
   --brand-cyan: oklch(0.72 0.14 215);
+  --brand-action-top: oklch(0.61 0.16 246);
+  --brand-action-bottom: oklch(0.54 0.15 247);
+  --brand-action-top-hover: oklch(0.63 0.17 246);
+  --brand-action-bottom-hover: oklch(0.56 0.16 247);
+  --brand-action-top-active: oklch(0.58 0.15 246);
+  --brand-action-bottom-active: oklch(0.51 0.14 247);
+  --brand-action-stroke: oklch(0.43 0.11 247 / 28%);
+  --brand-action-shadow: oklch(0.38 0.09 247 / 10%);
+  --brand-action-shadow-hover: oklch(0.36 0.09 247 / 16%);
+  --brand-action-shadow-active: oklch(0.34 0.08 247 / 10%);
+  --brand-action-focus-ring: oklch(0.68 0.12 246 / 28%);
+  --brand-action-disabled-top: oklch(0.74 0.03 246);
+  --brand-action-disabled-bottom: oklch(0.69 0.03 246);
   --radius: 0.75rem;
   --motion-shell-enter: 220ms;
   --motion-shell-exit: 170ms;
@@ -114,6 +127,19 @@
   --chart-5: oklch(0.82 0.15 82);
   --brand-rose: oklch(0.72 0.18 354.5);
   --brand-cyan: oklch(0.78 0.12 215);
+  --brand-action-top: oklch(0.64 0.14 246);
+  --brand-action-bottom: oklch(0.57 0.13 247);
+  --brand-action-top-hover: oklch(0.66 0.15 246);
+  --brand-action-bottom-hover: oklch(0.59 0.14 247);
+  --brand-action-top-active: oklch(0.61 0.13 246);
+  --brand-action-bottom-active: oklch(0.54 0.12 247);
+  --brand-action-stroke: oklch(0.98 0.006 245 / 14%);
+  --brand-action-shadow: oklch(0 0 0 / 24%);
+  --brand-action-shadow-hover: oklch(0 0 0 / 30%);
+  --brand-action-shadow-active: oklch(0 0 0 / 20%);
+  --brand-action-focus-ring: oklch(0.74 0.11 246 / 34%);
+  --brand-action-disabled-top: oklch(0.48 0.03 246);
+  --brand-action-disabled-bottom: oklch(0.43 0.03 246);
   --sidebar: oklch(0.18 0.025 255);
   --sidebar-foreground: oklch(0.96 0.005 255);
   --sidebar-primary: oklch(0.68 0.17 252);
@@ -138,14 +164,46 @@
 
 @layer utilities {
   .brand-action {
+    border-color: var(--brand-action-stroke);
     background: linear-gradient(
-      110deg,
-      oklch(0.62 0.22 254) 0%,
-      oklch(0.63 0.21 285) 34%,
-      oklch(0.66 0.22 342) 68%,
-      oklch(0.68 0.2 28) 100%
+      180deg,
+      var(--brand-action-top) 0%,
+      var(--brand-action-bottom) 100%
     );
-    box-shadow: 0 8px 14px oklch(0.58 0.19 252 / 18%);
+    box-shadow: 0 1px 2px var(--brand-action-shadow);
+  }
+
+  .brand-action:hover:not(:disabled) {
+    background: linear-gradient(
+      180deg,
+      var(--brand-action-top-hover) 0%,
+      var(--brand-action-bottom-hover) 100%
+    );
+    box-shadow: 0 3px 8px var(--brand-action-shadow-hover);
+  }
+
+  .brand-action:active:not(:disabled) {
+    background: linear-gradient(
+      180deg,
+      var(--brand-action-top-active) 0%,
+      var(--brand-action-bottom-active) 100%
+    );
+    box-shadow: 0 1px 3px var(--brand-action-shadow-active);
+  }
+
+  .brand-action:focus-visible {
+    box-shadow:
+      0 0 0 4px var(--brand-action-focus-ring),
+      0 3px 8px var(--brand-action-shadow-hover);
+  }
+
+  .brand-action:disabled {
+    background: linear-gradient(
+      180deg,
+      var(--brand-action-disabled-top) 0%,
+      var(--brand-action-disabled-bottom) 100%
+    );
+    box-shadow: none;
   }
 
   .text-brand-gradient {
@@ -256,4 +314,203 @@
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+@theme inline {
+  --color-ft-canvas: var(--ft-canvas);
+  --color-ft-card: var(--ft-card);
+  --color-ft-muted: var(--ft-muted);
+  --color-ft-hover: var(--ft-hover);
+  --color-ft-line: var(--ft-line);
+  --color-ft-line-soft: var(--ft-line-soft);
+  --color-ft-control: var(--ft-control);
+  --color-ft-ink: var(--ft-ink);
+  --color-ft-ink-2: var(--ft-ink-2);
+  --color-ft-ink-3: var(--ft-ink-3);
+  --color-ft-ink-4: var(--ft-ink-4);
+  --color-ft-primary: var(--ft-primary);
+  --color-ft-primary-hover: var(--ft-primary-hover);
+  --color-ft-primary-soft: var(--ft-primary-soft);
+  --color-ft-focus: var(--ft-focus);
+  --color-ft-focus-soft: var(--ft-focus-soft);
+  --color-ft-pos: var(--ft-pos);
+  --color-ft-pos-soft: var(--ft-pos-soft);
+  --color-ft-pos-border: var(--ft-pos-border);
+  --color-ft-pos-dot: var(--ft-pos-dot);
+  --color-ft-neg: var(--ft-neg);
+  --color-ft-neg-soft: var(--ft-neg-soft);
+  --color-ft-neg-border: var(--ft-neg-border);
+  --color-ft-neg-dot: var(--ft-neg-dot);
+  --color-ft-warn: var(--ft-warn);
+  --color-ft-warn-soft: var(--ft-warn-soft);
+  --color-ft-warn-border: var(--ft-warn-border);
+  --color-ft-warn-dot: var(--ft-warn-dot);
+  --color-cat-subscription: var(--cat-subscription);
+  --color-cat-subscription-soft: var(--cat-subscription-soft);
+  --color-cat-subscription-fill: var(--cat-subscription-fill);
+  --color-cat-fixed: var(--cat-fixed);
+  --color-cat-fixed-soft: var(--cat-fixed-soft);
+  --color-cat-fixed-fill: var(--cat-fixed-fill);
+  --color-cat-pocket: var(--cat-pocket);
+  --color-cat-pocket-soft: var(--cat-pocket-soft);
+  --color-cat-pocket-fill: var(--cat-pocket-fill);
+  --color-cat-savings: var(--cat-savings);
+  --color-cat-savings-soft: var(--cat-savings-soft);
+  --color-cat-savings-fill: var(--cat-savings-fill);
+  --color-cat-debt: var(--cat-debt);
+  --color-cat-debt-soft: var(--cat-debt-soft);
+  --color-cat-debt-fill: var(--cat-debt-fill);
+  --color-cat-other: var(--cat-other);
+  --color-cat-other-soft: var(--cat-other-soft);
+  --color-cat-other-fill: var(--cat-other-fill);
+  --color-chart-income: var(--chart-income);
+  --color-chart-expense: var(--chart-expense);
+}
+
+@layer base {
+.finance-theme {
+  --ft-canvas: #f5f6f8;
+  --ft-card: #ffffff;
+  --ft-muted: #f2f4f7;
+  --ft-hover: #f9fafb;
+  --ft-line: #e4e7ec;
+  --ft-line-soft: #eef0f3;
+  --ft-control: #d0d5dd;
+  --ft-ink: #0f172a;
+  --ft-ink-2: #475467;
+  --ft-ink-3: #667085;
+  --ft-ink-4: #98a2b3;
+  --ft-primary: #2453d6;
+  --ft-primary-hover: #1d43b3;
+  --ft-primary-soft: #eef4ff;
+  --ft-focus: #84adff;
+  --ft-focus-soft: #d1e0ff;
+  --ft-pos: #067647;
+  --ft-pos-soft: #ecfdf3;
+  --ft-pos-border: #abefc6;
+  --ft-pos-dot: #17b26a;
+  --ft-neg: #c01048;
+  --ft-neg-soft: #fff1f3;
+  --ft-neg-border: #fecdd6;
+  --ft-neg-dot: #f04438;
+  --ft-warn: #b54708;
+  --ft-warn-soft: #fffaeb;
+  --ft-warn-border: #fedf89;
+  --ft-warn-dot: #f79009;
+  --cat-subscription: #6941c6;
+  --cat-subscription-soft: #f4f3ff;
+  --cat-subscription-fill: #7a5af8;
+  --cat-fixed: #026aa2;
+  --cat-fixed-soft: #f0f9ff;
+  --cat-fixed-fill: #0086c9;
+  --cat-pocket: #b54708;
+  --cat-pocket-soft: #fffaeb;
+  --cat-pocket-fill: #dc6803;
+  --cat-savings: #067647;
+  --cat-savings-soft: #ecfdf3;
+  --cat-savings-fill: #079455;
+  --cat-debt: #c11574;
+  --cat-debt-soft: #fdf2fa;
+  --cat-debt-fill: #dd2590;
+  --cat-other: #475467;
+  --cat-other-soft: #f2f4f7;
+  --cat-other-fill: #667085;
+  --chart-income: #2453d6;
+  --chart-expense: #f63d68;
+  --background: var(--ft-canvas);
+  --foreground: var(--ft-ink);
+  --card: var(--ft-card);
+  --card-foreground: var(--ft-ink);
+  --popover: var(--ft-card);
+  --popover-foreground: var(--ft-ink);
+  --primary: var(--ft-primary);
+  --primary-foreground: #ffffff;
+  --secondary: var(--ft-muted);
+  --secondary-foreground: #344054;
+  --muted: var(--ft-muted);
+  --muted-foreground: var(--ft-ink-3);
+  --accent: var(--ft-muted);
+  --accent-foreground: var(--ft-ink);
+  --destructive: var(--ft-neg);
+  --border: var(--ft-line);
+  --input: var(--ft-control);
+  --ring: var(--ft-focus);
+  --radius: 0.5rem;
+  background: var(--ft-canvas);
+  color: var(--ft-ink);
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  scrollbar-color: var(--ft-control) transparent;
+}
+
+.finance-theme ::selection {
+  background: var(--ft-focus-soft);
+  color: var(--ft-ink);
+}
+
+.finance-theme ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.finance-theme ::-webkit-scrollbar-thumb {
+  background: var(--ft-control);
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+
+.finance-theme ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.finance-theme input::placeholder,
+.finance-theme textarea::placeholder {
+  color: var(--ft-ink-3);
+}
+
+.finance-theme .tabular {
+  font-variant-numeric: tabular-nums;
+}
+}
+
+@keyframes ft-drawer-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+}
+
+@keyframes ft-drawer-out {
+  to {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+}
+
+@keyframes ft-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes ft-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+.ft-drawer[data-state="open"] {
+  animation: ft-drawer-in 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.ft-drawer[data-state="closed"] {
+  animation: ft-drawer-out 160ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.ft-overlay[data-state="open"] {
+  animation: ft-fade-in 200ms ease-out;
+}
+
+.ft-overlay[data-state="closed"] {
+  animation: ft-fade-out 150ms ease-in;
 }

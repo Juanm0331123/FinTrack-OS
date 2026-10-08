@@ -1,12 +1,12 @@
 import type { Metadata } from 'next'
 
-import { DashboardPage } from '@/modules/dashboard'
+import { MonthSheetPage } from '@/modules/finance/month/month-sheet-page'
 
 export const metadata: Metadata = {
-    title: 'Dashboard | FinTrack OS',
-    description: 'Vista general mensual de ingresos, gastos, deudas y ahorro.',
+    title: 'Hoja del mes | FinTrack OS',
+    description: 'Ingresos, gastos por cuenta y categoría, colchón y estado del mes.',
 }
 
 export default function DashboardRoute() {
-    return <DashboardPage />
+    return <MonthSheetPage />
 }
