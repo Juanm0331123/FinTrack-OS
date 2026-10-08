@@ -18,11 +18,11 @@ function setRequestValue(
 export function validate(schema: ZodTypeAny) {
     return async (req: Request, _res: Response, next: NextFunction) => {
         try {
-            const result = await schema.parseAsync({
+            const result = (await schema.parseAsync({
                 body: req.body,
                 params: req.params,
                 query: req.query,
-            })
+            })) as { body?: unknown; params?: unknown; query?: unknown } | undefined
 
             if (result?.body !== undefined) {
                 setRequestValue(req, 'body', result.body)
@@ -41,7 +41,7 @@ export function validate(schema: ZodTypeAny) {
             if (error instanceof ZodError) {
                 return next(
                     new RequestValidationError(
-                        'Validation failed.',
+                        'Revisa los datos enviados.',
                         error.issues.map((issue) => ({
                             field: issue.path.join('.'),
                             message: issue.message,

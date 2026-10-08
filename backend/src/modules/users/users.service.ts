@@ -47,7 +47,7 @@ export class UsersService {
         const user = await this.usersRepository.findActiveById(id)
 
         if (!user) {
-            throw new NotFoundError('User not found.')
+            throw new NotFoundError('No encontramos ese usuario.')
         }
 
         return user
@@ -58,7 +58,7 @@ export class UsersService {
         const existingUser = await this.usersRepository.findActiveByEmail(email)
 
         if (existingUser) {
-            throw new ConflictError('Email already exists.')
+            throw new ConflictError('Ya existe una cuenta con ese correo.')
         }
 
         const passwordHash = await bcrypt.hash(input.password, 12)
@@ -84,7 +84,7 @@ export class UsersService {
 
         if (!isAdmin && (input.role !== undefined || input.status !== undefined)) {
             throw new ForbiddenError(
-                'You are not allowed to update privileged user fields.',
+                'No puedes cambiar esos datos del usuario.',
             )
         }
 
@@ -93,7 +93,7 @@ export class UsersService {
             const existingUser = await this.usersRepository.findActiveByEmail(normalizedEmail)
 
             if (existingUser && existingUser.id !== id) {
-                throw new ConflictError('Email already exists.')
+                throw new ConflictError('Ya existe una cuenta con ese correo.')
             }
 
             data.email = normalizedEmail

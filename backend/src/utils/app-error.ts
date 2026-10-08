@@ -28,32 +28,32 @@ export class AppError extends Error {
 }
 
 export class NotFoundError extends AppError {
-    constructor(message = 'Resource not found.', code?: string, details?: ErrorDetails) {
+    constructor(message = 'No encontramos ese recurso.', code?: string, details?: ErrorDetails) {
         super(message, 404, undefined, code, details)
     }
 }
 
 export class ConflictError extends AppError {
-    constructor(message = 'Conflict.', code?: string, details?: ErrorDetails) {
+    constructor(message = 'Hay un conflicto con los datos.', code?: string, details?: ErrorDetails) {
         super(message, 409, undefined, code, details)
     }
 }
 
 export class UnauthorizedError extends AppError {
-    constructor(message = 'Unauthorized.', code?: string, details?: ErrorDetails) {
+    constructor(message = 'Inicia sesión para continuar.', code?: string, details?: ErrorDetails) {
         super(message, 401, undefined, code, details)
     }
 }
 
 export class ForbiddenError extends AppError {
-    constructor(message = 'Forbidden.', code?: string, details?: ErrorDetails) {
+    constructor(message = 'No tienes permiso para hacer esto.', code?: string, details?: ErrorDetails) {
         super(message, 403, undefined, code, details)
     }
 }
 
 export class ServiceUnavailableError extends AppError {
     constructor(
-        message = 'Service unavailable.',
+        message = 'El servicio no está disponible.',
         code?: string,
         details?: ErrorDetails,
     ) {
@@ -63,7 +63,7 @@ export class ServiceUnavailableError extends AppError {
 
 export class RequestValidationError extends AppError {
     constructor(
-        message = 'Validation failed.',
+        message = 'Revisa los datos enviados.',
         errors: ValidationIssue[] = [],
         code?: string,
         details?: ErrorDetails,

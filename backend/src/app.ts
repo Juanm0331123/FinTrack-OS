@@ -37,7 +37,7 @@ app.use(express.urlencoded({ extended: true, limit: env.URLENCODED_BODY_LIMIT })
 app.use('/api', apiRateLimiter, apiRoutes)
 
 app.use((_req, res) => {
-    return res.status(404).json(ApiResponse.error('Route not found.'))
+    return res.status(404).json(ApiResponse.error('No encontramos esa ruta.'))
 })
 
 app.use(errorMiddleware)

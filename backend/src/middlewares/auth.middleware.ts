@@ -22,7 +22,7 @@ export function toAuthenticatedRequest(req: Request): AuthenticatedRequest {
     const authenticatedRequest = req as RequestWithOptionalAuth
 
     if (!authenticatedRequest.auth) {
-        throw new UnauthorizedError('Authentication is required.')
+        throw new UnauthorizedError('Inicia sesión para continuar.')
     }
 
     return authenticatedRequest as AuthenticatedRequest
@@ -53,19 +53,19 @@ export async function requireAuth(
         const accessToken = extractBearerToken(req)
 
         if (!accessToken) {
-            throw new UnauthorizedError('Authentication token is required.')
+            throw new UnauthorizedError('Inicia sesión para continuar.')
         }
 
         const claims = await verifyAccessToken(accessToken)
 
         if (claims.tokenType !== 'access') {
-            throw new UnauthorizedError('Invalid authentication token.')
+            throw new UnauthorizedError('Tu sesión no es válida. Vuelve a iniciar sesión.')
         }
 
         const user = await authRepository.findActiveUserById(claims.userId)
 
         if (!user) {
-            throw new UnauthorizedError('Authenticated user was not found.')
+            throw new UnauthorizedError('No encontramos tu usuario. Vuelve a iniciar sesión.')
         }
 
         ;(req as RequestWithOptionalAuth).auth = {
@@ -83,7 +83,7 @@ export function requireRole(...roles: UserRole[]) {
         const authenticatedRequest = toAuthenticatedRequest(req)
 
         if (!roles.includes(authenticatedRequest.auth.user.role)) {
-            return next(new ForbiddenError('Insufficient permissions.'))
+            return next(new ForbiddenError('No tienes permiso para hacer esto.'))
         }
 
         next()
@@ -104,6 +104,6 @@ export function requireSelfOrRole(
             return next()
         }
 
-        return next(new ForbiddenError('Insufficient permissions.'))
+        return next(new ForbiddenError('No tienes permiso para hacer esto.'))
     }
 }

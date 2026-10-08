@@ -4,13 +4,13 @@ import { z } from 'zod'
 const emailSchema = z
     .string()
     .trim()
-    .email('Email invalido.')
+    .email('Email inválido.')
     .max(255, 'El email no puede superar 255 caracteres.')
 
 const passwordSchema = z
     .string()
-    .min(8, 'La contrasena debe tener al menos 8 caracteres.')
-    .max(72, 'La contrasena no puede superar 72 caracteres.')
+    .min(8, 'La contraseña debe tener al menos 8 caracteres.')
+    .max(72, 'La contraseña no puede superar 72 caracteres.')
 
 const firstNameSchema = z
     .string()
@@ -21,7 +21,7 @@ const firstNameSchema = z
 const lastNameSchema = z
     .string()
     .trim()
-    .min(1, 'El apellido no puede estar vacio.')
+    .min(1, 'El apellido no puede estar vacío.')
     .max(100, 'El apellido no puede superar 100 caracteres.')
 
 const currencyCodeSchema = z
@@ -53,7 +53,7 @@ export const createUserSchema = z.object({
 
 export const updateUserSchema = z.object({
     params: z.object({
-        id: z.string().uuid('ID invalido.'),
+        id: z.string().uuid('ID inválido.'),
     }),
     body: z
         .object({
@@ -75,7 +75,7 @@ export const updateUserSchema = z.object({
 
 export const userIdParamSchema = z.object({
     params: z.object({
-        id: z.string().uuid('ID invalido.'),
+        id: z.string().uuid('ID inválido.'),
     }),
 })
 
@@ -87,8 +87,8 @@ export const listUsersQuerySchema = z.object({
         search: z
             .string()
             .trim()
-            .min(1, 'La busqueda no puede estar vacia.')
-            .max(255, 'La busqueda no puede superar 255 caracteres.')
+            .min(1, 'La búsqueda no puede estar vacía.')
+            .max(255, 'La búsqueda no puede superar 255 caracteres.')
             .optional(),
         status: z.nativeEnum(UserStatus).optional(),
     }),

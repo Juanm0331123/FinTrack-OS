@@ -110,7 +110,7 @@ export class AuthController {
         if ('requiresEmailVerification' in result) {
             return res.status(403).json(
                 ApiResponse.error(
-                    'Please verify your email address before signing in.',
+                    'Confirma tu correo antes de iniciar sesión.',
                     undefined,
                     'EMAIL_VERIFICATION_REQUIRED',
                     {
@@ -356,7 +356,7 @@ export class AuthController {
                     message:
                         error instanceof Error
                             ? error.message
-                            : 'OAuth authentication failed.',
+                            : 'No pudimos completar el inicio de sesión. Intenta de nuevo.',
                     ...(error instanceof AppError &&
                     typeof error.details?.email === 'string'
                         ? { email: error.details.email }

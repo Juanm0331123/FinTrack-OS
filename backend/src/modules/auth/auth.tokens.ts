@@ -37,7 +37,7 @@ function parseDurationToSeconds(value: string) {
 
 function assertSubject(value: unknown) {
     if (typeof value !== 'string' || value.length === 0) {
-        throw new UnauthorizedError('Invalid token subject.')
+        throw new UnauthorizedError('Tu sesión no es válida. Vuelve a iniciar sesión.')
     }
 
     return value
@@ -133,7 +133,7 @@ export async function verifyAccessToken(token: string) {
             userId: assertSubject(payload.sub),
         }
     } catch {
-        throw new UnauthorizedError('Invalid or expired access token.')
+        throw new UnauthorizedError('Tu sesión expiró. Vuelve a iniciar sesión.')
     }
 }
 
@@ -156,6 +156,6 @@ export async function verifyRefreshToken(token: string) {
             userId: assertSubject(payload.sub),
         }
     } catch {
-        throw new UnauthorizedError('Invalid or expired refresh token.')
+        throw new UnauthorizedError('Tu sesión expiró. Vuelve a iniciar sesión.')
     }
 }

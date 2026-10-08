@@ -25,7 +25,7 @@ export type AccessTokenClaims = {
     tokenType: 'access'
 }
 
-export type RefreshTokenClaims = AccessTokenClaims & {
+export type RefreshTokenClaims = Omit<AccessTokenClaims, 'tokenType'> & {
     sessionId: string
     tokenType: 'refresh'
 }

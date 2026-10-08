@@ -3,13 +3,13 @@ import { z } from 'zod'
 const emailSchema = z
     .string()
     .trim()
-    .email('Email invalido.')
+    .email('Email inválido.')
     .max(255, 'El email no puede superar 255 caracteres.')
 
 const passwordSchema = z
     .string()
-    .min(8, 'La contrasena debe tener al menos 8 caracteres.')
-    .max(72, 'La contrasena no puede superar 72 caracteres.')
+    .min(8, 'La contraseña debe tener al menos 8 caracteres.')
+    .max(72, 'La contraseña no puede superar 72 caracteres.')
 
 const firstNameSchema = z
     .string()
@@ -20,7 +20,7 @@ const firstNameSchema = z
 const lastNameSchema = z
     .string()
     .trim()
-    .min(1, 'El apellido no puede estar vacio.')
+    .min(1, 'El apellido no puede estar vacío.')
     .max(100, 'El apellido no puede superar 100 caracteres.')
 
 const currencyCodeSchema = z
@@ -38,7 +38,7 @@ const timezoneSchema = z
 const deviceNameSchema = z
     .string()
     .trim()
-    .min(1, 'El nombre del dispositivo no puede estar vacio.')
+    .min(1, 'El nombre del dispositivo no puede estar vacío.')
     .max(150, 'El nombre del dispositivo no puede superar 150 caracteres.')
 
 const refreshTokenSchema = z
@@ -76,7 +76,7 @@ export const verifyEmailSchema = z.object({
             code: z
                 .string()
                 .trim()
-                .regex(/^\d{6}$/, 'El codigo debe tener 6 digitos.'),
+                .regex(/^\d{6}$/, 'El código debe tener 6 dígitos.'),
             deviceName: deviceNameSchema.optional(),
             email: emailSchema,
         })
@@ -105,7 +105,7 @@ export const verifyPasswordResetCodeSchema = z.object({
             code: z
                 .string()
                 .trim()
-                .regex(/^\d{6}$/, 'El codigo debe tener 6 digitos.'),
+                .regex(/^\d{6}$/, 'El código debe tener 6 dígitos.'),
             email: emailSchema,
         })
         .strict(),
@@ -119,8 +119,8 @@ export const resetPasswordSchema = z.object({
             resetToken: z
                 .string()
                 .trim()
-                .min(1, 'El token de recuperacion es obligatorio.')
-                .max(255, 'El token de recuperacion es demasiado largo.'),
+                .min(1, 'El token de recuperación es obligatorio.')
+                .max(255, 'El token de recuperación es demasiado largo.'),
         })
         .strict(),
 })
@@ -163,7 +163,7 @@ export const oauthCallbackSchema = z.object({
             state: z.string().trim().min(1).optional(),
         })
         .refine((value) => Boolean(value.error) || Boolean(value.code && value.state), {
-            message: 'OAuth callback query invalida.',
+            message: 'OAuth callback query inválida.',
             path: [],
         }),
 })

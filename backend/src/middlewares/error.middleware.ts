@@ -36,7 +36,7 @@ export function errorMiddleware(
         if (error.code === 'P2025') {
             return res
                 .status(404)
-                .json(ApiResponse.error(new NotFoundError('Record not found.').message))
+                .json(ApiResponse.error(new NotFoundError('No encontramos ese registro.').message))
         }
     }
 
@@ -46,11 +46,11 @@ export function errorMiddleware(
         return res.status(500).json(
             ApiResponse.error(
                 process.env.NODE_ENV === 'production'
-                    ? 'Internal server error.'
+                    ? 'Algo falló en el servidor. Intenta de nuevo.'
                     : error.message,
             ),
         )
     }
 
-    return res.status(500).json(ApiResponse.error('Internal server error.'))
+    return res.status(500).json(ApiResponse.error('Algo falló en el servidor. Intenta de nuevo.'))
 }

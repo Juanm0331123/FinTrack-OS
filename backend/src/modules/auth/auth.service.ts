@@ -72,11 +72,11 @@ export class AuthService {
         const passwordHash = await bcrypt.hash(input.password, PASSWORD_HASH_ROUNDS)
 
         if (existingUser?.status === UserStatus.ACTIVE) {
-            throw new ConflictError('An account with that email already exists.')
+            throw new ConflictError('Ya existe una cuenta con ese correo.')
         }
 
         if (existingUser?.status === UserStatus.INACTIVE) {
-            throw new ForbiddenError('This user account is inactive.')
+            throw new ForbiddenError('Esta cuenta está inactiva.')
         }
 
         if (existingUser) {
@@ -132,20 +132,20 @@ export class AuthService {
 
         if (!user || user.deletedAt) {
             throw new UnauthorizedError(
-                'Invalid email verification code.',
+                'El código no es válido.',
                 'EMAIL_VERIFICATION_INVALID',
             )
         }
 
         if (user.status === UserStatus.ACTIVE) {
             throw new ConflictError(
-                'This email is already verified.',
+                'Este correo ya está verificado.',
                 'EMAIL_ALREADY_VERIFIED',
             )
         }
 
         if (user.status === UserStatus.INACTIVE) {
-            throw new ForbiddenError('This user account is inactive.')
+            throw new ForbiddenError('Esta cuenta está inactiva.')
         }
 
         const verificationRecord =
@@ -153,14 +153,14 @@ export class AuthService {
 
         if (!verificationRecord || !verificationRecord.tokenSalt) {
             throw new UnauthorizedError(
-                'Invalid email verification code.',
+                'El código no es válido.',
                 'EMAIL_VERIFICATION_INVALID',
             )
         }
 
         if (verificationRecord.expiresAt.getTime() <= Date.now()) {
             throw new UnauthorizedError(
-                'Email verification code has expired.',
+                'El código ya venció. Solicita uno nuevo.',
                 'EMAIL_VERIFICATION_EXPIRED',
                 {
                     email,
@@ -176,7 +176,7 @@ export class AuthService {
                 verificationRecord.tokenHash
         ) {
             throw new UnauthorizedError(
-                'Invalid email verification code.',
+                'El código no es válido.',
                 'EMAIL_VERIFICATION_INVALID',
             )
         }
@@ -209,20 +209,20 @@ export class AuthService {
 
         if (!user || user.deletedAt) {
             throw new UnauthorizedError(
-                'No pending email verification request was found.',
+                'No hay una verificación de correo pendiente.',
                 'EMAIL_VERIFICATION_NOT_FOUND',
             )
         }
 
         if (user.status === UserStatus.ACTIVE) {
             throw new ConflictError(
-                'This email is already verified.',
+                'Este correo ya está verificado.',
                 'EMAIL_ALREADY_VERIFIED',
             )
         }
 
         if (user.status === UserStatus.INACTIVE) {
-            throw new ForbiddenError('This user account is inactive.')
+            throw new ForbiddenError('Esta cuenta está inactiva.')
         }
 
         return this.issueAndSendEmailVerificationCode(user)
@@ -260,7 +260,7 @@ export class AuthService {
 
         if (!user || user.deletedAt || user.status === UserStatus.INACTIVE) {
             throw new UnauthorizedError(
-                'Invalid password reset code.',
+                'El código no es válido.',
                 'PASSWORD_RESET_CODE_INVALID',
             )
         }
@@ -272,14 +272,14 @@ export class AuthService {
 
         if (!resetCodeRecord || !resetCodeRecord.tokenSalt) {
             throw new UnauthorizedError(
-                'Invalid password reset code.',
+                'El código no es válido.',
                 'PASSWORD_RESET_CODE_INVALID',
             )
         }
 
         if (resetCodeRecord.expiresAt.getTime() <= Date.now()) {
             throw new UnauthorizedError(
-                'Password reset code has expired.',
+                'El código ya venció. Solicita uno nuevo.',
                 'PASSWORD_RESET_CODE_EXPIRED',
                 {
                     email,
@@ -295,7 +295,7 @@ export class AuthService {
                 resetCodeRecord.tokenHash
         ) {
             throw new UnauthorizedError(
-                'Invalid password reset code.',
+                'El código no es válido.',
                 'PASSWORD_RESET_CODE_INVALID',
             )
         }
@@ -325,7 +325,7 @@ export class AuthService {
 
         if (!user || user.deletedAt || user.status === UserStatus.INACTIVE) {
             throw new UnauthorizedError(
-                'Invalid password reset session.',
+                'La autorización para cambiar la contraseña no es válida. Solicita un código nuevo.',
                 'PASSWORD_RESET_TOKEN_INVALID',
             )
         }
@@ -337,14 +337,14 @@ export class AuthService {
 
         if (!resetSessionRecord || resetSessionRecord.tokenSalt) {
             throw new UnauthorizedError(
-                'Invalid password reset session.',
+                'La autorización para cambiar la contraseña no es válida. Solicita un código nuevo.',
                 'PASSWORD_RESET_TOKEN_INVALID',
             )
         }
 
         if (resetSessionRecord.expiresAt.getTime() <= Date.now()) {
             throw new UnauthorizedError(
-                'Password reset session has expired.',
+                'La autorización para cambiar la contraseña venció. Solicita un código nuevo.',
                 'PASSWORD_RESET_TOKEN_EXPIRED',
                 {
                     email,
@@ -359,7 +359,7 @@ export class AuthService {
             hashToken(input.resetToken) !== resetSessionRecord.tokenHash
         ) {
             throw new UnauthorizedError(
-                'Invalid password reset session.',
+                'La autorización para cambiar la contraseña no es válida. Solicita un código nuevo.',
                 'PASSWORD_RESET_TOKEN_INVALID',
             )
         }
@@ -385,7 +385,7 @@ export class AuthService {
         const user = await this.authRepository.findUserByEmailForAuth(email)
 
         if (!user) {
-            throw new UnauthorizedError('Invalid email or password.')
+            throw new UnauthorizedError('Correo o contraseña incorrectos.')
         }
 
         const passwordMatches = await bcrypt.compare(
@@ -394,7 +394,7 @@ export class AuthService {
         )
 
         if (!passwordMatches) {
-            throw new UnauthorizedError('Invalid email or password.')
+            throw new UnauthorizedError('Correo o contraseña incorrectos.')
         }
 
         if (user.status === UserStatus.PENDING_VERIFICATION) {
@@ -423,7 +423,7 @@ export class AuthService {
         const rawRefreshToken = input.refreshToken
 
         if (!rawRefreshToken) {
-            throw new UnauthorizedError('Refresh token is required.')
+            throw new UnauthorizedError('Tu sesión expiró. Vuelve a iniciar sesión.')
         }
 
         const refreshTokenRecord = await this.authRepository.findRefreshTokenByHash(
@@ -431,17 +431,17 @@ export class AuthService {
         )
 
         if (!refreshTokenRecord) {
-            throw new UnauthorizedError('Invalid refresh token.')
+            throw new UnauthorizedError('Tu sesión no es válida. Vuelve a iniciar sesión.')
         }
 
         if (refreshTokenRecord.revokedAt) {
             await this.authRepository.revokeAllRefreshTokens(refreshTokenRecord.userId)
-            throw new UnauthorizedError('Refresh token has been revoked.')
+            throw new UnauthorizedError('Tu sesión se cerró. Vuelve a iniciar sesión.')
         }
 
         if (refreshTokenRecord.expiresAt.getTime() <= Date.now()) {
             await this.authRepository.revokeRefreshTokenById(refreshTokenRecord.id)
-            throw new UnauthorizedError('Refresh token has expired.')
+            throw new UnauthorizedError('Tu sesión expiró. Vuelve a iniciar sesión.')
         }
 
         const tokenClaims = await verifyRefreshToken(rawRefreshToken)
@@ -452,7 +452,7 @@ export class AuthService {
             tokenClaims.tokenType !== 'refresh'
         ) {
             await this.authRepository.revokeAllRefreshTokens(refreshTokenRecord.userId)
-            throw new UnauthorizedError('Invalid refresh token.')
+            throw new UnauthorizedError('Tu sesión no es válida. Vuelve a iniciar sesión.')
         }
 
         this.assertUserCanStartSession(refreshTokenRecord.user)
@@ -502,7 +502,7 @@ export class AuthService {
         const user = await this.authRepository.findActiveUserById(userId)
 
         if (!user) {
-            throw new UnauthorizedError('Authenticated user was not found.')
+            throw new UnauthorizedError('No encontramos tu usuario. Vuelve a iniciar sesión.')
         }
 
         return user
@@ -526,7 +526,7 @@ export class AuthService {
         storedState?: string
     } & SessionContext) {
         if (!input.storedState || input.state !== input.storedState) {
-            throw new UnauthorizedError('Invalid OAuth state.')
+            throw new UnauthorizedError('La solicitud de inicio de sesión no es válida. Intenta de nuevo.')
         }
 
         const profile = await this.exchangeOAuthCodeForProfile(
@@ -536,7 +536,7 @@ export class AuthService {
 
         if (!profile.emailVerified) {
             throw new ForbiddenError(
-                'The OAuth provider did not return a verified email address.',
+                'El proveedor no devolvió un correo verificado.',
             )
         }
 
@@ -550,17 +550,17 @@ export class AuthService {
         if (existingOAuthAccount) {
             if (existingOAuthAccount.user.deletedAt) {
                 throw new UnauthorizedError(
-                    'This user account is no longer available.',
+                    'Esta cuenta ya no está disponible.',
                 )
             }
 
             if (existingOAuthAccount.user.status === UserStatus.INACTIVE) {
-                throw new ForbiddenError('This user account is inactive.')
+                throw new ForbiddenError('Esta cuenta está inactiva.')
             }
 
             if (input.intent === 'register') {
                 throw new ConflictError(
-                    'An account with this email already exists. Sign in instead of creating a new account.',
+                    'Ya existe una cuenta con este correo. Inicia sesión en lugar de crear una nueva.',
                     'OAUTH_ACCOUNT_ALREADY_EXISTS',
                     {
                         email: profile.email,
@@ -581,12 +581,12 @@ export class AuthService {
 
             if (existingUser) {
                 if (existingUser.status === UserStatus.INACTIVE) {
-                    throw new ForbiddenError('This user account is inactive.')
+                    throw new ForbiddenError('Esta cuenta está inactiva.')
                 }
 
                 if (input.intent === 'register') {
                     throw new ConflictError(
-                        'An account with this email already exists. Sign in instead of creating a new account.',
+                        'Ya existe una cuenta con este correo. Inicia sesión en lugar de crear una nueva.',
                         'OAUTH_ACCOUNT_ALREADY_EXISTS',
                         {
                             email: profile.email,
@@ -636,15 +636,15 @@ export class AuthService {
 
     private assertUserCanStartSession(user: AuthCredentialsUser | PublicUser) {
         if ('deletedAt' in user && user.deletedAt) {
-            throw new UnauthorizedError('This user account is no longer available.')
+            throw new UnauthorizedError('Esta cuenta ya no está disponible.')
         }
 
         if (user.status === UserStatus.PENDING_VERIFICATION) {
-            throw new ForbiddenError('Please verify your email address before signing in.')
+            throw new ForbiddenError('Confirma tu correo antes de iniciar sesión.')
         }
 
         if (user.status === UserStatus.INACTIVE) {
-            throw new ForbiddenError('This user account is inactive.')
+            throw new ForbiddenError('Esta cuenta está inactiva.')
         }
     }
 
@@ -696,25 +696,25 @@ export class AuthService {
 
     private getOAuthProviderConfig(provider: OAuthProvider) {
         if (provider === OAuthProvider.GOOGLE) {
-            if (
-                !env.GOOGLE_OAUTH_CLIENT_ID ||
-                !env.GOOGLE_OAUTH_CLIENT_SECRET ||
-                !env.GOOGLE_OAUTH_CALLBACK_URL
-            ) {
+            const clientId = env.GOOGLE_OAUTH_CLIENT_ID
+            const clientSecret = env.GOOGLE_OAUTH_CLIENT_SECRET
+            const callbackUrl = env.GOOGLE_OAUTH_CALLBACK_URL
+
+            if (!clientId || !clientSecret || !callbackUrl) {
                 throw new ServiceUnavailableError(
-                    'Google OAuth is not configured.',
+                    'El acceso con Google no está disponible.',
                 )
             }
 
             return {
                 authorizationUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
-                callbackUrl: env.GOOGLE_OAUTH_CALLBACK_URL,
-                clientId: env.GOOGLE_OAUTH_CLIENT_ID,
-                clientSecret: env.GOOGLE_OAUTH_CLIENT_SECRET,
+                callbackUrl,
+                clientId,
+                clientSecret,
                 createSearchParams: (state: string) =>
                     new URLSearchParams({
-                        client_id: env.GOOGLE_OAUTH_CLIENT_ID,
-                        redirect_uri: env.GOOGLE_OAUTH_CALLBACK_URL,
+                        client_id: clientId,
+                        redirect_uri: callbackUrl,
                         response_type: 'code',
                         scope: 'openid email profile',
                         state,
@@ -722,23 +722,23 @@ export class AuthService {
             }
         }
 
-        if (
-            !env.GITHUB_OAUTH_CLIENT_ID ||
-            !env.GITHUB_OAUTH_CLIENT_SECRET ||
-            !env.GITHUB_OAUTH_CALLBACK_URL
-        ) {
-            throw new ServiceUnavailableError('GitHub OAuth is not configured.')
+        const clientId = env.GITHUB_OAUTH_CLIENT_ID
+        const clientSecret = env.GITHUB_OAUTH_CLIENT_SECRET
+        const callbackUrl = env.GITHUB_OAUTH_CALLBACK_URL
+
+        if (!clientId || !clientSecret || !callbackUrl) {
+            throw new ServiceUnavailableError('El acceso con GitHub no está disponible.')
         }
 
         return {
             authorizationUrl: 'https://github.com/login/oauth/authorize',
-            callbackUrl: env.GITHUB_OAUTH_CALLBACK_URL,
-            clientId: env.GITHUB_OAUTH_CLIENT_ID,
-            clientSecret: env.GITHUB_OAUTH_CLIENT_SECRET,
+            callbackUrl,
+            clientId,
+            clientSecret,
             createSearchParams: (state: string) =>
                 new URLSearchParams({
-                    client_id: env.GITHUB_OAUTH_CLIENT_ID,
-                    redirect_uri: env.GITHUB_OAUTH_CALLBACK_URL,
+                    client_id: clientId,
+                    redirect_uri: callbackUrl,
                     scope: 'read:user user:email',
                     state,
                 }),
@@ -775,10 +775,10 @@ export class AuthService {
 
         const tokenData = await this.parseJsonResponse<{
             access_token?: string
-        }>(tokenResponse, 'Google token exchange failed.')
+        }>(tokenResponse, 'No pudimos completar el acceso con Google.')
 
         if (!tokenData.access_token) {
-            throw new UnauthorizedError('Google did not return an access token.')
+            throw new UnauthorizedError('Google no devolvió un acceso válido.')
         }
 
         const profileResponse = await fetch(GOOGLE_USERINFO_ENDPOINT, {
@@ -794,10 +794,10 @@ export class AuthService {
             name?: string
             picture?: string
             sub?: string
-        }>(profileResponse, 'Google user profile fetch failed.')
+        }>(profileResponse, 'No pudimos leer tu perfil de Google.')
 
         if (!profile.sub || !profile.email) {
-            throw new UnauthorizedError('Google did not return a usable profile.')
+            throw new UnauthorizedError('Google no devolvió los datos de tu perfil.')
         }
 
         const splitName = this.splitDisplayName(profile.name)
@@ -831,10 +831,10 @@ export class AuthService {
         })
         const tokenData = await this.parseJsonResponse<{
             access_token?: string
-        }>(tokenResponse, 'GitHub token exchange failed.')
+        }>(tokenResponse, 'No pudimos completar el acceso con GitHub.')
 
         if (!tokenData.access_token) {
-            throw new UnauthorizedError('GitHub did not return an access token.')
+            throw new UnauthorizedError('GitHub no devolvió un acceso válido.')
         }
 
         const headers = {
@@ -849,10 +849,10 @@ export class AuthService {
             id?: number
             login?: string
             name?: string | null
-        }>(profileResponse, 'GitHub user profile fetch failed.')
+        }>(profileResponse, 'No pudimos leer tu perfil de GitHub.')
 
         if (!profile.id) {
-            throw new UnauthorizedError('GitHub did not return a usable profile.')
+            throw new UnauthorizedError('GitHub no devolvió los datos de tu perfil.')
         }
 
         let email = profile.email ? this.normalizeEmail(profile.email) : ''
@@ -866,14 +866,14 @@ export class AuthService {
                     primary: boolean
                     verified: boolean
                 }>
-            >(emailsResponse, 'GitHub email lookup failed.')
+            >(emailsResponse, 'No pudimos leer tu correo de GitHub.')
             const primaryVerifiedEmail =
                 emails.find((entry) => entry.primary && entry.verified) ??
                 emails.find((entry) => entry.verified)
 
             if (!primaryVerifiedEmail) {
                 throw new ForbiddenError(
-                    'GitHub did not return a verified email address.',
+                    'GitHub no devolvió un correo verificado.',
                 )
             }
 
