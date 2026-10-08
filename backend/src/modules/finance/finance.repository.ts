@@ -1,668 +1,265 @@
-import {
-    AccountStatus,
-    AccountType,
-    CategoryKind,
-    DebtStatus,
-    SavingGoalStatus,
-    type Prisma,
-    TransactionStatus,
-    TransactionType,
-} from '@prisma/client'
+import type { Prisma } from '@prisma/client'
 import { prisma } from '../../config/prisma.ts'
-import type {
-    FinanceCategory,
-    FinanceDebt,
-    FinanceDebtPaymentEntry,
-    FinanceMonthlyObligation,
-    FinanceMonthlyProfile,
-    FinanceObligationTemplate,
-    FinancePaycheckEntry,
-    FinanceSavingGoal,
-    FinanceTransaction,
-} from './finance.types.ts'
-import {
-    financeCategorySelect,
-    financeDebtPaymentEntrySelect,
-    financeDebtSelect,
-    financeMonthlyObligationSelect,
-    financeMonthlyProfileSelect,
-    financeObligationTemplateSelect,
-    financePaycheckEntrySelect,
-    financeSavingGoalSelect,
-    financeTransactionSelect,
-} from './finance.types.ts'
-import { getMonthBounds, parseYearMonth } from './finance.utils.ts'
+import type { DebtStrategy } from './finance.types.ts'
+import type { CopiedEntry } from './sheet-copy.ts'
 
-type DbClient = Prisma.TransactionClient | typeof prisma
+const entryOrderBy = [
+    { sortOrder: 'asc' },
+    { createdAt: 'asc' },
+] satisfies Prisma.MonthEntryOrderByWithRelationInput[]
 
-function getDbClient(transaction?: Prisma.TransactionClient): DbClient {
-    return transaction ?? prisma
-}
+const spendOrderBy = [
+    { spentOn: 'asc' },
+    { createdAt: 'asc' },
+] satisfies Prisma.PocketSpendOrderByWithRelationInput[]
 
-function buildSuggestedDate(yearMonth: string, day?: number | null) {
-    if (!day) {
-        return undefined
-    }
+const entryWithSpends = {
+    spends: {
+        orderBy: spendOrderBy,
+    },
+} satisfies Prisma.MonthEntryInclude
 
-    const { end } = getMonthBounds(yearMonth)
-    const { month, year } = parseYearMonth(yearMonth)
-    const safeDay = Math.min(day, end.getUTCDate())
+const sheetWithEntries = {
+    entries: {
+        include: entryWithSpends,
+        orderBy: entryOrderBy,
+    },
+} satisfies Prisma.MonthSheetInclude
 
-    return new Date(Date.UTC(year, month - 1, safeDay))
-}
+export const DEFAULT_ACCOUNT_NAME = 'Efectivo'
 
 export class FinanceRepository {
-    async withTransaction<T>(
-        handler: (transaction: Prisma.TransactionClient) => Promise<T>,
-    ) {
-        return prisma.$transaction((transaction) => handler(transaction))
-    }
-
-    findDefaultFinancialAccount(userId: string, transaction?: Prisma.TransactionClient) {
-        const db = getDbClient(transaction)
-
-        return db.financialAccount.findFirst({
-            where: {
-                status: AccountStatus.ACTIVE,
-                userId,
-            },
-            orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
-            select: {
-                currencyCode: true,
-                id: true,
-                isDefault: true,
-                name: true,
-            },
+    ensureSettings(userId: string) {
+        return prisma.financeSettings.upsert({
+            create: { userId },
+            update: {},
+            where: { userId },
         })
     }
 
-    async ensureDefaultFinancialAccount(
-        input: { currencyCode: string; userId: string },
-        transaction?: Prisma.TransactionClient,
+    upsertSettings(
+        userId: string,
+        fields: {
+            benefitsRate?: number
+            cushionAmount?: number
+            debtStrategy?: DebtStrategy
+            redirectDebtOverpayments?: boolean
+        },
     ) {
-        const db = getDbClient(transaction)
-        const existingAccount = await this.findDefaultFinancialAccount(
-            input.userId,
-            transaction,
-        )
+        return prisma.financeSettings.upsert({
+            create: { userId, ...fields },
+            update: fields,
+            where: { userId },
+        })
+    }
 
-        if (existingAccount) {
-            if (!existingAccount.isDefault) {
-                await db.financialAccount.update({
-                    where: {
-                        id: existingAccount.id,
-                    },
-                    data: {
-                        isDefault: true,
-                    },
-                })
+    async ensureDefaultAccount(userId: string) {
+        const count = await prisma.moneyAccount.count({ where: { userId } })
+
+        if (count > 0) {
+            return
+        }
+
+        await prisma.moneyAccount.createMany({
+            data: [{ name: DEFAULT_ACCOUNT_NAME, sortOrder: 0, userId }],
+            skipDuplicates: true,
+        })
+    }
+
+    listAccounts(userId: string) {
+        return prisma.moneyAccount.findMany({
+            orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+            where: { userId },
+        })
+    }
+
+    findAccount(userId: string, id: string) {
+        return prisma.moneyAccount.findFirst({ where: { id, userId } })
+    }
+
+    findAccountByName(userId: string, name: string) {
+        return prisma.moneyAccount.findFirst({
+            where: { name: { equals: name, mode: 'insensitive' }, userId },
+        })
+    }
+
+    async nextAccountSortOrder(userId: string) {
+        const result = await prisma.moneyAccount.aggregate({
+            _max: { sortOrder: true },
+            where: { userId },
+        })
+
+        return (result._max.sortOrder ?? -1) + 1
+    }
+
+    createAccount(data: Prisma.MoneyAccountUncheckedCreateInput) {
+        return prisma.moneyAccount.create({ data })
+    }
+
+    updateAccount(id: string, data: Prisma.MoneyAccountUpdateInput) {
+        return prisma.moneyAccount.update({ data, where: { id } })
+    }
+
+    countAccountEntries(accountId: string) {
+        return prisma.monthEntry.count({ where: { accountId } })
+    }
+
+    deleteAccount(id: string) {
+        return prisma.moneyAccount.delete({ where: { id } })
+    }
+
+    listSheets(userId: string) {
+        return prisma.monthSheet.findMany({
+            include: sheetWithEntries,
+            orderBy: { yearMonth: 'asc' },
+            where: { userId },
+        })
+    }
+
+    findSheet(userId: string, yearMonth: string) {
+        return prisma.monthSheet.findUnique({
+            include: sheetWithEntries,
+            where: { userId_yearMonth: { userId, yearMonth } },
+        })
+    }
+
+    findPreviousSheet(userId: string, yearMonth: string) {
+        return prisma.monthSheet.findFirst({
+            include: sheetWithEntries,
+            orderBy: { yearMonth: 'desc' },
+            where: { userId, yearMonth: { lt: yearMonth } },
+        })
+    }
+
+    createSheetWithEntries(
+        data: Prisma.MonthSheetUncheckedCreateInput & { id: string },
+        entries: CopiedEntry[],
+    ) {
+        return prisma.$transaction(async (transaction) => {
+            await transaction.monthSheet.create({ data })
+
+            if (entries.length > 0) {
+                await transaction.monthEntry.createMany({ data: entries })
             }
 
-            return existingAccount
-        }
-
-        return db.financialAccount.create({
-            data: {
-                currencyCode: input.currencyCode,
-                isDefault: true,
-                name: 'Disponible',
-                type: AccountType.CASH,
-                userId: input.userId,
-            },
-            select: {
-                currencyCode: true,
-                id: true,
-                isDefault: true,
-                name: true,
-            },
+            return transaction.monthSheet.findUniqueOrThrow({
+                include: sheetWithEntries,
+                where: { id: data.id },
+            })
         })
     }
 
-    ensureMonthProfile(
-        input: { openingBalance?: number; userId: string; yearMonth: string },
-        transaction?: Prisma.TransactionClient,
+    appendEntries(
+        sheetId: string,
+        entries: CopiedEntry[],
+        sheetData: Prisma.MonthSheetUpdateInput | null,
     ) {
-        const db = getDbClient(transaction)
+        return prisma.$transaction(async (transaction) => {
+            if (sheetData) {
+                await transaction.monthSheet.update({ data: sheetData, where: { id: sheetId } })
+            }
 
-        return db.monthlyFinancialProfile.upsert({
-            where: {
-                userId_yearMonth: {
-                    userId: input.userId,
-                    yearMonth: input.yearMonth,
-                },
-            },
-            update: {},
-            create: {
-                openingBalance: input.openingBalance ?? 0,
-                userId: input.userId,
-                yearMonth: input.yearMonth,
-            },
-            select: financeMonthlyProfileSelect,
+            if (entries.length > 0) {
+                await transaction.monthEntry.createMany({ data: entries })
+            }
+
+            return transaction.monthSheet.findUniqueOrThrow({
+                include: sheetWithEntries,
+                where: { id: sheetId },
+            })
         })
     }
 
-    updateMonthProfile(
-        input: {
-            data: Prisma.MonthlyFinancialProfileUpdateInput
-            userId: string
-            yearMonth: string
-        },
-        transaction?: Prisma.TransactionClient,
-    ) {
-        const db = getDbClient(transaction)
+    updateSheet(id: string, data: Prisma.MonthSheetUpdateInput) {
+        return prisma.monthSheet.update({ data, where: { id } })
+    }
 
-        return db.monthlyFinancialProfile.update({
-            where: {
-                userId_yearMonth: {
-                    userId: input.userId,
-                    yearMonth: input.yearMonth,
-                },
-            },
-            data: input.data,
-            select: financeMonthlyProfileSelect,
+    deleteSheet(id: string) {
+        return prisma.monthSheet.delete({ where: { id } })
+    }
+
+    async nextEntrySortOrder(sheetId: string) {
+        const result = await prisma.monthEntry.aggregate({
+            _max: { sortOrder: true },
+            where: { sheetId },
+        })
+
+        return (result._max.sortOrder ?? -1) + 1
+    }
+
+    findEntryById(id: string) {
+        return prisma.monthEntry.findUnique({ include: entryWithSpends, where: { id } })
+    }
+
+    findEntry(userId: string, id: string) {
+        return prisma.monthEntry.findFirst({ where: { id, userId } })
+    }
+
+    createEntry(data: Prisma.MonthEntryUncheckedCreateInput) {
+        return prisma.monthEntry.create({ data, include: entryWithSpends })
+    }
+
+    updateEntry(id: string, data: Prisma.MonthEntryUncheckedUpdateInput) {
+        return prisma.monthEntry.update({ data, include: entryWithSpends, where: { id } })
+    }
+
+    deleteEntry(id: string) {
+        return prisma.monthEntry.delete({ where: { id } })
+    }
+
+    findSpendById(id: string) {
+        return prisma.pocketSpend.findUnique({ where: { id } })
+    }
+
+    findSpend(userId: string, id: string) {
+        return prisma.pocketSpend.findFirst({ where: { id, userId } })
+    }
+
+    createSpend(data: Prisma.PocketSpendUncheckedCreateInput) {
+        return prisma.pocketSpend.create({ data })
+    }
+
+    updateSpend(id: string, data: Prisma.PocketSpendUncheckedUpdateInput) {
+        return prisma.pocketSpend.update({ data, where: { id } })
+    }
+
+    deleteSpend(id: string) {
+        return prisma.pocketSpend.delete({ where: { id } })
+    }
+
+    listDebts(userId: string) {
+        return prisma.debt.findMany({
+            orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+            where: { userId },
         })
     }
 
-    findMonthProfile(
-        userId: string,
-        yearMonth: string,
-        transaction?: Prisma.TransactionClient,
-    ) {
-        const db = getDbClient(transaction)
-
-        return db.monthlyFinancialProfile.findUnique({
-            where: {
-                userId_yearMonth: {
-                    userId,
-                    yearMonth,
-                },
-            },
-            select: financeMonthlyProfileSelect,
-        })
+    findDebtById(id: string) {
+        return prisma.debt.findUnique({ where: { id } })
     }
 
-    listCategories(
-        userId: string,
-        kind: CategoryKind = CategoryKind.EXPENSE,
-        transaction?: Prisma.TransactionClient,
-    ): Promise<FinanceCategory[]> {
-        const db = getDbClient(transaction)
-
-        return db.category.findMany({
-            where: {
-                isActive: true,
-                kind,
-                OR: [{ userId }, { isSystem: true }],
-            },
-            select: financeCategorySelect,
-            orderBy: [{ isSystem: 'desc' }, { name: 'asc' }],
-        })
+    findDebt(userId: string, id: string) {
+        return prisma.debt.findFirst({ where: { id, userId } })
     }
 
-    findCategoryById(
-        userId: string,
-        categoryId: string,
-        transaction?: Prisma.TransactionClient,
-    ) {
-        const db = getDbClient(transaction)
-
-        return db.category.findFirst({
-            where: {
-                id: categoryId,
-                isActive: true,
-                kind: CategoryKind.EXPENSE,
-                OR: [{ userId }, { isSystem: true }],
-            },
-            select: financeCategorySelect,
+    async nextDebtSortOrder(userId: string) {
+        const result = await prisma.debt.aggregate({
+            _max: { sortOrder: true },
+            where: { userId },
         })
+
+        return (result._max.sortOrder ?? -1) + 1
     }
 
-    findCategoryByName(
-        userId: string,
-        name: string,
-        kind: CategoryKind = CategoryKind.EXPENSE,
-        transaction?: Prisma.TransactionClient,
-    ) {
-        const db = getDbClient(transaction)
-
-        return db.category.findFirst({
-            where: {
-                kind,
-                name: {
-                    equals: name,
-                    mode: 'insensitive',
-                },
-                OR: [{ userId }, { isSystem: true }],
-            },
-            select: financeCategorySelect,
-        })
+    createDebt(data: Prisma.DebtUncheckedCreateInput) {
+        return prisma.debt.create({ data })
     }
 
-    createCategory(
-        input: {
-            budgetBucket?: Prisma.CategoryUncheckedCreateInput['budgetBucket']
-            color?: string
-            icon?: string
-            kind: CategoryKind
-            name: string
-            userId: string
-        },
-        transaction?: Prisma.TransactionClient,
-    ) {
-        const db = getDbClient(transaction)
-
-        return db.category.create({
-            data: {
-                budgetBucket: input.budgetBucket,
-                color: input.color,
-                icon: input.icon,
-                kind: input.kind,
-                name: input.name,
-                userId: input.userId,
-            },
-            select: financeCategorySelect,
-        })
+    updateDebt(id: string, data: Prisma.DebtUncheckedUpdateInput) {
+        return prisma.debt.update({ data, where: { id } })
     }
 
-    listSavingGoals(
-        userId: string,
-        transaction?: Prisma.TransactionClient,
-    ): Promise<FinanceSavingGoal[]> {
-        const db = getDbClient(transaction)
-
-        return db.savingGoal.findMany({
-            where: {
-                status: {
-                    in: [SavingGoalStatus.ACTIVE, SavingGoalStatus.PAUSED],
-                },
-                userId,
-            },
-            select: financeSavingGoalSelect,
-            orderBy: [{ priority: 'asc' }, { createdAt: 'desc' }],
-        })
-    }
-
-    createSavingGoal(
-        input: Prisma.SavingGoalUncheckedCreateInput,
-        transaction?: Prisma.TransactionClient,
-    ) {
-        const db = getDbClient(transaction)
-
-        return db.savingGoal.create({
-            data: input,
-            select: financeSavingGoalSelect,
-        })
-    }
-
-    findSavingGoalById(
-        userId: string,
-        savingGoalId: string,
-        transaction?: Prisma.TransactionClient,
-    ) {
-        const db = getDbClient(transaction)
-
-        return db.savingGoal.findFirst({
-            where: {
-                id: savingGoalId,
-                userId,
-            },
-            select: financeSavingGoalSelect,
-        })
-    }
-
-    updateSavingGoal(
-        savingGoalId: string,
-        data: Prisma.SavingGoalUpdateInput,
-        transaction?: Prisma.TransactionClient,
-    ) {
-        const db = getDbClient(transaction)
-
-        return db.savingGoal.update({
-            where: {
-                id: savingGoalId,
-            },
-            data,
-            select: financeSavingGoalSelect,
-        })
-    }
-
-    listDebts(userId: string, transaction?: Prisma.TransactionClient): Promise<FinanceDebt[]> {
-        const db = getDbClient(transaction)
-
-        return db.debt.findMany({
-            where: {
-                status: {
-                    in: [DebtStatus.ACTIVE, DebtStatus.PAID],
-                },
-                userId,
-            },
-            select: financeDebtSelect,
-            orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
-        })
-    }
-
-    findDebtById(
-        userId: string,
-        debtId: string,
-        transaction?: Prisma.TransactionClient,
-    ) {
-        const db = getDbClient(transaction)
-
-        return db.debt.findFirst({
-            where: {
-                id: debtId,
-                userId,
-            },
-            select: financeDebtSelect,
-        })
-    }
-
-    createDebt(
-        input: Prisma.DebtUncheckedCreateInput,
-        transaction?: Prisma.TransactionClient,
-    ) {
-        const db = getDbClient(transaction)
-
-        return db.debt.create({
-            data: input,
-            select: financeDebtSelect,
-        })
-    }
-
-    updateDebt(
-        debtId: string,
-        data: Prisma.DebtUpdateInput,
-        transaction?: Prisma.TransactionClient,
-    ) {
-        const db = getDbClient(transaction)
-
-        return db.debt.update({
-            where: {
-                id: debtId,
-            },
-            data,
-            select: financeDebtSelect,
-        })
-    }
-
-    listObligationTemplates(
-        userId: string,
-        transaction?: Prisma.TransactionClient,
-    ): Promise<FinanceObligationTemplate[]> {
-        const db = getDbClient(transaction)
-
-        return db.obligationTemplate.findMany({
-            where: {
-                userId,
-            },
-            select: financeObligationTemplateSelect,
-            orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
-        })
-    }
-
-    findObligationTemplateById(
-        userId: string,
-        templateId: string,
-        transaction?: Prisma.TransactionClient,
-    ) {
-        const db = getDbClient(transaction)
-
-        return db.obligationTemplate.findFirst({
-            where: {
-                id: templateId,
-                userId,
-            },
-            select: financeObligationTemplateSelect,
-        })
-    }
-
-    createObligationTemplate(
-        input: Prisma.ObligationTemplateUncheckedCreateInput,
-        transaction?: Prisma.TransactionClient,
-    ) {
-        const db = getDbClient(transaction)
-
-        return db.obligationTemplate.create({
-            data: input,
-            select: financeObligationTemplateSelect,
-        })
-    }
-
-    async ensureMonthlyObligationsFromTemplates(
-        input: { userId: string; yearMonth: string },
-        transaction?: Prisma.TransactionClient,
-    ) {
-        const db = getDbClient(transaction)
-        const templates = await db.obligationTemplate.findMany({
-            where: {
-                isActive: true,
-                userId: input.userId,
-            },
-            select: {
-                categoryId: true,
-                id: true,
-                name: true,
-                notes: true,
-                obligationType: true,
-                suggestedAmount: true,
-                suggestedDueDay: true,
-            },
-        })
-
-        if (templates.length === 0) {
-            return []
-        }
-
-        const existing = await db.monthlyObligation.findMany({
-            where: {
-                templateId: {
-                    in: templates.map((template) => template.id),
-                },
-                yearMonth: input.yearMonth,
-            },
-            select: {
-                templateId: true,
-            },
-        })
-        const existingTemplateIds = new Set(
-            existing
-                .map((item) => item.templateId)
-                .filter((templateId): templateId is string => Boolean(templateId)),
-        )
-        const missing = templates.filter(
-            (template) => !existingTemplateIds.has(template.id),
-        )
-
-        if (missing.length === 0) {
-            return []
-        }
-
-        await db.monthlyObligation.createMany({
-            data: missing.map((template) => ({
-                categoryId: template.categoryId,
-                expectedOn: buildSuggestedDate(
-                    input.yearMonth,
-                    template.suggestedDueDay,
-                ),
-                name: template.name,
-                notes: template.notes,
-                obligationType: template.obligationType,
-                plannedAmount: template.suggestedAmount ?? 0,
-                templateId: template.id,
-                userId: input.userId,
-                yearMonth: input.yearMonth,
-            })),
-        })
-
-        return missing
-    }
-
-    listMonthlyObligations(
-        userId: string,
-        yearMonth: string,
-        transaction?: Prisma.TransactionClient,
-    ): Promise<FinanceMonthlyObligation[]> {
-        const db = getDbClient(transaction)
-
-        return db.monthlyObligation.findMany({
-            where: {
-                userId,
-                yearMonth,
-            },
-            select: financeMonthlyObligationSelect,
-            orderBy: [{ expectedOn: 'asc' }, { createdAt: 'asc' }],
-        })
-    }
-
-    findMonthlyObligationById(
-        userId: string,
-        obligationId: string,
-        yearMonth: string,
-        transaction?: Prisma.TransactionClient,
-    ) {
-        const db = getDbClient(transaction)
-
-        return db.monthlyObligation.findFirst({
-            where: {
-                id: obligationId,
-                userId,
-                yearMonth,
-            },
-            select: financeMonthlyObligationSelect,
-        })
-    }
-
-    createMonthlyObligation(
-        input: Prisma.MonthlyObligationUncheckedCreateInput,
-        transaction?: Prisma.TransactionClient,
-    ) {
-        const db = getDbClient(transaction)
-
-        return db.monthlyObligation.create({
-            data: input,
-            select: financeMonthlyObligationSelect,
-        })
-    }
-
-    updateMonthlyObligation(
-        obligationId: string,
-        data: Prisma.MonthlyObligationUncheckedUpdateInput,
-        transaction?: Prisma.TransactionClient,
-    ) {
-        const db = getDbClient(transaction)
-
-        return db.monthlyObligation.update({
-            where: {
-                id: obligationId,
-            },
-            data,
-            select: financeMonthlyObligationSelect,
-        })
-    }
-
-    createTransaction(
-        input: Prisma.TransactionUncheckedCreateInput,
-        transaction?: Prisma.TransactionClient,
-    ) {
-        const db = getDbClient(transaction)
-
-        return db.transaction.create({
-            data: input,
-            select: financeTransactionSelect,
-        })
-    }
-
-    listMonthTransactions(
-        userId: string,
-        yearMonth: string,
-        transaction?: Prisma.TransactionClient,
-    ): Promise<FinanceTransaction[]> {
-        const db = getDbClient(transaction)
-
-        return db.transaction.findMany({
-            where: {
-                status: TransactionStatus.CONFIRMED,
-                userId,
-                effectiveMonth: yearMonth,
-            },
-            select: financeTransactionSelect,
-            orderBy: [{ occurredOn: 'asc' }, { createdAt: 'asc' }],
-        })
-    }
-
-    createPaycheckEntry(
-        input: Prisma.PaycheckEntryUncheckedCreateInput,
-        transaction?: Prisma.TransactionClient,
-    ) {
-        const db = getDbClient(transaction)
-
-        return db.paycheckEntry.create({
-            data: input,
-            select: financePaycheckEntrySelect,
-        })
-    }
-
-    listPaycheckEntries(
-        userId: string,
-        yearMonth: string,
-        transaction?: Prisma.TransactionClient,
-    ): Promise<FinancePaycheckEntry[]> {
-        const db = getDbClient(transaction)
-
-        return db.paycheckEntry.findMany({
-            where: {
-                effectiveMonth: yearMonth,
-                userId,
-            },
-            select: financePaycheckEntrySelect,
-            orderBy: [{ paidOn: 'asc' }, { createdAt: 'asc' }],
-        })
-    }
-
-    createDebtPaymentEntry(
-        input: Prisma.DebtPaymentEntryUncheckedCreateInput,
-        transaction?: Prisma.TransactionClient,
-    ) {
-        const db = getDbClient(transaction)
-
-        return db.debtPaymentEntry.create({
-            data: input,
-            select: financeDebtPaymentEntrySelect,
-        })
-    }
-
-    listDebtPaymentEntries(
-        userId: string,
-        yearMonth: string,
-        transaction?: Prisma.TransactionClient,
-    ): Promise<FinanceDebtPaymentEntry[]> {
-        const db = getDbClient(transaction)
-
-        return db.debtPaymentEntry.findMany({
-            where: {
-                effectiveMonth: yearMonth,
-                userId,
-            },
-            select: financeDebtPaymentEntrySelect,
-            orderBy: [{ paidOn: 'asc' }, { createdAt: 'asc' }],
-        })
-    }
-
-    markMonthlyObligationTransaction(
-        obligationId: string,
-        transactionId: string,
-        transaction?: Prisma.TransactionClient,
-    ) {
-        const db = getDbClient(transaction)
-
-        return db.monthlyObligation.update({
-            where: {
-                id: obligationId,
-            },
-            data: {
-                transactionId,
-            },
-            select: financeMonthlyObligationSelect,
-        })
+    deleteDebt(id: string) {
+        return prisma.debt.delete({ where: { id } })
     }
 }

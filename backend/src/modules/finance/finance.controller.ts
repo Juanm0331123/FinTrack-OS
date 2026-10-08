@@ -1,24 +1,28 @@
 import type { Request, Response } from 'express'
 import { toAuthenticatedRequest } from '../../middlewares/auth.middleware.ts'
 import { ApiResponse } from '../../utils/api-response.ts'
-import {
-    copyPreviousMonthObligationsSchema,
-    createCategorySchema,
-    createDebtPaymentSchema,
-    createDebtSchema,
-    createExpenseSchema,
-    createIncomeSchema,
-    createMonthlyObligationSchema,
-    createObligationTemplateSchema,
-    createPaycheckSchema,
-    createSavingContributionSchema,
-    createSavingGoalSchema,
-    initializeMonthSchema,
-    listCategoriesQuerySchema,
-    monthWorkspaceParamsSchema,
-    updateMonthlyObligationSchema,
+import type {
+    CreateAccountInput,
+    CreateDebtInput,
+    CreateEntryInput,
+    CreateSheetInput,
+    CreateSpendInput,
+    UpdateAccountInput,
+    UpdateDebtInput,
+    UpdateEntryInput,
+    UpdateSettingsInput,
+    UpdateSheetInput,
+    UpdateSpendInput,
 } from './finance.schemas.ts'
 import { FinanceService } from './finance.service.ts'
+
+function getUserId(req: Request) {
+    return toAuthenticatedRequest(req).auth.user.id
+}
+
+function getParam(req: Request, name: 'id' | 'yearMonth') {
+    return String((req.params as Record<string, string>)[name])
+}
 
 export class FinanceController {
     private readonly financeService: FinanceService
@@ -27,201 +31,169 @@ export class FinanceController {
         this.financeService = financeService
     }
 
-    getMonthWorkspace = async (req: Request, res: Response) => {
-        const authenticatedRequest = toAuthenticatedRequest(req)
-        const { yearMonth } = monthWorkspaceParamsSchema.shape.params.parse(req.params)
-        const workspace = await this.financeService.getMonthWorkspace(
-            authenticatedRequest.auth.user,
-            yearMonth,
-        )
+    getWorkbook = async (req: Request, res: Response) => {
+        const workbook = await this.financeService.getWorkbook(getUserId(req))
 
-        return res.status(200).json(ApiResponse.success(workspace))
+        return res.status(200).json(ApiResponse.success(workbook))
     }
 
-    initializeMonth = async (req: Request, res: Response) => {
-        const authenticatedRequest = toAuthenticatedRequest(req)
-        const { yearMonth } = initializeMonthSchema.shape.params.parse(req.params)
-        const body = initializeMonthSchema.shape.body.parse(req.body)
-        const workspace = await this.financeService.initializeMonth(
-            authenticatedRequest.auth.user,
-            yearMonth,
-            body,
+    updateSettings = async (req: Request, res: Response) => {
+        const settings = await this.financeService.updateSettings(
+            getUserId(req),
+            req.body as UpdateSettingsInput,
         )
 
-        return res.status(200).json(ApiResponse.success(workspace))
+        return res.status(200).json(ApiResponse.success(settings))
     }
 
-    listCategories = async (req: Request, res: Response) => {
-        const authenticatedRequest = toAuthenticatedRequest(req)
-        const query = listCategoriesQuerySchema.shape.query.parse(req.query)
-        const categories = await this.financeService.listCategories(
-            authenticatedRequest.auth.user,
-            query,
+    createAccount = async (req: Request, res: Response) => {
+        const account = await this.financeService.createAccount(
+            getUserId(req),
+            req.body as CreateAccountInput,
         )
 
-        return res.status(200).json(ApiResponse.success(categories))
+        return res.status(201).json(ApiResponse.success(account))
     }
 
-    createCategory = async (req: Request, res: Response) => {
-        const authenticatedRequest = toAuthenticatedRequest(req)
-        const body = createCategorySchema.shape.body.parse(req.body)
-        const category = await this.financeService.createCategory(
-            authenticatedRequest.auth.user,
-            body,
+    updateAccount = async (req: Request, res: Response) => {
+        const account = await this.financeService.updateAccount(
+            getUserId(req),
+            getParam(req, 'id'),
+            req.body as UpdateAccountInput,
         )
 
-        return res.status(201).json(ApiResponse.success(category))
+        return res.status(200).json(ApiResponse.success(account))
     }
 
-    createExpense = async (req: Request, res: Response) => {
-        const authenticatedRequest = toAuthenticatedRequest(req)
-        const body = createExpenseSchema.shape.body.parse(req.body)
-        const expense = await this.financeService.createExpense(
-            authenticatedRequest.auth.user,
-            body,
+    deleteAccount = async (req: Request, res: Response) => {
+        const result = await this.financeService.deleteAccount(
+            getUserId(req),
+            getParam(req, 'id'),
         )
 
-        return res.status(201).json(ApiResponse.success(expense))
+        return res.status(200).json(ApiResponse.success(result))
     }
 
-    createIncome = async (req: Request, res: Response) => {
-        const authenticatedRequest = toAuthenticatedRequest(req)
-        const body = createIncomeSchema.shape.body.parse(req.body)
-        const income = await this.financeService.createIncome(
-            authenticatedRequest.auth.user,
-            body,
+    createSheet = async (req: Request, res: Response) => {
+        const sheet = await this.financeService.createSheet(
+            getUserId(req),
+            req.body as CreateSheetInput,
         )
 
-        return res.status(201).json(ApiResponse.success(income))
+        return res.status(201).json(ApiResponse.success(sheet))
     }
 
-    listObligationTemplates = async (req: Request, res: Response) => {
-        const authenticatedRequest = toAuthenticatedRequest(req)
-        const templates = await this.financeService.listObligationTemplates(
-            authenticatedRequest.auth.user,
+    updateSheet = async (req: Request, res: Response) => {
+        const sheet = await this.financeService.updateSheet(
+            getUserId(req),
+            getParam(req, 'yearMonth'),
+            req.body as UpdateSheetInput,
         )
 
-        return res.status(200).json(ApiResponse.success(templates))
+        return res.status(200).json(ApiResponse.success(sheet))
     }
 
-    createObligationTemplate = async (req: Request, res: Response) => {
-        const authenticatedRequest = toAuthenticatedRequest(req)
-        const body = createObligationTemplateSchema.shape.body.parse(req.body)
-        const template = await this.financeService.createObligationTemplate(
-            authenticatedRequest.auth.user,
-            body,
+    deleteSheet = async (req: Request, res: Response) => {
+        const result = await this.financeService.deleteSheet(
+            getUserId(req),
+            getParam(req, 'yearMonth'),
         )
 
-        return res.status(201).json(ApiResponse.success(template))
+        return res.status(200).json(ApiResponse.success(result))
     }
 
-    createMonthlyObligation = async (req: Request, res: Response) => {
-        const authenticatedRequest = toAuthenticatedRequest(req)
-        const { yearMonth } = createMonthlyObligationSchema.shape.params.parse(
-            req.params,
-        )
-        const body = createMonthlyObligationSchema.shape.body.parse(req.body)
-        const obligation = await this.financeService.createMonthlyObligation(
-            authenticatedRequest.auth.user,
-            yearMonth,
-            body,
+    copyPreviousSheet = async (req: Request, res: Response) => {
+        const sheet = await this.financeService.copyPreviousSheet(
+            getUserId(req),
+            getParam(req, 'yearMonth'),
         )
 
-        return res.status(201).json(ApiResponse.success(obligation))
+        return res.status(200).json(ApiResponse.success(sheet))
     }
 
-    copyPreviousMonthObligations = async (req: Request, res: Response) => {
-        const authenticatedRequest = toAuthenticatedRequest(req)
-        const { yearMonth } = copyPreviousMonthObligationsSchema.shape.params.parse(
-            req.params,
-        )
-        const workspace = await this.financeService.copyPreviousMonthObligations(
-            authenticatedRequest.auth.user,
-            yearMonth,
+    createEntry = async (req: Request, res: Response) => {
+        const entry = await this.financeService.createEntry(
+            getUserId(req),
+            getParam(req, 'yearMonth'),
+            req.body as CreateEntryInput,
         )
 
-        return res.status(200).json(ApiResponse.success(workspace))
+        return res.status(201).json(ApiResponse.success(entry))
     }
 
-    updateMonthlyObligation = async (req: Request, res: Response) => {
-        const authenticatedRequest = toAuthenticatedRequest(req)
-        const { id, yearMonth } = updateMonthlyObligationSchema.shape.params.parse(
-            req.params,
-        )
-        const body = updateMonthlyObligationSchema.shape.body.parse(req.body)
-        const obligation = await this.financeService.updateMonthlyObligation(
-            authenticatedRequest.auth.user,
-            yearMonth,
-            id,
-            body,
+    updateEntry = async (req: Request, res: Response) => {
+        const entry = await this.financeService.updateEntry(
+            getUserId(req),
+            getParam(req, 'id'),
+            req.body as UpdateEntryInput,
         )
 
-        return res.status(200).json(ApiResponse.success(obligation))
+        return res.status(200).json(ApiResponse.success(entry))
     }
 
-    listDebts = async (req: Request, res: Response) => {
-        const authenticatedRequest = toAuthenticatedRequest(req)
-        const debts = await this.financeService.listDebts(
-            authenticatedRequest.auth.user,
+    deleteEntry = async (req: Request, res: Response) => {
+        const result = await this.financeService.deleteEntry(
+            getUserId(req),
+            getParam(req, 'id'),
         )
 
-        return res.status(200).json(ApiResponse.success(debts))
+        return res.status(200).json(ApiResponse.success(result))
+    }
+
+    createSpend = async (req: Request, res: Response) => {
+        const spend = await this.financeService.createSpend(
+            getUserId(req),
+            getParam(req, 'id'),
+            req.body as CreateSpendInput,
+        )
+
+        return res.status(201).json(ApiResponse.success(spend))
+    }
+
+    updateSpend = async (req: Request, res: Response) => {
+        const spend = await this.financeService.updateSpend(
+            getUserId(req),
+            getParam(req, 'id'),
+            req.body as UpdateSpendInput,
+        )
+
+        return res.status(200).json(ApiResponse.success(spend))
+    }
+
+    deleteSpend = async (req: Request, res: Response) => {
+        const result = await this.financeService.deleteSpend(
+            getUserId(req),
+            getParam(req, 'id'),
+        )
+
+        return res.status(200).json(ApiResponse.success(result))
     }
 
     createDebt = async (req: Request, res: Response) => {
-        const authenticatedRequest = toAuthenticatedRequest(req)
-        const body = createDebtSchema.shape.body.parse(req.body)
         const debt = await this.financeService.createDebt(
-            authenticatedRequest.auth.user,
-            body,
+            getUserId(req),
+            req.body as CreateDebtInput,
         )
 
         return res.status(201).json(ApiResponse.success(debt))
     }
 
-    createDebtPayment = async (req: Request, res: Response) => {
-        const authenticatedRequest = toAuthenticatedRequest(req)
-        const { id } = createDebtPaymentSchema.shape.params.parse(req.params)
-        const body = createDebtPaymentSchema.shape.body.parse(req.body)
-        const payment = await this.financeService.createDebtPayment(
-            authenticatedRequest.auth.user,
-            id,
-            body,
+    updateDebt = async (req: Request, res: Response) => {
+        const debt = await this.financeService.updateDebt(
+            getUserId(req),
+            getParam(req, 'id'),
+            req.body as UpdateDebtInput,
         )
 
-        return res.status(201).json(ApiResponse.success(payment))
+        return res.status(200).json(ApiResponse.success(debt))
     }
 
-    createPaycheck = async (req: Request, res: Response) => {
-        const authenticatedRequest = toAuthenticatedRequest(req)
-        const body = createPaycheckSchema.shape.body.parse(req.body)
-        const paycheck = await this.financeService.createPaycheck(
-            authenticatedRequest.auth.user,
-            body,
+    deleteDebt = async (req: Request, res: Response) => {
+        const result = await this.financeService.deleteDebt(
+            getUserId(req),
+            getParam(req, 'id'),
         )
 
-        return res.status(201).json(ApiResponse.success(paycheck))
-    }
-
-    createSavingGoal = async (req: Request, res: Response) => {
-        const authenticatedRequest = toAuthenticatedRequest(req)
-        const body = createSavingGoalSchema.shape.body.parse(req.body)
-        const savingGoal = await this.financeService.createSavingGoal(
-            authenticatedRequest.auth.user,
-            body,
-        )
-
-        return res.status(201).json(ApiResponse.success(savingGoal))
-    }
-
-    createSavingContribution = async (req: Request, res: Response) => {
-        const authenticatedRequest = toAuthenticatedRequest(req)
-        const body = createSavingContributionSchema.shape.body.parse(req.body)
-        const savingContribution = await this.financeService.createSavingContribution(
-            authenticatedRequest.auth.user,
-            body,
-        )
-
-        return res.status(201).json(ApiResponse.success(savingContribution))
+        return res.status(200).json(ApiResponse.success(result))
     }
 }

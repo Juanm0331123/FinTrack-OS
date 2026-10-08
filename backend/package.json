@@ -4,13 +4,16 @@
     "description": "",
     "main": "index.js",
     "scripts": {
+        "db:import-workbook": "node --env-file=.env scripts/import-workbook.ts",
         "dev": "node --watch --env-file=.env --experimental-strip-types src/server.ts",
         "prisma:format": "prisma format",
         "prisma:generate": "prisma generate",
+        "prisma:migrate:deploy": "prisma migrate deploy",
         "prisma:migrate:dev": "prisma migrate dev",
         "prisma:validate": "prisma validate",
         "start": "node --env-file=.env --experimental-strip-types src/server.ts",
-        "test": "echo \"Error: no test specified\" && exit 1"
+        "test": "node --experimental-strip-types --test \"src/**/*.test.ts\"",
+        "typecheck": "tsc --noEmit"
     },
     "keywords": [],
     "author": "",
@@ -45,6 +48,10 @@
         "@types/cors": "^2.8.19",
         "@types/express": "5.0.6",
         "@types/morgan": "^1.9.10",
-        "prisma": "^7.8.0"
+        "@types/node": "^24.19.1",
+        "@types/nodemailer": "^7.0.12",
+        "@types/pg": "^8.20.0",
+        "prisma": "^7.8.0",
+        "typescript": "^5.9.3"
     }
 }

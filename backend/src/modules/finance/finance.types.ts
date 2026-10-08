@@ -1,388 +1,173 @@
-import type { BudgetBucket, Prisma } from '@prisma/client'
+export const ENTRY_CATEGORIES = [
+    'SUBSCRIPTION',
+    'FIXED',
+    'POCKET',
+    'SAVINGS',
+    'DEBT',
+    'OTHER',
+] as const
 
-export const financeCategorySelect = {
-    budgetBucket: true,
-    color: true,
-    icon: true,
-    id: true,
-    isActive: true,
-    isSystem: true,
-    kind: true,
-    name: true,
-} satisfies Prisma.CategorySelect
+export const LEFTOVER_DESTINATIONS = ['AVAILABLE', 'SAVINGS'] as const
 
-export const financeDebtSelect = {
-    closedAt: true,
-    createdAt: true,
-    currencyCode: true,
-    currentPrincipal: true,
-    dueDay: true,
-    id: true,
-    interestRateAnnual: true,
-    lenderName: true,
-    minimumPaymentAmount: true,
-    name: true,
-    originalAmount: true,
-    statementDay: true,
-    status: true,
-    termMonths: true,
-    type: true,
-    updatedAt: true,
-} satisfies Prisma.DebtSelect
+export const DEBT_STATUSES = ['ACTIVE', 'PAID'] as const
 
-export const financeMonthlyProfileSelect = {
-    carryoverSourceAmount: true,
-    carryoverToAvailableAmount: true,
-    carryoverToSavingsAmount: true,
-    id: true,
-    initializedAt: true,
-    needsTargetPct: true,
-    notes: true,
-    openingBalance: true,
-    savingsTargetPct: true,
-    targetSavingsAmount: true,
-    updatedAt: true,
-    wantsTargetPct: true,
-    yearMonth: true,
-} satisfies Prisma.MonthlyFinancialProfileSelect
+export const DEBT_STRATEGIES = ['AVALANCHE', 'HIGHEST_PAYMENT', 'LOWEST_PAYMENT', 'RECOMMENDED'] as const
 
-export const financeObligationTemplateSelect = {
-    category: {
-        select: financeCategorySelect,
-    },
-    createdAt: true,
-    id: true,
-    isActive: true,
-    name: true,
-    notes: true,
-    obligationType: true,
-    suggestedAmount: true,
-    suggestedDueDay: true,
-    updatedAt: true,
-} satisfies Prisma.ObligationTemplateSelect
+export type EntryCategory = (typeof ENTRY_CATEGORIES)[number]
 
-export const financeMonthlyObligationSelect = {
-    category: {
-        select: financeCategorySelect,
-    },
-    createdAt: true,
-    expectedOn: true,
-    id: true,
-    name: true,
-    notes: true,
-    obligationType: true,
-    paidAmount: true,
-    paidOn: true,
-    plannedAmount: true,
-    status: true,
-    templateId: true,
-    transactionId: true,
-    updatedAt: true,
-    yearMonth: true,
-} satisfies Prisma.MonthlyObligationSelect
+export type LeftoverDestination = (typeof LEFTOVER_DESTINATIONS)[number]
 
-export const financePaycheckEntrySelect = {
-    effectiveMonth: true,
-    id: true,
-    netReceived: true,
-    notes: true,
-    paidOn: true,
-    salaryBase: true,
-    totalDeductions: true,
-    transaction: {
-        select: {
-            amount: true,
-            id: true,
-            occurredOn: true,
-            title: true,
-            type: true,
-        },
-    },
-    transportAllowance: true,
-} satisfies Prisma.PaycheckEntrySelect
+export type DebtStatus = (typeof DEBT_STATUSES)[number]
 
-export const financeDebtPaymentEntrySelect = {
-    debt: {
-        select: {
-            currentPrincipal: true,
-            id: true,
-            minimumPaymentAmount: true,
-            name: true,
-            status: true,
-            termMonths: true,
-        },
-    },
-    effectiveMonth: true,
-    extraAmount: true,
-    id: true,
-    minimumAmount: true,
-    notes: true,
-    paidOn: true,
-    totalAmount: true,
-    transaction: {
-        select: {
-            amount: true,
-            id: true,
-            occurredOn: true,
-            title: true,
-            type: true,
-        },
-    },
-} satisfies Prisma.DebtPaymentEntrySelect
+export type DebtStrategy = (typeof DEBT_STRATEGIES)[number]
 
-export const financeSavingGoalSelect = {
-    completedAt: true,
-    createdAt: true,
-    currentSavedAmount: true,
-    id: true,
-    name: true,
-    priority: true,
-    status: true,
-    targetAmount: true,
-    targetDate: true,
-    updatedAt: true,
-} satisfies Prisma.SavingGoalSelect
+export type DecimalLike = number | string | { toNumber(): number }
 
-export const financeTransactionSelect = {
-    amount: true,
-    category: {
-        select: {
-            budgetBucket: true,
-            id: true,
-            name: true,
-        },
-    },
-    categoryId: true,
-    debtId: true,
-    description: true,
-    effectiveMonth: true,
-    id: true,
-    occurredOn: true,
-    savingGoal: {
-        select: {
-            id: true,
-            name: true,
-        },
-    },
-    title: true,
-    type: true,
-} satisfies Prisma.TransactionSelect
+export type FinanceSettingsDto = {
+    benefitsRate: number
+    cushionAmount: number
+    debtStrategy: DebtStrategy
+    redirectDebtOverpayments: boolean
+}
 
-export type FinanceCategory = Prisma.CategoryGetPayload<{
-    select: typeof financeCategorySelect
-}>
-
-export type FinanceDebt = Prisma.DebtGetPayload<{
-    select: typeof financeDebtSelect
-}>
-
-export type FinanceMonthlyProfile = Prisma.MonthlyFinancialProfileGetPayload<{
-    select: typeof financeMonthlyProfileSelect
-}>
-
-export type FinanceObligationTemplate = Prisma.ObligationTemplateGetPayload<{
-    select: typeof financeObligationTemplateSelect
-}>
-
-export type FinanceMonthlyObligation = Prisma.MonthlyObligationGetPayload<{
-    select: typeof financeMonthlyObligationSelect
-}>
-
-export type FinancePaycheckEntry = Prisma.PaycheckEntryGetPayload<{
-    select: typeof financePaycheckEntrySelect
-}>
-
-export type FinanceDebtPaymentEntry = Prisma.DebtPaymentEntryGetPayload<{
-    select: typeof financeDebtPaymentEntrySelect
-}>
-
-export type FinanceSavingGoal = Prisma.SavingGoalGetPayload<{
-    select: typeof financeSavingGoalSelect
-}>
-
-export type FinanceTransaction = Prisma.TransactionGetPayload<{
-    select: typeof financeTransactionSelect
-}>
-
-export type CalendarEventKind =
-    | 'carryover'
-    | 'debt_payment'
-    | 'obligation_paid'
-    | 'obligation_planned'
-    | 'paycheck'
-    | 'saving_contribution'
-
-export type CalendarEventItem = {
-    amount: number
-    date: string
-    detail: string
+export type MoneyAccountDto = {
+    archived: boolean
     id: string
-    kind: CalendarEventKind
-    relatedEntityId?: string
-    title: string
+    name: string
+    sortOrder: number
 }
 
-export type CalendarDaySummary = {
-    date: string
-    expenseTotal: number
-    incomeTotal: number
-    items: CalendarEventItem[]
-}
-
-export type DashboardMonthSummary = {
-    availableBalance: number
-    carryoverSourceAmount: number
-    debtPaymentTotal: number
-    expenseTotal: number
-    incomeTotal: number
-    openingBalance: number
-    savingContributionTotal: number
-}
-
-export type DashboardRuleBucket = {
-    actualAmount: number
-    remainingAmount: number
-    status: 'ahead' | 'behind' | 'on_track' | 'over'
-    targetAmount: number
-    targetPct: number
-}
-
-export type DashboardRule503020 = {
-    needs: DashboardRuleBucket
-    savingsDebt: DashboardRuleBucket
-    unassignedExpenseAmount: number
-    wants: DashboardRuleBucket
-}
-
-export type PendingMonthItem = {
+export type PocketSpendDto = {
     amount: number
-    dueOn: string
     id: string
-    isOverdue: boolean
-    kind: 'debt' | 'obligation'
-    title: string
+    note: string | null
+    spentOn: string
 }
 
-export type DashboardPendingSummary = {
-    pendingDebtAmount: number
-    pendingObligationsAmount: number
-    pendingObligationsCount: number
-    upcomingDueItems: PendingMonthItem[]
-}
-
-export type DashboardMonthStatus = {
-    cues: string[]
-    description: string
-    title: string
-    tone: 'neutral' | 'positive' | 'warning'
-}
-
-export type DebtMonthSnapshot = {
-    currencyCode: string
-    currentPrincipal: number
+export type MonthEntryDto = {
+    accountId: string | null
+    amount: number | null
+    category: EntryCategory
+    concept: string
+    debtId: string | null
     dueDay: number | null
     id: string
-    lenderName: string | null
-    minimumPaymentAmount: number | null
+    isPaid: boolean
+    note: string | null
+    sortOrder: number
+    spends: PocketSpendDto[]
+}
+
+export type MonthSheetFieldsDto = {
+    benefitsOverride: number | null
+    disabilityIncome: number | null
+    id: string
+    leftoverDestination: LeftoverDestination
+    notes: string | null
+    otherDeductions: number
+    previousLeftover: number
+    salary: number
+    transportAllowance: number
+    yearMonth: string
+}
+
+export type MonthSheetDto = MonthSheetFieldsDto & {
+    entries: MonthEntryDto[]
+}
+
+export type DebtDto = {
+    datesNote: string | null
+    dueDay: number | null
+    id: string
+    insuranceRate: number
+    lender: string | null
+    minimumPayment: number
+    monthlyRate: number
+    myMinimumOverride: number | null
     name: string
-    progressPct: number
-    status: string
-    termMonths: number | null
-    type: string
+    notes: string | null
+    partnerContribution: number
+    paymentCap: number | null
+    sharedAmount: number
+    sharedPercent: number | null
+    sharedWith: string | null
+    sortOrder: number
+    status: DebtStatus
+    totalBalance: number
 }
 
-export type MonthlyObligationViewModel = {
-    amountPaid: number | null
-    categoryId: string
-    categoryName: string
-    expectedOn: string | null
+export type WorkbookDto = {
+    accounts: MoneyAccountDto[]
+    debts: DebtDto[]
+    settings: FinanceSettingsDto
+    sheets: MonthSheetDto[]
+}
+
+export type SettingsRecord = {
+    benefitsRate: DecimalLike
+    cushionAmount: DecimalLike
+    debtStrategy: DebtStrategy
+    redirectDebtOverpayments: boolean
+}
+
+export type AccountRecord = {
+    archivedAt: Date | null
     id: string
     name: string
-    obligationType: string
-    paidOn: string | null
-    plannedAmount: number
-    status: string
-    templateId: string | null
+    sortOrder: number
 }
 
-export type SavingGoalSummary = {
-    currentSavedAmount: number
+export type SpendRecord = {
+    amount: DecimalLike
     id: string
+    note: string | null
+    spentOn: Date
+}
+
+export type EntryRecord = {
+    accountId: string | null
+    amount: DecimalLike | null
+    category: EntryCategory
+    concept: string
+    debtId: string | null
+    dueDay: number | null
+    id: string
+    isPaid: boolean
+    note: string | null
+    sortOrder: number
+    spends?: SpendRecord[]
+}
+
+export type SheetRecord = {
+    benefitsOverride: DecimalLike | null
+    disabilityIncome: DecimalLike | null
+    id: string
+    leftoverDestination: LeftoverDestination
+    notes: string | null
+    otherDeductions: DecimalLike
+    previousLeftover: DecimalLike
+    salary: DecimalLike
+    transportAllowance: DecimalLike
+    yearMonth: string
+}
+
+export type DebtRecord = {
+    datesNote: string | null
+    dueDay: number | null
+    id: string
+    insuranceRate: DecimalLike
+    lender: string | null
+    minimumPayment: DecimalLike
+    monthlyRate: DecimalLike
+    myMinimumOverride: DecimalLike | null
     name: string
-    priority: number | null
-    status: string
-    targetAmount: number
-    targetDate: string | null
-}
-
-export type MonthIncomeItem = {
-    amount: number
-    id: string
-    kind: 'EXTRA_INCOME' | 'PAYCHECK'
     notes: string | null
-    occurredOn: string
-    title: string
-    totalDeductions: number | null
-    transportAllowance: number | null
-}
-
-export type MonthExpenseItem = {
-    amount: number
-    budgetBucket: BudgetBucket | null
-    categoryName: string | null
-    id: string
-    notes: string | null
-    occurredOn: string
-    title: string
-}
-
-export type MonthDebtPaymentItem = {
-    debtId: string
-    debtName: string
-    extraAmount: number
-    id: string
-    minimumAmount: number
-    notes: string | null
-    paidOn: string
-    totalAmount: number
-}
-
-export type MonthSavingContributionItem = {
-    amount: number
-    id: string
-    notes: string | null
-    occurredOn: string
-    savingGoalId: string | null
-    savingGoalName: string | null
-    title: string
-}
-
-export type MonthWorkspaceResponse = {
-    activity: {
-        debtPayments: MonthDebtPaymentItem[]
-        expenses: MonthExpenseItem[]
-        incomes: MonthIncomeItem[]
-        savingContributions: MonthSavingContributionItem[]
-    }
-    calendarDays: CalendarDaySummary[]
-    categories: FinanceCategory[]
-    debts: DebtMonthSnapshot[]
-    initialization: {
-        carryoverSourceAmount: number
-        required: boolean
-    }
-    month: {
-        currentDate: string
-        nextYearMonth: string
-        previousYearMonth: string
-        yearMonth: string
-    }
-    obligationTemplates: FinanceObligationTemplate[]
-    obligations: MonthlyObligationViewModel[]
-    pendingSummary: DashboardPendingSummary
-    profile: FinanceMonthlyProfile
-    rule503020: DashboardRule503020
-    savingGoals: SavingGoalSummary[]
-    summary: DashboardMonthSummary
-    monthStatus: DashboardMonthStatus
+    partnerContribution: DecimalLike
+    paymentCap: DecimalLike | null
+    sharedAmount: DecimalLike
+    sharedPercent: DecimalLike | null
+    sharedWith: string | null
+    sortOrder: number
+    status: DebtStatus
+    totalBalance: DecimalLike
 }

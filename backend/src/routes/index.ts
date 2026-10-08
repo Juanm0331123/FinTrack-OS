@@ -19,5 +19,5 @@ apiRoutes.get('/health', (_req, res) => {
 })
 
 apiRoutes.use('/auth', authRoutes)
-apiRoutes.use('/', financeRoutes)
+apiRoutes.use('/finance', financeRoutes)
 apiRoutes.use('/users', usersRoutes)

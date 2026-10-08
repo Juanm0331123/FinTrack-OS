@@ -1,122 +1,62 @@
 import { Router } from 'express'
 import { requireAuth } from '../../middlewares/auth.middleware.ts'
+import { financeRateLimiter } from '../../middlewares/rate-limit.middleware.ts'
 import { validate } from '../../middlewares/validate.middleware.ts'
 import { FinanceController } from './finance.controller.ts'
 import { FinanceRepository } from './finance.repository.ts'
 import {
-    copyPreviousMonthObligationsSchema,
-    createCategorySchema,
-    createDebtPaymentSchema,
+    createAccountSchema,
     createDebtSchema,
-    createExpenseSchema,
-    createIncomeSchema,
-    createMonthlyObligationSchema,
-    createObligationTemplateSchema,
-    createPaycheckSchema,
-    createSavingContributionSchema,
-    createSavingGoalSchema,
-    initializeMonthSchema,
-    listCategoriesQuerySchema,
-    monthWorkspaceParamsSchema,
-    updateMonthlyObligationSchema,
+    createEntrySchema,
+    createSheetSchema,
+    createSpendSchema,
+    idParamsSchema,
+    updateAccountSchema,
+    updateDebtSchema,
+    updateEntrySchema,
+    updateSettingsSchema,
+    updateSheetSchema,
+    updateSpendSchema,
+    yearMonthParamsSchema,
 } from './finance.schemas.ts'
 import { FinanceService } from './finance.service.ts'
 
 const router = Router()
-const financeRepository = new FinanceRepository()
-const financeService = new FinanceService(financeRepository)
-const financeController = new FinanceController(financeService)
+const financeController = new FinanceController(new FinanceService(new FinanceRepository()))
 
-router.use(requireAuth)
+router.use(requireAuth, financeRateLimiter)
 
-router.get(
-    '/months/:yearMonth/workspace',
-    validate(monthWorkspaceParamsSchema),
-    financeController.getMonthWorkspace,
-)
+router.get('/workbook', financeController.getWorkbook)
 
+router.patch('/settings', validate(updateSettingsSchema), financeController.updateSettings)
+
+router.post('/accounts', validate(createAccountSchema), financeController.createAccount)
+router.patch('/accounts/:id', validate(updateAccountSchema), financeController.updateAccount)
+router.delete('/accounts/:id', validate(idParamsSchema), financeController.deleteAccount)
+
+router.post('/sheets', validate(createSheetSchema), financeController.createSheet)
+router.patch('/sheets/:yearMonth', validate(updateSheetSchema), financeController.updateSheet)
+router.delete('/sheets/:yearMonth', validate(yearMonthParamsSchema), financeController.deleteSheet)
 router.post(
-    '/months/:yearMonth/initialize',
-    validate(initializeMonthSchema),
-    financeController.initializeMonth,
+    '/sheets/:yearMonth/copy-previous',
+    validate(yearMonthParamsSchema),
+    financeController.copyPreviousSheet,
 )
-
 router.post(
-    '/months/:yearMonth/obligations',
-    validate(createMonthlyObligationSchema),
-    financeController.createMonthlyObligation,
+    '/sheets/:yearMonth/entries',
+    validate(createEntrySchema),
+    financeController.createEntry,
 )
 
-router.post(
-    '/months/:yearMonth/obligations/copy-previous',
-    validate(copyPreviousMonthObligationsSchema),
-    financeController.copyPreviousMonthObligations,
-)
+router.patch('/entries/:id', validate(updateEntrySchema), financeController.updateEntry)
+router.delete('/entries/:id', validate(idParamsSchema), financeController.deleteEntry)
+router.post('/entries/:id/spends', validate(createSpendSchema), financeController.createSpend)
 
-router.patch(
-    '/months/:yearMonth/obligations/:id',
-    validate(updateMonthlyObligationSchema),
-    financeController.updateMonthlyObligation,
-)
-
-router.get(
-    '/categories',
-    validate(listCategoriesQuerySchema),
-    financeController.listCategories,
-)
-
-router.post(
-    '/categories',
-    validate(createCategorySchema),
-    financeController.createCategory,
-)
-
-router.post(
-    '/expenses',
-    validate(createExpenseSchema),
-    financeController.createExpense,
-)
-
-router.post(
-    '/incomes',
-    validate(createIncomeSchema),
-    financeController.createIncome,
-)
-
-router.get('/obligations/templates', financeController.listObligationTemplates)
-
-router.post(
-    '/obligations/templates',
-    validate(createObligationTemplateSchema),
-    financeController.createObligationTemplate,
-)
-
-router.get('/debts', financeController.listDebts)
+router.patch('/spends/:id', validate(updateSpendSchema), financeController.updateSpend)
+router.delete('/spends/:id', validate(idParamsSchema), financeController.deleteSpend)
 
 router.post('/debts', validate(createDebtSchema), financeController.createDebt)
-
-router.post(
-    '/debts/:id/payments',
-    validate(createDebtPaymentSchema),
-    financeController.createDebtPayment,
-)
-
-router.post(
-    '/paychecks',
-    validate(createPaycheckSchema),
-    financeController.createPaycheck,
-)
-
-router.post(
-    '/saving-goals',
-    validate(createSavingGoalSchema),
-    financeController.createSavingGoal,
-)
-
-router.post(
-    '/saving-contributions',
-    validate(createSavingContributionSchema),
-    financeController.createSavingContribution,
-)
+router.patch('/debts/:id', validate(updateDebtSchema), financeController.updateDebt)
+router.delete('/debts/:id', validate(idParamsSchema), financeController.deleteDebt)
 
 export { router as financeRoutes }

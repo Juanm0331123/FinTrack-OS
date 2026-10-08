@@ -1,299 +1,261 @@
-import {
-    BudgetBucket,
-    CategoryKind,
-    DebtType,
-    MonthlyObligationStatus,
-    ObligationType,
-} from '@prisma/client'
 import { z } from 'zod'
+import {
+    DEBT_STATUSES,
+    DEBT_STRATEGIES,
+    ENTRY_CATEGORIES,
+    LEFTOVER_DESTINATIONS,
+} from './finance.types.ts'
+
+const MAX_AMOUNT = 999_999_999_999.99
+const MAX_SORT_ORDER = 1_000_000
 
 const yearMonthSchema = z
     .string()
     .trim()
-    .regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Mes invalido. Usa el formato YYYY-MM.')
+    .regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Mes inválido. Usa el formato AAAA-MM.')
 
-const uuidSchema = z.string().uuid('ID invalido.')
+const idSchema = z.uuid('Identificador inválido.')
 
-const amountSchema = z.coerce
-    .number()
-    .finite('El valor debe ser numerico.')
+const amountSchema = z
+    .number({ error: 'El valor debe ser un número.' })
     .min(0, 'El valor no puede ser negativo.')
+    .max(MAX_AMOUNT, 'El valor es demasiado alto.')
+    .transform((value) => Math.round(value * 100) / 100)
 
-const positiveAmountSchema = amountSchema.refine((value) => value > 0, {
-    message: 'El valor debe ser mayor a cero.',
-})
+const nullableAmountSchema = amountSchema.nullable()
 
-const optionalTextSchema = z
-    .union([z.string().trim(), z.literal('')])
-    .optional()
-    .transform((value) => (value ? value : undefined))
+const rateSchema = z
+    .number({ error: 'La tasa debe ser un número.' })
+    .min(0, 'La tasa no puede ser negativa.')
+    .max(1, 'La tasa debe estar entre 0 y 1.')
 
-const dateSchema = z
-    .string()
-    .trim()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, 'La fecha debe usar el formato YYYY-MM-DD.')
+const percentSchema = z
+    .number({ error: 'El porcentaje debe ser un número.' })
+    .min(0, 'El porcentaje no puede ser negativo.')
+    .max(100, 'El porcentaje no puede superar 100.')
 
-const currencyCodeSchema = z
-    .string()
-    .trim()
-    .length(3, 'La moneda debe tener 3 caracteres.')
-    .transform((value) => value.toUpperCase())
+const dueDaySchema = z
+    .number({ error: 'El día debe ser un número.' })
+    .int('El día debe ser un número entero.')
+    .min(1, 'El día debe estar entre 1 y 31.')
+    .max(31, 'El día debe estar entre 1 y 31.')
 
-export const monthWorkspaceParamsSchema = z.object({
-    params: z.object({
-        yearMonth: yearMonthSchema,
-    }),
-})
+const sortOrderSchema = z
+    .number({ error: 'El orden debe ser un número.' })
+    .int('El orden debe ser un número entero.')
+    .min(0, 'El orden no puede ser negativo.')
+    .max(MAX_SORT_ORDER, 'El orden es demasiado alto.')
 
-export const initializeMonthSchema = z.object({
-    params: z.object({
-        yearMonth: yearMonthSchema,
-    }),
+function requiredText(max: number, label: string) {
+    return z
+        .string({ error: `${label} es obligatorio.` })
+        .trim()
+        .min(1, `${label} es obligatorio.`)
+        .max(max, `${label} no puede superar ${max} caracteres.`)
+}
+
+function nullableText(max: number, label: string) {
+    return z
+        .string()
+        .trim()
+        .max(max, `${label} no puede superar ${max} caracteres.`)
+        .nullable()
+        .transform((value) => (value ? value : null))
+}
+
+function hasChanges(value: Record<string, unknown>) {
+    return Object.keys(value).length > 0
+}
+
+const changesMessage = { message: 'Envía al menos un cambio.' }
+
+const yearMonthParams = z.object({ yearMonth: yearMonthSchema })
+const idParams = z.object({ id: idSchema })
+
+export const yearMonthParamsSchema = z.object({ params: yearMonthParams })
+
+export const idParamsSchema = z.object({ params: idParams })
+
+export const updateSettingsSchema = z.object({
     body: z
         .object({
-            carryoverToAvailableAmount: amountSchema.default(0),
-            carryoverToSavingsAmount: amountSchema.default(0),
-            debtAllocations: z
-                .array(
-                    z.object({
-                        amount: positiveAmountSchema,
-                        debtId: uuidSchema,
-                    }),
-                )
-                .default([]),
-            notes: optionalTextSchema,
-        })
-        .strict(),
-})
-
-export const createCategorySchema = z.object({
-    body: z
-        .object({
-            budgetBucket: z.nativeEnum(BudgetBucket).optional(),
-            color: optionalTextSchema,
-            icon: optionalTextSchema,
-            kind: z.nativeEnum(CategoryKind).default(CategoryKind.EXPENSE),
-            name: z
-                .string()
-                .trim()
-                .min(2, 'La categoria debe tener al menos 2 caracteres.')
-                .max(120, 'La categoria no puede superar 120 caracteres.'),
-        })
-        .strict(),
-})
-
-export const createExpenseSchema = z.object({
-    body: z
-        .object({
-            amount: positiveAmountSchema,
-            categoryId: uuidSchema,
-            effectiveMonth: yearMonthSchema.optional(),
-            notes: optionalTextSchema,
-            occurredOn: dateSchema,
-            title: z
-                .string()
-                .trim()
-                .min(2, 'El gasto debe tener al menos 2 caracteres.')
-                .max(180, 'El gasto no puede superar 180 caracteres.'),
-        })
-        .strict(),
-})
-
-export const createIncomeSchema = z.object({
-    body: z
-        .object({
-            amount: positiveAmountSchema,
-            effectiveMonth: yearMonthSchema.optional(),
-            notes: optionalTextSchema,
-            occurredOn: dateSchema,
-            title: z
-                .string()
-                .trim()
-                .min(2, 'El ingreso debe tener al menos 2 caracteres.')
-                .max(180, 'El ingreso no puede superar 180 caracteres.'),
-        })
-        .strict(),
-})
-
-export const listCategoriesQuerySchema = z.object({
-    query: z.object({
-        kind: z.nativeEnum(CategoryKind).default(CategoryKind.EXPENSE),
-    }),
-})
-
-export const createPaycheckSchema = z.object({
-    body: z
-        .object({
-            effectiveMonth: yearMonthSchema.optional(),
-            notes: optionalTextSchema,
-            paidOn: dateSchema,
-            salaryBase: positiveAmountSchema,
-            totalDeductions: amountSchema.default(0),
-            transportAllowance: amountSchema.default(0),
-        })
-        .strict(),
-})
-
-export const createSavingGoalSchema = z.object({
-    body: z
-        .object({
-            currencyCode: currencyCodeSchema.optional(),
-            name: z
-                .string()
-                .trim()
-                .min(2, 'La meta debe tener al menos 2 caracteres.')
-                .max(150, 'La meta no puede superar 150 caracteres.'),
-            priority: z.coerce.number().int().min(1).max(10).optional(),
-            targetAmount: positiveAmountSchema,
-            targetDate: dateSchema.optional(),
-        })
-        .strict(),
-})
-
-export const createSavingContributionSchema = z.object({
-    body: z
-        .object({
-            amount: positiveAmountSchema,
-            effectiveMonth: yearMonthSchema.optional(),
-            notes: optionalTextSchema,
-            occurredOn: dateSchema,
-            savingGoalId: uuidSchema.optional(),
-            title: z
-                .string()
-                .trim()
-                .min(2, 'El ahorro debe tener al menos 2 caracteres.')
-                .max(180, 'El ahorro no puede superar 180 caracteres.'),
-        })
-        .strict(),
-})
-
-export const createObligationTemplateSchema = z.object({
-    body: z
-        .object({
-            categoryId: uuidSchema,
-            isActive: z.boolean().default(true),
-            name: z
-                .string()
-                .trim()
-                .min(2, 'La obligacion debe tener al menos 2 caracteres.')
-                .max(150, 'La obligacion no puede superar 150 caracteres.'),
-            notes: optionalTextSchema,
-            obligationType: z.nativeEnum(ObligationType),
-            suggestedAmount: positiveAmountSchema.optional(),
-            suggestedDueDay: z.coerce.number().int().min(1).max(31).optional(),
-        })
-        .strict(),
-})
-
-export const createMonthlyObligationSchema = z.object({
-    params: z.object({
-        yearMonth: yearMonthSchema,
-    }),
-    body: z
-        .object({
-            categoryId: uuidSchema,
-            expectedOn: dateSchema.optional(),
-            name: z
-                .string()
-                .trim()
-                .min(2, 'La obligacion debe tener al menos 2 caracteres.')
-                .max(150, 'La obligacion no puede superar 150 caracteres.'),
-            notes: optionalTextSchema,
-            obligationType: z.nativeEnum(ObligationType),
-            plannedAmount: positiveAmountSchema,
-            templateId: uuidSchema.optional(),
-        })
-        .strict(),
-})
-
-export const copyPreviousMonthObligationsSchema = z.object({
-    params: z.object({
-        yearMonth: yearMonthSchema,
-    }),
-})
-
-export const updateMonthlyObligationSchema = z.object({
-    params: z.object({
-        id: uuidSchema,
-        yearMonth: yearMonthSchema,
-    }),
-    body: z
-        .object({
-            categoryId: uuidSchema.optional(),
-            expectedOn: dateSchema.optional().nullable(),
-            name: z
-                .string()
-                .trim()
-                .min(2, 'La obligacion debe tener al menos 2 caracteres.')
-                .max(150, 'La obligacion no puede superar 150 caracteres.')
-                .optional(),
-            notes: optionalTextSchema.nullable(),
-            paidAmount: positiveAmountSchema.optional(),
-            paidOn: dateSchema.optional(),
-            plannedAmount: positiveAmountSchema.optional(),
-            status: z.nativeEnum(MonthlyObligationStatus).optional(),
+            benefitsRate: rateSchema.optional(),
+            cushionAmount: amountSchema.optional(),
+            debtStrategy: z.enum(DEBT_STRATEGIES, { error: 'La estrategia de deudas no es válida.' }).optional(),
+            redirectDebtOverpayments: z.boolean().optional(),
         })
         .strict()
-        .refine((value) => Object.keys(value).length > 0, {
-            message: 'Debes enviar al menos un cambio.',
-            path: [],
-        }),
+        .refine(hasChanges, changesMessage),
 })
+
+const accountNameSchema = requiredText(60, 'El nombre de la cuenta')
+
+export const createAccountSchema = z.object({
+    body: z
+        .object({
+            id: idSchema.optional(),
+            name: accountNameSchema,
+        })
+        .strict(),
+})
+
+export const updateAccountSchema = z.object({
+    params: idParams,
+    body: z
+        .object({
+            archived: z.boolean().optional(),
+            name: accountNameSchema.optional(),
+            sortOrder: sortOrderSchema.optional(),
+        })
+        .strict()
+        .refine(hasChanges, changesMessage),
+})
+
+export const createSheetSchema = z.object({
+    body: z
+        .object({
+            copyFrom: z.enum(['PREVIOUS', 'NONE']).default('NONE'),
+            yearMonth: yearMonthSchema,
+        })
+        .strict(),
+})
+
+export const updateSheetSchema = z.object({
+    params: yearMonthParams,
+    body: z
+        .object({
+            benefitsOverride: nullableAmountSchema.optional(),
+            disabilityIncome: nullableAmountSchema.optional(),
+            leftoverDestination: z.enum(LEFTOVER_DESTINATIONS).optional(),
+            notes: nullableText(500, 'La nota').optional(),
+            otherDeductions: amountSchema.optional(),
+            previousLeftover: amountSchema.optional(),
+            salary: amountSchema.optional(),
+            transportAllowance: amountSchema.optional(),
+        })
+        .strict()
+        .refine(hasChanges, changesMessage),
+})
+
+const entryConceptSchema = requiredText(120, 'El concepto')
+
+const entryFieldsSchema = z.object({
+    accountId: idSchema.nullable().optional(),
+    amount: nullableAmountSchema.optional(),
+    category: z.enum(ENTRY_CATEGORIES).optional(),
+    debtId: idSchema.nullable().optional(),
+    dueDay: dueDaySchema.nullable().optional(),
+    isPaid: z.boolean().optional(),
+    note: nullableText(200, 'La nota').optional(),
+    sortOrder: sortOrderSchema.optional(),
+})
+
+export const createEntrySchema = z.object({
+    params: yearMonthParams,
+    body: entryFieldsSchema
+        .extend({
+            concept: entryConceptSchema,
+            id: idSchema.optional(),
+        })
+        .strict(),
+})
+
+export const updateEntrySchema = z.object({
+    params: idParams,
+    body: entryFieldsSchema
+        .extend({
+            concept: entryConceptSchema.optional(),
+        })
+        .strict()
+        .refine(hasChanges, changesMessage),
+})
+
+const spendAmountSchema = amountSchema.refine((value) => value > 0, 'El gasto debe ser mayor a cero.')
+
+function isCalendarDate(value: string) {
+    const date = new Date(`${value}T00:00:00.000Z`)
+
+    return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value
+}
+
+const spentOnSchema = z
+    .string({ error: 'La fecha es obligatoria.' })
+    .trim()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'La fecha debe tener el formato AAAA-MM-DD.')
+    .refine(isCalendarDate, 'La fecha no es válida.')
+
+export const createSpendSchema = z.object({
+    params: idParams,
+    body: z
+        .object({
+            amount: spendAmountSchema,
+            id: idSchema.optional(),
+            note: nullableText(120, 'La nota').optional(),
+            spentOn: spentOnSchema,
+        })
+        .strict(),
+})
+
+export const updateSpendSchema = z.object({
+    params: idParams,
+    body: z
+        .object({
+            amount: spendAmountSchema.optional(),
+            note: nullableText(120, 'La nota').optional(),
+            spentOn: spentOnSchema.optional(),
+        })
+        .strict()
+        .refine(hasChanges, changesMessage),
+})
+
+const debtFieldsSchema = z.object({
+    datesNote: nullableText(120, 'Las fechas').optional(),
+    dueDay: dueDaySchema.nullable().optional(),
+    insuranceRate: rateSchema.optional(),
+    lender: nullableText(120, 'La entidad').optional(),
+    minimumPayment: amountSchema.optional(),
+    monthlyRate: rateSchema.optional(),
+    myMinimumOverride: nullableAmountSchema.optional(),
+    notes: nullableText(300, 'La nota').optional(),
+    partnerContribution: amountSchema.optional(),
+    paymentCap: nullableAmountSchema.optional(),
+    sharedAmount: amountSchema.optional(),
+    sharedPercent: percentSchema.nullable().optional(),
+    sharedWith: nullableText(60, 'El nombre').optional(),
+    sortOrder: sortOrderSchema.optional(),
+    status: z.enum(DEBT_STATUSES).optional(),
+    totalBalance: amountSchema.optional(),
+})
+
+const debtNameSchema = requiredText(80, 'El nombre de la deuda')
 
 export const createDebtSchema = z.object({
-    body: z
-        .object({
-            currencyCode: currencyCodeSchema.optional(),
-            currentPrincipal: positiveAmountSchema.optional(),
-            dueDay: z.coerce.number().int().min(1).max(31).optional(),
-            interestRateAnnual: amountSchema.optional(),
-            lenderName: optionalTextSchema,
-            minimumPaymentAmount: positiveAmountSchema,
-            name: z
-                .string()
-                .trim()
-                .min(2, 'La deuda debe tener al menos 2 caracteres.')
-                .max(150, 'La deuda no puede superar 150 caracteres.'),
-            originalAmount: positiveAmountSchema,
-            statementDay: z.coerce.number().int().min(1).max(31).optional(),
-            termMonths: z.coerce
-                .number()
-                .int('El plazo debe ser un numero entero.')
-                .min(1, 'El plazo debe ser al menos de 1 mes.'),
-            type: z.nativeEnum(DebtType),
+    body: debtFieldsSchema
+        .extend({
+            id: idSchema.optional(),
+            name: debtNameSchema,
         })
         .strict(),
 })
 
-export const createDebtPaymentSchema = z.object({
-    params: z.object({
-        id: uuidSchema,
-    }),
-    body: z
-        .object({
-            effectiveMonth: yearMonthSchema.optional(),
-            extraAmount: amountSchema.default(0),
-            minimumAmount: amountSchema.default(0),
-            notes: optionalTextSchema,
-            paidOn: dateSchema,
+export const updateDebtSchema = z.object({
+    params: idParams,
+    body: debtFieldsSchema
+        .extend({
+            name: debtNameSchema.optional(),
         })
         .strict()
-        .refine(
-            (value) => value.minimumAmount + value.extraAmount > 0,
-            'Debes registrar al menos un monto en el pago.',
-        ),
+        .refine(hasChanges, changesMessage),
 })
 
-export type CreateCategoryInput = z.infer<typeof createCategorySchema>['body']
+export type UpdateSettingsInput = z.infer<typeof updateSettingsSchema>['body']
+export type CreateAccountInput = z.infer<typeof createAccountSchema>['body']
+export type UpdateAccountInput = z.infer<typeof updateAccountSchema>['body']
+export type CreateSheetInput = z.infer<typeof createSheetSchema>['body']
+export type UpdateSheetInput = z.infer<typeof updateSheetSchema>['body']
+export type CreateEntryInput = z.infer<typeof createEntrySchema>['body']
+export type UpdateEntryInput = z.infer<typeof updateEntrySchema>['body']
+export type CreateSpendInput = z.infer<typeof createSpendSchema>['body']
+export type UpdateSpendInput = z.infer<typeof updateSpendSchema>['body']
 export type CreateDebtInput = z.infer<typeof createDebtSchema>['body']
-export type CreateDebtPaymentInput = z.infer<typeof createDebtPaymentSchema>['body']
-export type CreateExpenseInput = z.infer<typeof createExpenseSchema>['body']
-export type CreateIncomeInput = z.infer<typeof createIncomeSchema>['body']
-export type CreateMonthlyObligationInput = z.infer<typeof createMonthlyObligationSchema>['body']
-export type CreateObligationTemplateInput = z.infer<typeof createObligationTemplateSchema>['body']
-export type CreatePaycheckInput = z.infer<typeof createPaycheckSchema>['body']
-export type CreateSavingContributionInput = z.infer<typeof createSavingContributionSchema>['body']
-export type CreateSavingGoalInput = z.infer<typeof createSavingGoalSchema>['body']
-export type InitializeMonthInput = z.infer<typeof initializeMonthSchema>['body']
-export type ListCategoriesQueryInput = z.infer<typeof listCategoriesQuerySchema>['query']
-export type UpdateMonthlyObligationInput = z.infer<typeof updateMonthlyObligationSchema>['body']
+export type UpdateDebtInput = z.infer<typeof updateDebtSchema>['body']

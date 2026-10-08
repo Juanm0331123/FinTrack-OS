@@ -18,81 +18,6 @@ enum UserRole {
   ADMIN
 }
 
-enum AccountType {
-  CASH
-  BANK_ACCOUNT
-  CREDIT_CARD
-  SAVINGS
-  DIGITAL_WALLET
-  OTHER
-}
-
-enum AccountStatus {
-  ACTIVE
-  INACTIVE
-}
-
-enum CategoryKind {
-  INCOME
-  EXPENSE
-}
-
-enum BudgetBucket {
-  NEEDS
-  WANTS
-  SAVINGS_DEBT
-}
-
-enum ObligationType {
-  FIXED
-  VARIABLE
-}
-
-enum MonthlyObligationStatus {
-  DRAFT
-  PAID
-  SKIPPED
-}
-
-enum TransactionType {
-  INCOME
-  EXPENSE
-  TRANSFER
-  DEBT_PAYMENT
-  SAVING_CONTRIBUTION
-  ADJUSTMENT
-}
-
-enum TransactionStatus {
-  PENDING
-  CONFIRMED
-  CANCELED
-}
-
-enum DebtStatus {
-  ACTIVE
-  PAID
-  DEFAULTED
-  CANCELED
-}
-
-enum DebtType {
-  CREDIT_CARD
-  PERSONAL_LOAN
-  MORTGAGE
-  AUTO_LOAN
-  STUDENT_LOAN
-  LINE_OF_CREDIT
-  OTHER
-}
-
-enum SavingGoalStatus {
-  ACTIVE
-  COMPLETED
-  PAUSED
-  CANCELED
-}
-
 enum AuthTokenType {
   EMAIL_VERIFICATION
   PASSWORD_RESET
@@ -103,33 +28,55 @@ enum OAuthProvider {
   GITHUB
 }
 
+enum EntryCategory {
+  SUBSCRIPTION
+  FIXED
+  POCKET
+  SAVINGS
+  DEBT
+  OTHER
+}
+
+enum LeftoverDestination {
+  AVAILABLE
+  SAVINGS
+}
+
+enum DebtStatus {
+  ACTIVE
+  PAID
+}
+
+enum DebtStrategy {
+  AVALANCHE
+  HIGHEST_PAYMENT
+  LOWEST_PAYMENT
+  RECOMMENDED
+}
+
 model User {
-  id                    String                    @id @default(uuid()) @db.Uuid
-  firstName             String                    @map("first_name") @db.VarChar(100)
-  lastName              String?                   @map("last_name") @db.VarChar(100)
-  email                 String                    @unique @db.VarChar(255)
-  passwordHash          String                    @map("password_hash") @db.VarChar(255)
-  status                UserStatus                @default(PENDING_VERIFICATION)
-  role                  UserRole                  @default(USER)
-  preferredCurrencyCode String                    @default("COP") @map("preferred_currency_code") @db.Char(3)
-  timezone              String                    @default("UTC") @db.VarChar(100)
-  lastLoginAt           DateTime?                 @map("last_login_at")
-  deletedAt             DateTime?                 @map("deleted_at")
-  createdAt             DateTime                  @default(now()) @map("created_at")
-  updatedAt             DateTime                  @updatedAt @map("updated_at")
+  id                    String           @id @default(uuid()) @db.Uuid
+  firstName             String           @map("first_name") @db.VarChar(100)
+  lastName              String?          @map("last_name") @db.VarChar(100)
+  email                 String           @unique @db.VarChar(255)
+  passwordHash          String           @map("password_hash") @db.VarChar(255)
+  status                UserStatus       @default(PENDING_VERIFICATION)
+  role                  UserRole         @default(USER)
+  preferredCurrencyCode String           @default("COP") @map("preferred_currency_code") @db.Char(3)
+  timezone              String           @default("UTC") @db.VarChar(100)
+  lastLoginAt           DateTime?        @map("last_login_at")
+  deletedAt             DateTime?        @map("deleted_at")
+  createdAt             DateTime         @default(now()) @map("created_at")
+  updatedAt             DateTime         @updatedAt @map("updated_at")
   authTokens            AuthToken[]
-  categories            Category[]
   debts                 Debt[]
-  financialAccounts     FinancialAccount[]
-  monthlyProfiles       MonthlyFinancialProfile[]
-  monthlyObligations    MonthlyObligation[]
-  obligationTemplates   ObligationTemplate[]
+  financeSettings       FinanceSettings?
+  moneyAccounts         MoneyAccount[]
+  monthEntries          MonthEntry[]
+  monthSheets           MonthSheet[]
   oauthAccounts         OAuthAccount[]
-  paycheckEntries       PaycheckEntry[]
+  pocketSpends          PocketSpend[]
   refreshTokens         RefreshToken[]
-  savingGoals           SavingGoal[]
-  transactions          Transaction[]
-  debtPaymentEntries    DebtPaymentEntry[]
 
   @@index([status])
   @@index([role])
@@ -189,262 +136,127 @@ model OAuthAccount {
   @@map("oauth_accounts")
 }
 
-model FinancialAccount {
-  id              String        @id @default(uuid()) @db.Uuid
-  userId          String        @map("user_id") @db.Uuid
-  name            String        @db.VarChar(150)
-  type            AccountType
-  status          AccountStatus @default(ACTIVE)
-  institutionName String?       @map("institution_name") @db.VarChar(150)
-  currencyCode    String        @default("COP") @map("currency_code") @db.Char(3)
-  openingBalance  Decimal       @default(0) @map("opening_balance") @db.Decimal(14, 2)
-  creditLimit     Decimal?      @map("credit_limit") @db.Decimal(14, 2)
-  isDefault       Boolean       @default(false) @map("is_default")
-  createdAt       DateTime      @default(now()) @map("created_at")
-  updatedAt       DateTime      @updatedAt @map("updated_at")
-  linkedDebt      Debt?         @relation("DebtLinkedAccount")
-  transactions    Transaction[]
-  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+model FinanceSettings {
+  userId                   String       @id @map("user_id") @db.Uuid
+  cushionAmount            Decimal      @default(0) @map("cushion_amount") @db.Decimal(14, 2)
+  benefitsRate             Decimal      @default(0.08) @map("benefits_rate") @db.Decimal(6, 4)
+  redirectDebtOverpayments Boolean      @default(false) @map("redirect_debt_overpayments")
+  debtStrategy             DebtStrategy @default(AVALANCHE) @map("debt_strategy")
+  createdAt                DateTime     @default(now()) @map("created_at")
+  updatedAt                DateTime     @updatedAt @map("updated_at")
+  user                     User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([userId])
-  @@index([type])
-  @@index([status])
-  @@map("financial_accounts")
+  @@map("finance_settings")
 }
 
-model Category {
-  id                  String               @id @default(uuid()) @db.Uuid
-  userId              String?              @map("user_id") @db.Uuid
-  name                String               @db.VarChar(120)
-  kind                CategoryKind
-  budgetBucket        BudgetBucket?        @map("budget_bucket")
-  icon                String?              @db.VarChar(100)
-  color               String?              @db.VarChar(20)
-  isSystem            Boolean              @default(false) @map("is_system")
-  isActive            Boolean              @default(true) @map("is_active")
-  createdAt           DateTime             @default(now()) @map("created_at")
-  updatedAt           DateTime             @updatedAt @map("updated_at")
-  obligationTemplates ObligationTemplate[]
-  monthlyObligations  MonthlyObligation[]
-  transactions        Transaction[]
-  user                User?                @relation(fields: [userId], references: [id], onDelete: Cascade)
+model MoneyAccount {
+  id         String       @id @default(uuid()) @db.Uuid
+  userId     String       @map("user_id") @db.Uuid
+  name       String       @db.VarChar(60)
+  sortOrder  Int          @default(0) @map("sort_order")
+  archivedAt DateTime?    @map("archived_at")
+  createdAt  DateTime     @default(now()) @map("created_at")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
+  entries    MonthEntry[]
+  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, kind, name])
+  @@unique([userId, name])
   @@index([userId])
-  @@index([kind])
-  @@index([isSystem])
-  @@map("categories")
+  @@map("money_accounts")
 }
 
-model Debt {
-  id                   String             @id @default(uuid()) @db.Uuid
-  userId               String             @map("user_id") @db.Uuid
-  linkedAccountId      String?            @unique @map("linked_account_id") @db.Uuid
-  name                 String             @db.VarChar(150)
-  lenderName           String?            @map("lender_name") @db.VarChar(150)
-  type                 DebtType
-  status               DebtStatus         @default(ACTIVE)
-  currencyCode         String             @default("COP") @map("currency_code") @db.Char(3)
-  originalAmount       Decimal            @map("original_amount") @db.Decimal(14, 2)
-  currentPrincipal     Decimal            @map("current_principal") @db.Decimal(14, 2)
-  interestRateAnnual   Decimal?           @map("interest_rate_annual") @db.Decimal(5, 2)
-  minimumPaymentAmount Decimal?           @map("minimum_payment_amount") @db.Decimal(14, 2)
-  termMonths           Int?               @map("term_months")
-  statementDay         Int?               @map("statement_day")
-  dueDay               Int?               @map("due_day")
-  createdAt            DateTime           @default(now()) @map("created_at")
-  updatedAt            DateTime           @updatedAt @map("updated_at")
-  closedAt             DateTime?          @map("closed_at")
-  paymentEntries       DebtPaymentEntry[]
-  linkedAccount        FinancialAccount?  @relation("DebtLinkedAccount", fields: [linkedAccountId], references: [id], onDelete: SetNull)
-  transactions         Transaction[]
-  user                 User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([status])
-  @@index([type])
-  @@map("debts")
-}
-
-model SavingGoal {
-  id                 String           @id @default(uuid()) @db.Uuid
-  userId             String           @map("user_id") @db.Uuid
-  name               String           @db.VarChar(150)
-  status             SavingGoalStatus @default(ACTIVE)
-  currencyCode       String           @default("COP") @map("currency_code") @db.Char(3)
-  targetAmount       Decimal          @map("target_amount") @db.Decimal(14, 2)
-  currentSavedAmount Decimal          @default(0) @map("current_saved_amount") @db.Decimal(14, 2)
-  targetDate         DateTime?        @map("target_date") @db.Date
-  priority           Int?
-  createdAt          DateTime         @default(now()) @map("created_at")
-  updatedAt          DateTime         @updatedAt @map("updated_at")
-  completedAt        DateTime?        @map("completed_at")
-  transactions       Transaction[]
-  user               User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([status])
-  @@map("saving_goals")
-}
-
-model Transaction {
-  id                String             @id @default(uuid()) @db.Uuid
-  userId            String             @map("user_id") @db.Uuid
-  accountId         String             @map("account_id") @db.Uuid
-  categoryId        String?            @map("category_id") @db.Uuid
-  debtId            String?            @map("debt_id") @db.Uuid
-  savingGoalId      String?            @map("saving_goal_id") @db.Uuid
-  transferGroupId   String?            @map("transfer_group_id") @db.Uuid
-  type              TransactionType
-  status            TransactionStatus  @default(CONFIRMED)
-  title             String             @db.VarChar(180)
-  description       String?
-  amount            Decimal            @db.Decimal(14, 2)
-  currencyCode      String             @default("COP") @map("currency_code") @db.Char(3)
-  occurredOn        DateTime           @map("occurred_on") @db.Date
-  effectiveMonth    String             @map("effective_month") @db.VarChar(7)
-  createdAt         DateTime           @default(now()) @map("created_at")
-  updatedAt         DateTime           @updatedAt @map("updated_at")
-  account           FinancialAccount   @relation(fields: [accountId], references: [id], onDelete: Restrict)
-  category          Category?          @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  debt              Debt?              @relation(fields: [debtId], references: [id], onDelete: Restrict)
-  debtPaymentEntry  DebtPaymentEntry?
-  monthlyObligation MonthlyObligation?
-  paycheckEntry     PaycheckEntry?
-  savingGoal        SavingGoal?        @relation(fields: [savingGoalId], references: [id], onDelete: Restrict)
-  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([accountId])
-  @@index([categoryId])
-  @@index([debtId])
-  @@index([savingGoalId])
-  @@index([type])
-  @@index([status])
-  @@index([occurredOn])
-  @@index([effectiveMonth])
-  @@index([transferGroupId])
-  @@map("transactions")
-}
-
-model MonthlyFinancialProfile {
-  id                         String    @id @default(uuid()) @db.Uuid
-  userId                     String    @map("user_id") @db.Uuid
-  yearMonth                  String    @map("year_month") @db.VarChar(7)
-  needsTargetPct             Decimal   @default(50) @map("needs_target_pct") @db.Decimal(5, 2)
-  wantsTargetPct             Decimal   @default(30) @map("wants_target_pct") @db.Decimal(5, 2)
-  savingsTargetPct           Decimal   @default(20) @map("savings_target_pct") @db.Decimal(5, 2)
-  targetSavingsAmount        Decimal?  @map("target_savings_amount") @db.Decimal(14, 2)
-  openingBalance             Decimal   @default(0) @map("opening_balance") @db.Decimal(14, 2)
-  carryoverSourceAmount      Decimal   @default(0) @map("carryover_source_amount") @db.Decimal(14, 2)
-  carryoverToAvailableAmount Decimal   @default(0) @map("carryover_to_available_amount") @db.Decimal(14, 2)
-  carryoverToSavingsAmount   Decimal   @default(0) @map("carryover_to_savings_amount") @db.Decimal(14, 2)
-  initializedAt              DateTime? @map("initialized_at")
-  notes                      String?
-  createdAt                  DateTime  @default(now()) @map("created_at")
-  updatedAt                  DateTime  @updatedAt @map("updated_at")
-  user                       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+model MonthSheet {
+  id                  String              @id @default(uuid()) @db.Uuid
+  userId              String              @map("user_id") @db.Uuid
+  yearMonth           String              @map("year_month") @db.VarChar(7)
+  salary              Decimal             @default(0) @db.Decimal(14, 2)
+  benefitsOverride    Decimal?            @map("benefits_override") @db.Decimal(14, 2)
+  transportAllowance  Decimal             @default(0) @map("transport_allowance") @db.Decimal(14, 2)
+  otherDeductions     Decimal             @default(0) @map("other_deductions") @db.Decimal(14, 2)
+  disabilityIncome    Decimal?            @map("disability_income") @db.Decimal(14, 2)
+  previousLeftover    Decimal             @default(0) @map("previous_leftover") @db.Decimal(14, 2)
+  leftoverDestination LeftoverDestination @default(AVAILABLE) @map("leftover_destination")
+  notes               String?             @db.VarChar(500)
+  createdAt           DateTime            @default(now()) @map("created_at")
+  updatedAt           DateTime            @updatedAt @map("updated_at")
+  entries             MonthEntry[]
+  user                User                @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, yearMonth])
   @@index([userId])
-  @@index([yearMonth])
-  @@map("monthly_financial_profiles")
+  @@map("month_sheets")
 }
 
-model ObligationTemplate {
-  id                 String              @id @default(uuid()) @db.Uuid
-  userId             String              @map("user_id") @db.Uuid
-  categoryId         String              @map("category_id") @db.Uuid
-  name               String              @db.VarChar(150)
-  obligationType     ObligationType      @map("obligation_type")
-  suggestedAmount    Decimal?            @map("suggested_amount") @db.Decimal(14, 2)
-  suggestedDueDay    Int?                @map("suggested_due_day")
-  isActive           Boolean             @default(true) @map("is_active")
-  notes              String?
-  createdAt          DateTime            @default(now()) @map("created_at")
-  updatedAt          DateTime            @updatedAt @map("updated_at")
-  category           Category            @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  monthlyObligations MonthlyObligation[]
-  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+model MonthEntry {
+  id        String        @id @default(uuid()) @db.Uuid
+  sheetId   String        @map("sheet_id") @db.Uuid
+  userId    String        @map("user_id") @db.Uuid
+  accountId String?       @map("account_id") @db.Uuid
+  debtId    String?       @map("debt_id") @db.Uuid
+  concept   String        @db.VarChar(120)
+  amount    Decimal?      @db.Decimal(14, 2)
+  category  EntryCategory @default(OTHER)
+  dueDay    Int?          @map("due_day") @db.SmallInt
+  note      String?       @db.VarChar(200)
+  isPaid    Boolean       @default(false) @map("is_paid")
+  sortOrder Int           @default(0) @map("sort_order")
+  createdAt DateTime      @default(now()) @map("created_at")
+  updatedAt DateTime      @updatedAt @map("updated_at")
+  account   MoneyAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  debt      Debt?         @relation(fields: [debtId], references: [id], onDelete: SetNull)
+  sheet     MonthSheet    @relation(fields: [sheetId], references: [id], onDelete: Cascade)
+  spends    PocketSpend[]
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([sheetId, sortOrder])
   @@index([userId])
-  @@index([categoryId])
-  @@index([isActive])
-  @@map("obligation_templates")
-}
-
-model MonthlyObligation {
-  id             String                  @id @default(uuid()) @db.Uuid
-  userId         String                  @map("user_id") @db.Uuid
-  templateId     String?                 @map("template_id") @db.Uuid
-  categoryId     String                  @map("category_id") @db.Uuid
-  transactionId  String?                 @unique @map("transaction_id") @db.Uuid
-  yearMonth      String                  @map("year_month") @db.VarChar(7)
-  name           String                  @db.VarChar(150)
-  obligationType ObligationType          @map("obligation_type")
-  status         MonthlyObligationStatus @default(DRAFT)
-  plannedAmount  Decimal                 @map("planned_amount") @db.Decimal(14, 2)
-  paidAmount     Decimal?                @map("paid_amount") @db.Decimal(14, 2)
-  expectedOn     DateTime?               @map("expected_on") @db.Date
-  paidOn         DateTime?               @map("paid_on") @db.Date
-  notes          String?
-  createdAt      DateTime                @default(now()) @map("created_at")
-  updatedAt      DateTime                @updatedAt @map("updated_at")
-  category       Category                @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  template       ObligationTemplate?     @relation(fields: [templateId], references: [id], onDelete: SetNull)
-  transaction    Transaction?            @relation(fields: [transactionId], references: [id], onDelete: SetNull)
-  user           User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([templateId, yearMonth])
-  @@index([userId])
-  @@index([yearMonth])
-  @@index([status])
-  @@index([categoryId])
-  @@map("monthly_obligations")
-}
-
-model PaycheckEntry {
-  id                 String      @id @default(uuid()) @db.Uuid
-  userId             String      @map("user_id") @db.Uuid
-  transactionId      String      @unique @map("transaction_id") @db.Uuid
-  effectiveMonth     String      @map("effective_month") @db.VarChar(7)
-  paidOn             DateTime    @map("paid_on") @db.Date
-  salaryBase         Decimal     @map("salary_base") @db.Decimal(14, 2)
-  transportAllowance Decimal     @default(0) @map("transport_allowance") @db.Decimal(14, 2)
-  totalDeductions    Decimal     @default(0) @map("total_deductions") @db.Decimal(14, 2)
-  netReceived        Decimal     @map("net_received") @db.Decimal(14, 2)
-  notes              String?
-  createdAt          DateTime    @default(now()) @map("created_at")
-  updatedAt          DateTime    @updatedAt @map("updated_at")
-  transaction        Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
-  user               User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([effectiveMonth])
-  @@index([paidOn])
-  @@map("paycheck_entries")
-}
-
-model DebtPaymentEntry {
-  id             String      @id @default(uuid()) @db.Uuid
-  userId         String      @map("user_id") @db.Uuid
-  debtId         String      @map("debt_id") @db.Uuid
-  transactionId  String      @unique @map("transaction_id") @db.Uuid
-  effectiveMonth String      @map("effective_month") @db.VarChar(7)
-  paidOn         DateTime    @map("paid_on") @db.Date
-  minimumAmount  Decimal     @default(0) @map("minimum_amount") @db.Decimal(14, 2)
-  extraAmount    Decimal     @default(0) @map("extra_amount") @db.Decimal(14, 2)
-  totalAmount    Decimal     @map("total_amount") @db.Decimal(14, 2)
-  notes          String?
-  createdAt      DateTime    @default(now()) @map("created_at")
-  updatedAt      DateTime    @updatedAt @map("updated_at")
-  debt           Debt        @relation(fields: [debtId], references: [id], onDelete: Cascade)
-  transaction    Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
-  user           User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
+  @@index([accountId])
   @@index([debtId])
-  @@index([effectiveMonth])
-  @@index([paidOn])
-  @@map("debt_payment_entries")
+  @@map("month_entries")
+}
+
+model PocketSpend {
+  id        String     @id @default(uuid()) @db.Uuid
+  entryId   String     @map("entry_id") @db.Uuid
+  userId    String     @map("user_id") @db.Uuid
+  amount    Decimal    @db.Decimal(14, 2)
+  note      String?    @db.VarChar(120)
+  spentOn   DateTime   @map("spent_on") @db.Date
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
+  entry     MonthEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([entryId, spentOn])
+  @@index([userId])
+  @@map("pocket_spends")
+}
+
+model Debt {
+  id                  String       @id @default(uuid()) @db.Uuid
+  userId              String       @map("user_id") @db.Uuid
+  name                String       @db.VarChar(80)
+  lender              String?      @db.VarChar(120)
+  datesNote           String?      @map("dates_note") @db.VarChar(120)
+  dueDay              Int?         @map("due_day") @db.SmallInt
+  totalBalance        Decimal      @default(0) @map("total_balance") @db.Decimal(14, 2)
+  sharedAmount        Decimal      @default(0) @map("shared_amount") @db.Decimal(14, 2)
+  sharedPercent       Decimal?     @map("shared_percent") @db.Decimal(5, 2)
+  sharedWith          String?      @map("shared_with") @db.VarChar(60)
+  monthlyRate         Decimal      @default(0) @map("monthly_rate") @db.Decimal(9, 6)
+  insuranceRate       Decimal      @default(0) @map("insurance_rate") @db.Decimal(9, 6)
+  minimumPayment      Decimal      @default(0) @map("minimum_payment") @db.Decimal(14, 2)
+  partnerContribution Decimal      @default(0) @map("partner_contribution") @db.Decimal(14, 2)
+  myMinimumOverride   Decimal?     @map("my_minimum_override") @db.Decimal(14, 2)
+  paymentCap          Decimal?     @map("payment_cap") @db.Decimal(14, 2)
+  status              DebtStatus   @default(ACTIVE)
+  notes               String?      @db.VarChar(300)
+  sortOrder           Int          @default(0) @map("sort_order")
+  createdAt           DateTime     @default(now()) @map("created_at")
+  updatedAt           DateTime     @updatedAt @map("updated_at")
+  entries             MonthEntry[]
+  user                User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("debts")
 }

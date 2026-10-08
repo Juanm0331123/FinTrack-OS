@@ -2,7 +2,7 @@
     "compilerOptions": {
         "allowImportingTsExtensions": true,
         "esModuleInterop": true,
-        "lib": ["ES2022"],
+        "lib": ["ES2023"],
         "module": "NodeNext",
         "moduleResolution": "NodeNext",
         "noEmit": true,
@@ -11,5 +11,5 @@
         "strict": true,
         "target": "ES2022"
     },
-    "include": ["src/**/*.ts", "src/**/*.d.ts", "prisma.config.ts"]
+    "include": ["src/**/*.ts", "src/**/*.d.ts", "scripts/**/*.ts", "prisma.config.ts"]
 }

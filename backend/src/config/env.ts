@@ -26,6 +26,12 @@ const rawEnvSchema = z.object({
         .int()
         .positive()
         .default(15 * 60 * 1000),
+    FINANCE_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(1200),
+    FINANCE_RATE_LIMIT_WINDOW_MS: z.coerce
+        .number()
+        .int()
+        .positive()
+        .default(15 * 60 * 1000),
     COOKIE_DOMAIN: optionalTextValue,
     COOKIE_SAME_SITE: z.enum(['lax', 'strict', 'none']).default('lax'),
     COOKIE_SECURE: z.string().default('false'),
