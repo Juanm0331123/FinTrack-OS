@@ -7,6 +7,13 @@
       "skillPath": ".agents/skills/impeccable/SKILL.md",
       "computedHash": "d55800186ff7651be356015b103047b9dd84f83172cc257042a322491df3502e"
     },
+    "playwright-best-practices": {
+      "source": "currents-dev/playwright-best-practices-skill",
+      "sourceType": "github",
+      "ref": "283d5cbc5d11aac1abda058b16ad22c317d54dc0",
+      "skillPath": "playwright-best-practices/SKILL.md",
+      "computedHash": "26c1a9b87c3548faa650c28a224a278653916f42f85e2159804a41872fd492e1"
+    },
     "ui-ux-pro-max": {
       "source": "nextlevelbuilder/ui-ux-pro-max-skill",
       "sourceType": "github",

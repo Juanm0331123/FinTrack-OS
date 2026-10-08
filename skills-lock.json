@@ -6,6 +6,13 @@
       "sourceType": "github",
       "skillPath": "skills/grill-me/SKILL.md",
       "computedHash": "084fb183af7cd0000bdf8719601190d9f5113b19289da61a315e684f693717ee"
+    },
+    "tdd": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "ref": "b0618bc436ad893b3c5e84e55fba86586d34a404",
+      "skillPath": "skills/engineering/tdd/SKILL.md",
+      "computedHash": "ce483be815750055c0390d122681acd6b1c86951fe49b4c0b0cb9288b221cb50"
     }
   }
 }

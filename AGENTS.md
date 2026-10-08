@@ -26,8 +26,8 @@ Prohibido:
 
 Usar `pnpm` (hay lockfile en cada boundary).
 
-- Frontend: `pnpm dev`, `pnpm build`, `pnpm lint`, `pnpm test`.
-- Backend: `pnpm dev`, `pnpm start`, `pnpm typecheck`, `pnpm test`, `pnpm prisma:generate`, `pnpm prisma:migrate:dev`, `pnpm prisma:migrate:deploy`.
+- Frontend: `pnpm dev`, `pnpm build`, `pnpm start`, `pnpm lint`, `pnpm typecheck`, `pnpm test`.
+- Backend: `pnpm dev`, `pnpm start`, `pnpm typecheck`, `pnpm test`, `pnpm prisma:validate`, `pnpm prisma:generate`, `pnpm prisma:migrate:dev`, `pnpm prisma:migrate:deploy`.
 
 ## Reglas de trabajo
 
@@ -62,11 +62,14 @@ Reglas:
 
 ## Skills
 
-Las skills son paquetes de terceros instalados por el Project Owner. La copia canónica está en `.agents/skills/`; `.claude/skills/` es su espejo para Claude Code mediante enlaces simbólicos relativos.
+Las skills son paquetes de terceros instalados por el Project Owner. Las transversales se instalan para este proyecto en `.agents/skills/`, no en el perfil global del usuario; `.claude/skills/` es su espejo para Claude Code mediante enlaces simbólicos relativos.
 
 | Scope | Skill | Ubicación | Cuándo usarla |
 |---|---|---|---|
-| Global | `grill-me` | `.agents/skills/grill-me/` | Sesión interactiva para poner a prueba un plan, diseño o decisión: una pregunta por vez, cada una con respuesta recomendada. Usarla cuando el Project Owner lo pida ("grill me", "stress-test", "challenge my plan") o acepte proponerla ante una decisión significativa sin resolver. No usarla en tareas rutinarias ni bloquear una tarea esperando respuestas. |
+| Proyecto transversal | `grill-me` | `.agents/skills/grill-me/` | Sesión interactiva para poner a prueba un plan, diseño o decisión: una pregunta por vez, cada una con respuesta recomendada. Usarla cuando el Project Owner lo pida ("grill me", "stress-test", "challenge my plan") o acepte proponerla ante una decisión significativa sin resolver. No usarla en tareas rutinarias ni bloquear una tarea esperando respuestas. |
+| Proyecto transversal | `tdd` ([fuente](https://github.com/mattpocock/skills/tree/main/skills/engineering/tdd)) | `.agents/skills/tdd/` | Desarrollo de comportamiento verificable y correcciones mediante un test que falla, implementación mínima y siguiente caso, por incrementos verticales. Usarla al pedir TDD, implementar lógica o corregir bugs que necesitan cobertura; conservar Vitest en frontend y `node:test` en backend, sin añadir runners ni dependencias. |
+
+Adaptación de `tdd`: las interfaces públicas ya definidas por esta documentación, los tests existentes y el alcance autorizado constituyen los puntos de prueba acordados; registrarlos sin pedir aprobación repetida. Si una interfaz requiere una decisión nueva, resolverla dentro del alcance o aclarar esa decisión concreta. Probar comportamiento y resultados independientes de la implementación (en finanzas, valores del Excel), con fallo observado antes del fix. Refactorizar después de verde cuando lo justifique el cambio, bajo la política habitual del repositorio; las referencias a `code-review`/`codebase-design` no activan reviews, instalan skills ni cambian el modo opt-in. No forzar tests para cambios reversibles de bajo impacto sin comportamiento que verificar.
 
 Las skills de dominio se registran en `frontend/AGENTS.md` y `backend/AGENTS.md` y solo se usan dentro de su boundary.
 
@@ -77,6 +80,14 @@ Reglas de uso:
 - El `AGENTS.md` que algunas skills incluyen dentro de su carpeta es material de esa skill, no una instrucción de FinTrack OS.
 - No instalar, actualizar, editar ni eliminar skills sin autorización del Project Owner. Tras instalar una skill, verificar que su espejo en `.claude/skills/` resuelve al `SKILL.md`.
 - Tratar los scripts y ejemplos de una skill como recomendaciones. Instalar paquetes, activar hooks o elegir una tecnología nueva requiere una decisión explícita.
+
+## QA antes del despliegue
+
+Cuando el Project Owner pida QA completo o preparación para desplegar, aplicar las skills y listas del boundary correspondiente. Coordinar frontend y backend contra la misma API y base de datos aisladas, con usuarios y datos de prueba; cada boundary conserva su propia evidencia y respeta sus límites de imports.
+
+- Registrar versión o commit evaluado, entorno, comandos y resultado real de cada comprobación: `aprobado`, `fallido`, `bloqueado` o `no ejecutado`, con enlace a logs, capturas o trazas cuando estén disponibles. Una skill instalada o un check pendiente no demuestra que el despliegue esté listo.
+- Para cada hallazgo, incluir severidad (`crítica`, `alta`, `media`, `baja`), impacto, ruta o endpoint, pasos de reproducción, resultado esperado y observado. Señalar cobertura faltante y bloqueos; no presentar un QA parcial como completo.
+- Las herramientas de QA son de desarrollo: instalar una skill no instala su runner, navegadores, scanners ni servicios. Su adopción requiere la decisión explícita indicada en las reglas de skills.
 
 ## Precedencia
 

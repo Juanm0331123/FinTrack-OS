@@ -1,0 +1,4 @@
+# Keep new skill package bytes stable for skills-lock.json hashes on all platforms.
+.agents/skills/tdd/** text eol=lf
+frontend/.agents/skills/playwright-best-practices/** text eol=lf
+backend/.agents/skills/api-testing/** text eol=lf

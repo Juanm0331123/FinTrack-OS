@@ -1,6 +1,13 @@
 {
   "version": 1,
   "skills": {
+    "api-testing": {
+      "source": "petrkindlmann/qa-skills",
+      "sourceType": "github",
+      "ref": "b3bb61bd268b147476252c6ed5a0440c87b97441",
+      "skillPath": "skills/api-testing/SKILL.md",
+      "computedHash": "33da4307850316830269354e3ffd64a9358472cd0d4037d9050e7ada68a6e6ab"
+    },
     "nestjs-best-practices": {
       "source": "kadajett/agent-nestjs-skills",
       "sourceType": "github",

@@ -10,6 +10,9 @@ Thumbs.db
 !.env.example
 !.env.*.example
 *.pem
+*.key
+*.p12
+*.pfx
 
 # Logs
 *.log
@@ -19,6 +22,11 @@ node_modules/
 dist/
 build/
 coverage/
+__pycache__/
+*.py[cod]
+
+# Browser authentication state (cookies and tokens)
+**/playwright/.auth/
 
 # Claude Code local settings and local working files
 .claude/settings.local.json
