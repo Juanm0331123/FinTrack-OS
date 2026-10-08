@@ -1,37 +1,96 @@
-# Repository Guidelines
+# FinTrack OS — Agent Instructions
 
-## Project Structure & Module Organization
+Fuente canónica de instrucciones compartidas para agentes de desarrollo como Codex y Claude Code. `CLAUDE.md` solo adapta este archivo para Claude Code. Cada boundary (`frontend/`, `backend/`) añade su propio `AGENTS.md`, que especializa estas reglas sin contradecirlas.
 
-FinTrack-OS is split into `frontend/` and `backend/`. The frontend uses Next.js App Router under `frontend/src/app/`, feature modules under `frontend/src/modules/`, shared shadcn components under `frontend/src/shared/ui/`, shared utilities under `frontend/src/shared/lib/`, and route constants under `frontend/src/shared/config/`. Static assets remain in `frontend/public/`. The backend keeps Node/Express source under `backend/src/`, currently centered on `app.ts` and `server.ts`. Keep routes thin: route files should import module pages, not hold feature logic.
+## Identidad del proyecto
 
-## Build, Test, and Development Commands
+- FinTrack OS es una app de finanzas personales que replica el flujo de un libro de Excel mensual: hoja del mes (ingresos, gastos por cuenta y categoría, colchón mínimo), resumen anual, plan de deudas por método avalancha y configuración.
+- Las fórmulas del Excel de referencia son la especificación funcional: cualquier cambio en un cálculo financiero debe mantener la paridad con ellas y quedar cubierto por tests.
+- `PRODUCT.md` describe usuarios, propósito y principios; `DESIGN.md` describe el sistema visual vigente. Ambos viven en la raíz.
+- Los agentes, las skills, `.agents/`, `.claude/`, `skills-lock.json` y los archivos `AGENTS.md`/`CLAUDE.md` son herramientas de desarrollo. Nunca forman parte del runtime ni son dependencias del código de producto.
 
-Use `pnpm`, matching the existing lockfiles.
+## Boundaries
 
-- `cd frontend && pnpm dev`: start the local Next.js development server.
-- `cd frontend && pnpm build`: create the production frontend build.
-- `cd frontend && pnpm lint`: run Next.js/TypeScript ESLint checks.
-- `cd backend && pnpm test`: currently a placeholder that fails until backend tests are added.
+| Ruta | Responsabilidad |
+|---|---|
+| `frontend/` | Next.js 16 (App Router) + React 19 + Tailwind v4 + shadcn/Radix. Experiencia del usuario; consume solo la API pública del backend. |
+| `backend/` | Express 5 + Prisma 7 + PostgreSQL (Neon). Autenticación, autorización, persistencia y validación de datos financieros. |
 
-Add backend `dev`, `build`, and test scripts before relying on backend automation in CI.
+Prohibido:
 
-## Coding Style & Naming Conventions
+- importar código de un boundary desde el otro o usar imports relativos entre ellos;
+- crear `shared/`, `packages/` u otros directorios top-level sin una tarea que lo autorice;
+- versionar secretos: `.env` está ignorado y solo `.env.example` documenta variables.
 
-Use TypeScript for application code. Follow the frontend's existing two-space indentation, Tailwind utility classes, and shadcn components from `@/shared/ui`. Feature code belongs in module folders such as `src/modules/home` or `src/modules/auth/login`; cross-cutting helpers belong in `src/shared`. Backend files currently use ESM imports; keep backend modules small and named by responsibility, such as `auth.service.ts`, `transactions.route.ts`, or `monthly-summary.schema.ts`.
+## Comandos
 
-For React work, prefer stable props, derived values, and event handlers that avoid unnecessary rerenders. Use `useMemo`, `useCallback`, `useEffectEvent`, `memo`, and related patterns only when they materially reduce render work or preserve identity for child components, and keep the dependency arrays minimal and correct. Do not add memoization by reflex, but do add it when it prevents repeated expensive calculation, child churn, or callback identity thrash.
+Usar `pnpm` (hay lockfile en cada boundary).
 
-## Testing Guidelines
+- Frontend: `pnpm dev`, `pnpm build`, `pnpm lint`, `pnpm test`.
+- Backend: `pnpm dev`, `pnpm start`, `pnpm typecheck`, `pnpm test`, `pnpm prisma:generate`, `pnpm prisma:migrate:dev`, `pnpm prisma:migrate:deploy`.
 
-No test framework is fully configured yet. When adding tests, colocate focused unit tests near the code or place integration tests in a dedicated `tests/` folder inside the relevant app. Use descriptive names such as `transactions.service.test.ts` or `dashboard-summary.spec.ts`. Cover finance calculations, authentication, monthly rollups, and debt-payment rules before shipping related features.
+## Reglas de trabajo
 
-## Commit & Pull Request Guidelines
+- Antes de cambiar nada, inspeccionar `git status`, `git diff` y el contenido real del repositorio. No asumir que algo existe.
+- Mantener las rutas delgadas: `frontend/src/app` importa páginas de `src/modules`; las rutas de Express delegan en controllers y services.
+- Código, identificadores y nombres de archivo en inglés; textos de interfaz y mensajes de error de cara al usuario en español (es-CO), con tildes correctas.
+- Estilo existente: TypeScript estricto, comillas simples, sin punto y coma, indentación de 4 espacios. Imports en este orden: paquetes externos, aliases internos (`@/...`) y relativos; sin wildcard ni imports sin usar.
+- Si un cambio introduce o depende de un cambio de esquema Prisma, crear y aplicar la migración (`pnpm prisma:migrate:dev`) antes de terminar. Nunca editar una migración ya aplicada.
+- Validar en proporción al cambio: lint, typecheck, tests y build del boundary afectado. Reportar solo validaciones ejecutadas de verdad.
 
-Git history is minimal, so use Conventional Commits going forward, for example `feat(frontend): add onboarding survey` or `fix(backend): validate monthly expense totals`. PRs should include a concise summary, test results, linked issues when available, and screenshots for UI changes.
+## Versionamiento
 
-## Agent-Specific Instructions
+Cuando el Project Owner pida versionar, seguir este proceso completo:
 
-Before any Git commit, read this file and use the installed `git-commit` skill. Use `grill-me` automatically for architecture or best-practice decisions that need stress testing. For any frontend design, UX, UI polish, layout, accessibility, or visual decision, use both `ui-ux-pro-max` and `impeccable`. Use these canonical installed skill names exactly.
-For any Node.js, Express, backend, REST API, middleware, server configuration, or Prisma backend task, use the installed `nodejs-backend-patterns` skill automatically. Use this canonical installed skill name exactly.
-If a code change introduces or depends on a Prisma schema or database-structure change, run the required Prisma migration automatically before finishing the task. Do not wait for the user to report runtime errors such as missing columns, missing tables, or drift caused by unapplied migrations.
-Use the installed Superpowers skill set automatically whenever it applies. Use these canonical installed skill names exactly: `using-superpowers`, `writing-plans`, `executing-plans`, `systematic-debugging`, `test-driven-development`, `verification-before-completion`, `requesting-code-review`, `receiving-code-review`, `dispatching-parallel-agents`, `subagent-driven-development`, `brainstorming`, `using-git-worktrees`, `finishing-a-development-branch`, and `writing-skills`.
+1. Revisar y actualizar `.gitignore` (artefactos temporales, builds, cachés) antes de todo.
+2. Revisar `git status` y `git diff`.
+3. Verificar que todo compile y correr los tests de cada boundary afectado.
+4. Crear una rama `feat/...`, `fix/...` o `chore/...` según el cambio.
+5. Hacer un commit por unidad lógica de cambio con mensaje `[TIPO] Descripción completa y detallada` (TIPO en mayúsculas: `FEAT`, `FIX`, `CHORE`, `DOCS`, `REFACTOR`, `TEST`), explicando qué cambió y por qué.
+6. Subir la rama al remoto.
+7. Si existe CI en `.github/workflows`, esperar los checks de la rama y dejarlos en verde con commits nuevos antes de integrar.
+8. Volver a `main`, sincronizar y hacer merge no interactivo de la rama.
+9. Subir `main` y, si hay CI, verificar que quede en verde; un fallo se corrige en una rama `fix/...` con este mismo proceso.
+
+Reglas:
+
+- Sin Git interactivo, `--amend` ni force push.
+- Todo lo que esté en el working tree forma parte del versionamiento, salvo temporales, secretos, credenciales, builds, cachés y dependencias, que `.gitignore` debe cubrir.
+- Los commits quedan solo a nombre del Project Owner: sin `Co-authored-by` ni créditos a agentes.
+- Detenerse y explicar el problema ante secretos, conflictos, errores de compilación, tests rotos o fallos de CI que no se puedan resolver con seguridad.
+- Los PR incluyen resumen, resultados de validación, issues relacionados y capturas para cambios de UI.
+
+## Skills
+
+Las skills son paquetes de terceros instalados por el Project Owner. La copia canónica está en `.agents/skills/`; `.claude/skills/` es su espejo para Claude Code mediante enlaces simbólicos relativos.
+
+| Scope | Skill | Ubicación | Cuándo usarla |
+|---|---|---|---|
+| Global | `grill-me` | `.agents/skills/grill-me/` | Sesión interactiva para poner a prueba un plan, diseño o decisión: una pregunta por vez, cada una con respuesta recomendada. Usarla cuando el Project Owner lo pida ("grill me", "stress-test", "challenge my plan") o acepte proponerla ante una decisión significativa sin resolver. No usarla en tareas rutinarias ni bloquear una tarea esperando respuestas. |
+
+Las skills de dominio se registran en `frontend/AGENTS.md` y `backend/AGENTS.md` y solo se usan dentro de su boundary.
+
+Reglas de uso:
+
+- Cuando una tarea coincide con el trigger de una skill, leer su `SKILL.md`, aplicar sus instrucciones y abrir solo las referencias que la tarea necesite.
+- No cargar skills irrelevantes ni combinar skills redundantes sin necesidad.
+- El `AGENTS.md` que algunas skills incluyen dentro de su carpeta es material de esa skill, no una instrucción de FinTrack OS.
+- No instalar, actualizar, editar ni eliminar skills sin autorización del Project Owner. Tras instalar una skill, verificar que su espejo en `.claude/skills/` resuelve al `SKILL.md`.
+- Tratar los scripts y ejemplos de una skill como recomendaciones. Instalar paquetes, activar hooks o elegir una tecnología nueva requiere una decisión explícita.
+
+## Precedencia
+
+1. Instrucción explícita actual del Project Owner.
+2. Este `AGENTS.md`.
+3. El `AGENTS.md` del boundary.
+4. La skill especializada aplicable.
+5. Convenciones generales del framework o lenguaje.
+
+Si dos skills aplicables se contradicen, preferir la más específica para la tarea y registrar la decisión en el reporte.
+
+## Verificación antes de entregar
+
+- El diff contiene solo el alcance pedido y pasa `git diff --check`.
+- No hay secretos, credenciales ni archivos que `.gitignore` deba excluir.
+- Los cálculos financieros nuevos o modificados tienen tests que comparan contra valores del Excel de referencia.
+- La documentación afectada (`AGENTS.md`, `DESIGN.md`, `.env.example`) quedó actualizada y coherente.
