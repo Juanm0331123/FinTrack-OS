@@ -47,7 +47,7 @@ export function AuthShell({
                         <Button asChild variant="ghost" className="h-10 px-2 text-sm">
                             <Link href={APP_ROUTES.home}>
                                 <ArrowLeft className="size-4" aria-hidden="true" />
-                                Volver al Home
+                                Volver al inicio
                             </Link>
                         </Button>
                         <Badge className="h-8 bg-primary/10 px-3 text-primary hover:bg-primary/10">

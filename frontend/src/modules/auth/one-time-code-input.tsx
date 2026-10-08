@@ -80,7 +80,7 @@ export function OneTimeCodeInput({
                     }}
                     inputMode="numeric"
                     autoComplete={index === 0 ? 'one-time-code' : 'off'}
-                    aria-label={`Digito ${index + 1} del codigo`}
+                    aria-label={`Dígito ${index + 1} del código`}
                     aria-describedby={describedBy}
                     className={cn(
                         'h-14 rounded-2xl border border-border bg-card text-center font-mono text-xl font-semibold text-foreground outline-none transition focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/40',

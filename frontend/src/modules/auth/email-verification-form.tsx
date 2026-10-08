@@ -35,14 +35,14 @@ function getSourceCopy(source: PendingVerificationState['source']) {
     }
 
     if (source === 'login') {
-        return 'Tu cuenta existe, pero sigue pendiente la verificacion obligatoria por correo.'
+        return 'Tu cuenta existe, pero sigue pendiente la verificación obligatoria por correo.'
     }
 
     if (source === 'google') {
-        return 'Google ya valido tu identidad. Ahora confirma tu correo con el codigo obligatorio.'
+        return 'Google ya validó tu identidad. Ahora confirma tu correo con el código obligatorio.'
     }
 
-    return 'GitHub ya valido tu identidad. Ahora confirma tu correo con el codigo obligatorio.'
+    return 'GitHub ya validó tu identidad. Ahora confirma tu correo con el código obligatorio.'
 }
 
 function formatCountdownAt(expiresAt: string, now: number) {
@@ -92,13 +92,13 @@ export function EmailVerificationForm({
 
         if (isExpired) {
             setErrorMessage(
-                'El codigo ya vencio. Reenvia un correo nuevo antes de continuar.',
+                'El código ya venció. Reenvía un correo nuevo antes de continuar.',
             )
             return
         }
 
         if (code.length !== CODE_LENGTH) {
-            setErrorMessage('Ingresa los 6 digitos del codigo para continuar.')
+            setErrorMessage('Ingresa los 6 dígitos del código para continuar.')
             return
         }
 
@@ -117,14 +117,14 @@ export function EmailVerificationForm({
             if (error instanceof AuthApiError) {
                 if (error.code === 'EMAIL_VERIFICATION_EXPIRED') {
                     setErrorMessage(
-                        'El codigo ya vencio. Reenvia un correo nuevo para seguir.',
+                        'El código ya venció. Reenvía un correo nuevo para seguir.',
                     )
                     return
                 }
 
                 if (error.code === 'EMAIL_ALREADY_VERIFIED') {
                     setErrorMessage(
-                        'Este correo ya fue verificado. Puedes volver al login si lo necesitas.',
+                        'Este correo ya fue verificado. Puedes volver a iniciar sesión si lo necesitas.',
                     )
                     return
                 }
@@ -133,7 +133,7 @@ export function EmailVerificationForm({
                 return
             }
 
-            setErrorMessage('No pudimos validar el codigo. Intenta de nuevo.')
+            setErrorMessage('No pudimos validar el código. Intenta de nuevo.')
         } finally {
             setIsSubmitting(false)
         }
@@ -158,14 +158,14 @@ export function EmailVerificationForm({
 
             setCode('')
             onPendingVerificationChange(nextPendingVerification)
-            setInfoMessage('Enviamos un codigo nuevo a tu correo.')
+            setInfoMessage('Enviamos un código nuevo a tu correo.')
         } catch (error) {
             if (error instanceof AuthApiError) {
                 setErrorMessage(error.message)
                 return
             }
 
-            setErrorMessage('No pudimos reenviar el codigo. Intenta otra vez.')
+            setErrorMessage('No pudimos reenviar el código. Intenta otra vez.')
         } finally {
             setIsResending(false)
         }
@@ -180,7 +180,7 @@ export function EmailVerificationForm({
                     </div>
                     <div className="space-y-1">
                         <p className="text-sm font-semibold text-foreground">
-                            Verificacion obligatoria de correo
+                            Verificación obligatoria de correo
                         </p>
                         <p className="text-sm leading-6 text-muted-foreground">
                             {getSourceCopy(pendingVerification.source)}
@@ -196,7 +196,7 @@ export function EmailVerificationForm({
                 <div className="space-y-3">
                     <div className="flex items-center justify-between gap-3">
                         <p className="text-sm font-medium text-foreground">
-                            Ingresa el codigo de 6 digitos
+                            Ingresa el código de 6 dígitos
                         </p>
                         <p
                             className={cn(
@@ -219,7 +219,7 @@ export function EmailVerificationForm({
 
                 {pendingVerification.verificationCode ? (
                     <p className="rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-sm text-foreground">
-                        Codigo de desarrollo: {pendingVerification.verificationCode}
+                        Código de desarrollo: {pendingVerification.verificationCode}
                     </p>
                 ) : null}
 
@@ -266,7 +266,7 @@ export function EmailVerificationForm({
                         ) : (
                             <RefreshCw className="size-4" aria-hidden="true" />
                         )}
-                        Reenviar codigo
+                        Reenviar código
                     </Button>
                     <Button
                         type="button"

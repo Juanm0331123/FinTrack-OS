@@ -72,11 +72,11 @@ function StepRail({ step }: { step: StepId }) {
         },
         {
             id: 'verify',
-            label: 'Codigo',
+            label: 'Código',
         },
         {
             id: 'reset',
-            label: 'Nueva contrasena',
+            label: 'Nueva contraseña',
         },
     ] as const
 
@@ -231,13 +231,13 @@ export function ForgotPasswordFlow() {
                 expiresAt: response.expiresAt,
             })
             setRequestInfo(
-                'Si encontramos una cuenta asociada, enviamos un codigo de 6 digitos al correo indicado.',
+                'Si encontramos una cuenta asociada, enviamos un código de 6 dígitos al correo indicado.',
             )
         } catch (error) {
             setRequestError(
                 error instanceof Error
                     ? error.message
-                    : 'No pudimos iniciar la recuperacion. Intenta nuevamente.',
+                    : 'No pudimos iniciar la recuperación. Intenta nuevamente.',
             )
         }
     }
@@ -265,13 +265,13 @@ export function ForgotPasswordFlow() {
                 expiresAt: response.expiresAt,
             })
             setRequestInfo(
-                'Generamos un codigo nuevo. El anterior ya no funciona.',
+                'Generamos un código nuevo. El anterior ya no funciona.',
             )
         } catch (error) {
             setRequestError(
                 error instanceof Error
                     ? error.message
-                    : 'No pudimos enviar otro codigo. Intenta nuevamente.',
+                    : 'No pudimos enviar otro código. Intenta nuevamente.',
             )
         } finally {
             setIsResendingCode(false)
@@ -285,13 +285,13 @@ export function ForgotPasswordFlow() {
 
         if (isCodeExpired) {
             setRequestError(
-                'El codigo ya vencio. Solicita uno nuevo para continuar.',
+                'El código ya venció. Solicita uno nuevo para continuar.',
             )
             return
         }
 
         if (code.length !== CODE_LENGTH) {
-            setRequestError('Ingresa los 6 digitos para continuar.')
+            setRequestError('Ingresa los 6 dígitos para continuar.')
             return
         }
 
@@ -311,13 +311,13 @@ export function ForgotPasswordFlow() {
             })
             setCode('')
             setResetInfo(
-                'Codigo validado. Ahora define una contrasena nueva para tu cuenta.',
+                'Código validado. Ahora define una contraseña nueva para tu cuenta.',
             )
         } catch (error) {
             if (error instanceof AuthApiError) {
                 if (error.code === 'PASSWORD_RESET_CODE_EXPIRED') {
                     setRequestError(
-                        'El codigo ya vencio. Solicita uno nuevo para seguir.',
+                        'El código ya venció. Solicita uno nuevo para seguir.',
                     )
                     return
                 }
@@ -326,7 +326,7 @@ export function ForgotPasswordFlow() {
                 return
             }
 
-            setRequestError('No pudimos validar el codigo. Intenta nuevamente.')
+            setRequestError('No pudimos validar el código. Intenta nuevamente.')
         } finally {
             setIsVerifyingCode(false)
         }
@@ -339,7 +339,7 @@ export function ForgotPasswordFlow() {
 
         if (isResetSessionExpired) {
             setResetError(
-                'La sesion de recuperacion ya vencio. Solicita un codigo nuevo.',
+                'La sesión de recuperación ya venció. Solicita un código nuevo.',
             )
             return
         }
@@ -367,7 +367,7 @@ export function ForgotPasswordFlow() {
                     error.code === 'PASSWORD_RESET_TOKEN_INVALID'
                 ) {
                     setResetError(
-                        'La autorizacion para cambiar la contrasena ya no es valida. Solicita un codigo nuevo.',
+                        'La autorización para cambiar la contraseña ya no es válida. Solicita un código nuevo.',
                     )
                     return
                 }
@@ -377,7 +377,7 @@ export function ForgotPasswordFlow() {
             }
 
             setResetError(
-                'No pudimos guardar la nueva contrasena. Intenta nuevamente.',
+                'No pudimos guardar la nueva contraseña. Intenta nuevamente.',
             )
         }
     }
@@ -392,11 +392,11 @@ export function ForgotPasswordFlow() {
                         </div>
                         <div className="space-y-2">
                             <p className="text-base font-semibold text-foreground">
-                                Contrasena actualizada
+                                Contraseña actualizada
                             </p>
                             <p className="max-w-[44ch] text-sm leading-6 text-muted-foreground">
                                 La cuenta {maskEmailAddress(successEmail)} ya tiene
-                                una nueva contrasena. Cerramos las sesiones activas
+                                una nueva contraseña. Cerramos las sesiones activas
                                 anteriores por seguridad.
                             </p>
                         </div>
@@ -405,7 +405,7 @@ export function ForgotPasswordFlow() {
 
                 <div className="grid gap-3 sm:grid-cols-2">
                     <Button asChild variant="brand" className="w-full">
-                        <Link href={APP_ROUTES.login}>Volver al login</Link>
+                        <Link href={APP_ROUTES.login}>Volver a iniciar sesión</Link>
                     </Button>
                     <Button
                         type="button"
@@ -415,7 +415,7 @@ export function ForgotPasswordFlow() {
                             restartFlow({
                                 email: successEmail,
                                 message:
-                                    'Si necesitas volver a solicitar otro cambio, puedes hacerlo desde aqui.',
+                                    'Si necesitas volver a solicitar otro cambio, puedes hacerlo desde aquí.',
                             })
                         }
                     >
@@ -439,11 +439,11 @@ export function ForgotPasswordFlow() {
                             </div>
                             <div className="space-y-2">
                                 <p className="text-base font-semibold text-foreground">
-                                    Recuperacion protegida por codigo
+                                    Recuperación protegida por código
                                 </p>
                                 <p className="max-w-[44ch] text-sm leading-6 text-muted-foreground">
                                     Escribe tu correo y, si existe una cuenta
-                                    asociada, enviaremos un codigo valido por 10
+                                    asociada, enviaremos un código válido por 10
                                     minutos para autorizar el cambio.
                                 </p>
                             </div>
@@ -472,7 +472,7 @@ export function ForgotPasswordFlow() {
 
                         <div className="space-y-2">
                             <Label htmlFor="forgot-password-email">
-                                Correo electronico
+                                Correo electrónico
                             </Label>
                             <div className="relative">
                                 <Mail
@@ -507,7 +507,7 @@ export function ForgotPasswordFlow() {
                                     className="text-sm leading-6 text-muted-foreground"
                                 >
                                     Por privacidad, siempre mostraremos la misma
-                                    confirmacion aunque el correo no exista.
+                                    confirmación aunque el correo no exista.
                                 </p>
                             )}
                         </div>
@@ -526,7 +526,7 @@ export function ForgotPasswordFlow() {
                             ) : (
                                 <KeyRound className="size-4" aria-hidden="true" />
                             )}
-                            Enviar codigo de recuperacion
+                            Enviar código de recuperación
                         </Button>
                     </form>
                 </div>
@@ -553,12 +553,12 @@ export function ForgotPasswordFlow() {
                                         )}
                                     >
                                         {isCodeExpired
-                                            ? 'Codigo vencido'
+                                            ? 'Código vencido'
                                             : `Vence en ${formatCountdown(requestState.expiresAt)}`}
                                     </span>
                                 </div>
                                 <p className="max-w-[44ch] text-sm leading-6 text-muted-foreground">
-                                    Ingresa el codigo enviado a{' '}
+                                    Ingresa el código enviado a{' '}
                                     <span className="font-medium text-foreground">
                                         {maskEmailAddress(requestState.email)}
                                     </span>
@@ -587,7 +587,7 @@ export function ForgotPasswordFlow() {
 
                     <div className="space-y-3">
                         <p className="text-sm font-medium text-foreground">
-                            Ingresa el codigo de 6 digitos
+                            Ingresa el código de 6 dígitos
                         </p>
                         <OneTimeCodeInput
                             value={code}
@@ -616,7 +616,7 @@ export function ForgotPasswordFlow() {
                                     aria-hidden="true"
                                 />
                             ) : null}
-                            Validar codigo
+                            Validar código
                         </Button>
                         <Button
                             type="button"
@@ -631,7 +631,7 @@ export function ForgotPasswordFlow() {
                                     aria-hidden="true"
                                 />
                             ) : null}
-                            Solicitar codigo nuevo
+                            Solicitar código nuevo
                         </Button>
                     </div>
 
@@ -643,7 +643,7 @@ export function ForgotPasswordFlow() {
                             restartFlow({
                                 email: requestState.email,
                                 message:
-                                    'El flujo se reinicio. Puedes solicitar un nuevo codigo cuando quieras.',
+                                    'El flujo se reinició. Puedes solicitar un nuevo código cuando quieras.',
                             })
                         }
                     >
@@ -663,7 +663,7 @@ export function ForgotPasswordFlow() {
                             <div className="space-y-2">
                                 <div className="flex flex-wrap items-center gap-2">
                                     <p className="text-base font-semibold text-foreground">
-                                        Define una contrasena nueva
+                                        Define una contraseña nueva
                                     </p>
                                     <span
                                         className={cn(
@@ -674,8 +674,8 @@ export function ForgotPasswordFlow() {
                                         )}
                                     >
                                         {isResetSessionExpired
-                                            ? 'Sesion vencida'
-                                            : `Autorizacion activa ${formatCountdown(resetState.resetTokenExpiresAt)}`}
+                                            ? 'Sesión vencida'
+                                            : `Autorización activa ${formatCountdown(resetState.resetTokenExpiresAt)}`}
                                     </span>
                                 </div>
                                 <p className="max-w-[44ch] text-sm leading-6 text-muted-foreground">
@@ -712,14 +712,14 @@ export function ForgotPasswordFlow() {
                     >
                         <div className="space-y-2">
                             <Label htmlFor="forgot-password-new-password">
-                                Nueva contrasena
+                                Nueva contraseña
                             </Label>
                             <div className="relative">
                                 <Input
                                     id="forgot-password-new-password"
                                     type={showPassword ? 'text' : 'password'}
                                     autoComplete="new-password"
-                                    placeholder="Minimo 8 caracteres"
+                                    placeholder="Mínimo 8 caracteres"
                                     aria-invalid={Boolean(
                                         passwordForm.formState.errors.password,
                                     )}
@@ -738,8 +738,8 @@ export function ForgotPasswordFlow() {
                                     className="absolute right-0 top-1/2 size-11 -translate-y-1/2"
                                     aria-label={
                                         showPassword
-                                            ? 'Ocultar contrasena'
-                                            : 'Mostrar contrasena'
+                                            ? 'Ocultar contraseña'
+                                            : 'Mostrar contraseña'
                                     }
                                     onClick={() =>
                                         setShowPassword((current) => !current)
@@ -764,7 +764,7 @@ export function ForgotPasswordFlow() {
                                     id="forgot-password-new-password-help"
                                     className="text-sm leading-6 text-muted-foreground"
                                 >
-                                    Usa una contrasena distinta a la anterior y facil
+                                    Usa una contraseña distinta a la anterior y fácil
                                     de recordar para ti.
                                 </p>
                             )}
@@ -772,14 +772,14 @@ export function ForgotPasswordFlow() {
 
                         <div className="space-y-2">
                             <Label htmlFor="forgot-password-confirm-password">
-                                Confirmar contrasena
+                                Confirmar contraseña
                             </Label>
                             <div className="relative">
                                 <Input
                                     id="forgot-password-confirm-password"
                                     type={showConfirmPassword ? 'text' : 'password'}
                                     autoComplete="new-password"
-                                    placeholder="Repite tu nueva contrasena"
+                                    placeholder="Repite tu nueva contraseña"
                                     aria-invalid={Boolean(
                                         passwordForm.formState.errors.confirmPassword,
                                     )}
@@ -799,8 +799,8 @@ export function ForgotPasswordFlow() {
                                     className="absolute right-0 top-1/2 size-11 -translate-y-1/2"
                                     aria-label={
                                         showConfirmPassword
-                                            ? 'Ocultar confirmacion de contrasena'
-                                            : 'Mostrar confirmacion de contrasena'
+                                            ? 'Ocultar confirmación de contraseña'
+                                            : 'Mostrar confirmación de contraseña'
                                     }
                                     onClick={() =>
                                         setShowConfirmPassword((current) => !current)
@@ -839,7 +839,7 @@ export function ForgotPasswordFlow() {
                                         aria-hidden="true"
                                     />
                                 ) : null}
-                                Guardar nueva contrasena
+                                Guardar nueva contraseña
                             </Button>
                             <Button
                                 type="button"
@@ -854,7 +854,7 @@ export function ForgotPasswordFlow() {
                                         aria-hidden="true"
                                     />
                                 ) : null}
-                                Solicitar codigo nuevo
+                                Solicitar código nuevo
                             </Button>
                         </div>
                     </form>

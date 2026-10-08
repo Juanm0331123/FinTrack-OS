@@ -28,12 +28,12 @@ export function LoginPage() {
             title="Accede a tu espacio financiero"
             description={
                 <>
-                    Ingresa con tus datos o usa Google y GitHub. Si tu correo aun no
-                    ha sido validado, te pediremos un codigo obligatorio antes de
+                    Ingresa con tus datos o usa Google y GitHub. Si tu correo aún no
+                    ha sido validado, te pediremos un código obligatorio antes de
                     entrar a <span className="font-medium text-primary">FinTrack OS</span>.
                 </>
             }
-            switchPrompt="Aun no tienes cuenta?"
+            switchPrompt="¿Aún no tienes cuenta?"
             switchLabel="Crear mi acceso"
             switchHref={APP_ROUTES.register}
         >

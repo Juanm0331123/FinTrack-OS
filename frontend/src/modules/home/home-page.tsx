@@ -85,7 +85,7 @@ export function HomePage() {
                             className="h-10"
                             withLoginIcon
                         >
-                            Login
+                            Iniciar sesión
                         </HomeAuthButton>
                     </div>
                 </header>

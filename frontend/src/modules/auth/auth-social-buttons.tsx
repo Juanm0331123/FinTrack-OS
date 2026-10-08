@@ -7,12 +7,12 @@ import { AuthProviderIcon } from './auth-provider-icon'
 
 const providers = [
     {
-        description: 'Continua con Google y completa la verificacion obligatoria si aplica.',
+        description: 'Continúa con Google y completa la verificación obligatoria si aplica.',
         key: 'google',
         label: 'Continuar con Google',
     },
     {
-        description: 'Usa GitHub y termina el acceso con codigo si el correo sigue pendiente.',
+        description: 'Usa GitHub y termina el acceso con código si el correo sigue pendiente.',
         key: 'github',
         label: 'Continuar con GitHub',
     },
@@ -66,7 +66,7 @@ export function AuthSocialButtons({ intent }: AuthSocialButtonsProps) {
                 <span className="text-xs font-medium text-muted-foreground">
                     {intent === 'register'
                         ? 'o crea con correo'
-                        : 'o continua con correo'}
+                        : 'o continúa con correo'}
                 </span>
                 <Separator className="flex-1" />
             </div>

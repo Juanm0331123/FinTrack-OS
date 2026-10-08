@@ -107,7 +107,7 @@ function parseOAuthCallbackResult(hash: string): OAuthCallbackResult {
         if (!email || !expiresAt || (provider !== 'google' && provider !== 'github')) {
             return {
                 kind: 'error',
-                message: 'No pudimos continuar con la verificacion del correo.',
+                message: 'No pudimos continuar con la verificación del correo.',
             }
         }
 
@@ -190,7 +190,7 @@ export function OAuthCallbackPage() {
                 </p>
                 <div className="mt-6 flex gap-3">
                     <Button asChild variant="brand" className="flex-1">
-                        <Link href={APP_ROUTES.login}>Volver al login</Link>
+                        <Link href={APP_ROUTES.login}>Volver a iniciar sesión</Link>
                     </Button>
                     <Button asChild variant="outline" className="flex-1">
                         <Link href={APP_ROUTES.register}>Crear cuenta</Link>

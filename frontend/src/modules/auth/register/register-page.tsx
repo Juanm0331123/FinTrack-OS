@@ -29,12 +29,12 @@ export function RegisterPage() {
             description={
                 <>
                     Registra tu cuenta con lo esencial para empezar. Antes de entrar,
-                    validaremos tu correo con un codigo obligatorio en{' '}
+                    validaremos tu correo con un código obligatorio en{' '}
                     <span className="font-medium text-primary">FinTrack OS</span>.
                 </>
             }
-            switchPrompt="Ya tienes una cuenta?"
-            switchLabel="Inicia sesion"
+            switchPrompt="¿Ya tienes una cuenta?"
+            switchLabel="Inicia sesión"
             switchHref={APP_ROUTES.login}
         >
             <RegisterForm />

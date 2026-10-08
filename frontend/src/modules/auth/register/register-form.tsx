@@ -170,7 +170,7 @@ export function RegisterForm() {
             </div>
 
             <div className="space-y-2">
-                <Label htmlFor="email">Correo electronico</Label>
+                <Label htmlFor="email">Correo electrónico</Label>
                 <div className="relative">
                     <Mail
                         aria-hidden="true"
@@ -196,13 +196,13 @@ export function RegisterForm() {
 
             <div className="grid gap-5 sm:grid-cols-2">
                 <div className="space-y-2">
-                    <Label htmlFor="password">Contrasena</Label>
+                    <Label htmlFor="password">Contraseña</Label>
                     <div className="relative">
                         <Input
                             id="password"
                             type={showPassword ? 'text' : 'password'}
                             autoComplete="new-password"
-                            placeholder="Minimo 8 caracteres"
+                            placeholder="Mínimo 8 caracteres"
                             aria-invalid={Boolean(errors.password)}
                             aria-describedby={
                                 errors.password ? 'password-error' : undefined
@@ -217,8 +217,8 @@ export function RegisterForm() {
                             className="absolute right-0 top-1/2 size-11 -translate-y-1/2"
                             aria-label={
                                 showPassword
-                                    ? 'Ocultar contrasena'
-                                    : 'Mostrar contrasena'
+                                    ? 'Ocultar contraseña'
+                                    : 'Mostrar contraseña'
                             }
                             onClick={() => setShowPassword((current) => !current)}
                         >
@@ -237,13 +237,13 @@ export function RegisterForm() {
                 </div>
 
                 <div className="space-y-2">
-                    <Label htmlFor="confirmPassword">Confirmar contrasena</Label>
+                    <Label htmlFor="confirmPassword">Confirmar contraseña</Label>
                     <div className="relative">
                         <Input
                             id="confirmPassword"
                             type={showConfirmPassword ? 'text' : 'password'}
                             autoComplete="new-password"
-                            placeholder="Repite tu contrasena"
+                            placeholder="Repite tu contraseña"
                             aria-invalid={Boolean(errors.confirmPassword)}
                             aria-describedby={
                                 errors.confirmPassword
@@ -260,8 +260,8 @@ export function RegisterForm() {
                             className="absolute right-0 top-1/2 size-11 -translate-y-1/2"
                             aria-label={
                                 showConfirmPassword
-                                    ? 'Ocultar confirmacion de contrasena'
-                                    : 'Mostrar confirmacion de contrasena'
+                                    ? 'Ocultar confirmación de contraseña'
+                                    : 'Mostrar confirmación de contraseña'
                             }
                             onClick={() =>
                                 setShowConfirmPassword((current) => !current)

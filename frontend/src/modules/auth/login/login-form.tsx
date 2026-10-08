@@ -100,7 +100,7 @@ export function LoginForm() {
             setServerErrorMessage(
                 error instanceof Error
                     ? error.message
-                    : 'No pudimos iniciar sesion. Intenta nuevamente.',
+                    : 'No pudimos iniciar sesión. Intenta nuevamente.',
             )
         }
     }
@@ -131,7 +131,7 @@ export function LoginForm() {
             ) : null}
 
             <div className="space-y-2">
-                <Label htmlFor="email">Correo electronico</Label>
+                <Label htmlFor="email">Correo electrónico</Label>
                 <div className="relative">
                     <Mail
                         aria-hidden="true"
@@ -156,13 +156,13 @@ export function LoginForm() {
             </div>
 
             <div className="space-y-2">
-                <Label htmlFor="password">Contrasena</Label>
+                <Label htmlFor="password">Contraseña</Label>
                 <div className="relative">
                     <Input
                         id="password"
                         type={showPassword ? 'text' : 'password'}
                         autoComplete="current-password"
-                        placeholder="Minimo 8 caracteres"
+                        placeholder="Mínimo 8 caracteres"
                         aria-invalid={Boolean(errors.password)}
                         aria-describedby={
                             errors.password ? 'password-error' : undefined
@@ -176,7 +176,7 @@ export function LoginForm() {
                         size="icon"
                         className="absolute right-0 top-1/2 size-11 -translate-y-1/2"
                         aria-label={
-                            showPassword ? 'Ocultar contrasena' : 'Mostrar contrasena'
+                            showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'
                         }
                         onClick={() => setShowPassword((current) => !current)}
                     >
@@ -197,7 +197,7 @@ export function LoginForm() {
                         href={APP_ROUTES.forgotPassword}
                         className="text-sm font-medium text-primary underline-offset-4 hover:underline"
                     >
-                        Olvide mi contrasena
+                        Olvidé mi contraseña
                     </Link>
                 </div>
             </div>

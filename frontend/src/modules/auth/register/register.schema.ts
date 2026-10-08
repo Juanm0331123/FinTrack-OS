@@ -4,12 +4,12 @@ export const registerSchema = z
     .object({
         confirmPassword: z
             .string()
-            .min(1, 'Confirma tu contrasena.')
-            .min(8, 'La contrasena debe tener al menos 8 caracteres.'),
+            .min(1, 'Confirma tu contraseña.')
+            .min(8, 'La contraseña debe tener al menos 8 caracteres.'),
         email: z
             .string()
             .min(1, 'Ingresa tu correo.')
-            .email('Ingresa un correo valido.'),
+            .email('Ingresa un correo válido.'),
         firstName: z
             .string()
             .trim()
@@ -17,14 +17,14 @@ export const registerSchema = z
         lastName: z.string().trim().optional(),
         password: z
             .string()
-            .min(1, 'Ingresa tu contrasena.')
-            .min(8, 'La contrasena debe tener al menos 8 caracteres.'),
+            .min(1, 'Ingresa tu contraseña.')
+            .min(8, 'La contraseña debe tener al menos 8 caracteres.'),
     })
     .superRefine((values, context) => {
         if (values.password !== values.confirmPassword) {
             context.addIssue({
                 code: 'custom',
-                message: 'Las contrasenas no coinciden.',
+                message: 'Las contraseñas no coinciden.',
                 path: ['confirmPassword'],
             })
         }
