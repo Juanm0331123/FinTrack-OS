@@ -27,6 +27,7 @@ yarn-error.log*
 *.pid.lock
 *.seed
 *.local
+.local/
 tmp/
 temp/
 

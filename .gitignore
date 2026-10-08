@@ -1,0 +1,32 @@
+# OS and editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+
+# Logs
+*.log
+
+# Dependencies and builds outside the boundaries
+node_modules/
+dist/
+build/
+coverage/
+
+# Claude Code local settings and local working files
+.claude/settings.local.json
+.local/
+
+# Impeccable local state (surfaces/, design.json and config.json stay versioned)
+.impeccable/questions/
+.impeccable/review/
+.impeccable/mocks/
+.impeccable/build/
+.impeccable/config.local.json
