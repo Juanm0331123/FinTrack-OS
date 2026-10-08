@@ -40,7 +40,7 @@ function SharedPercentInput({ onValueChange, value }: { onValueChange: (value: n
     const [draft, setDraft] = useState(() => String(value).replace('.', ','))
 
     return (
-        <div className="flex h-10 items-center gap-1.5 rounded-lg border border-ft-line bg-white px-3 transition-[border-color,box-shadow] duration-150 focus-within:border-ft-focus focus-within:ring-[3px] focus-within:ring-ft-focus-soft">
+        <div className="flex h-11 items-center gap-1.5 rounded-lg border border-ft-line bg-white px-3 transition-[border-color,box-shadow] sm:h-10 duration-150 focus-within:border-ft-focus focus-within:ring-[3px] focus-within:ring-ft-focus-soft">
             <input
                 id="debt-shared-percent"
                 type="text"
@@ -366,7 +366,7 @@ export function DebtDrawer({
             open={open && target !== null}
             onOpenChange={onOpenChange}
             title={isEdit ? (debt?.name ?? 'Deuda') : 'Nueva deuda'}
-            description={isEdit ? 'Los cambios se guardan solos.' : 'Llena los datos como en la hoja Deudas.'}
+            description={isEdit ? 'Los cambios se guardan solos.' : 'Se agrega a tu plan de deudas.'}
         >
             {isEdit ? (
                 debt ? (
