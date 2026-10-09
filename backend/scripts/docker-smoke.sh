@@ -9,6 +9,9 @@ NETWORK="$RUN_ID-net"
 DB="$RUN_ID-db"
 API="$RUN_ID-api"
 CERTS="$(mktemp -d)"
+# mktemp crea el directorio con 700: postgres y node necesitan recorrerlo en Linux.
+# La clave privada conserva 600; solo los certificados públicos son legibles por otros.
+chmod 755 "$CERTS"
 EDGE_SECRET="smoke-edge-secret-$(date +%s)-0123456789abcdef"
 API_PORT="${SMOKE_API_PORT:-18080}"
 DB_PASSWORD="smoke_only_$RANDOM"
@@ -22,6 +25,7 @@ trap cleanup EXIT
 
 fail() {
     echo "SMOKE FALLÓ: $1" >&2
+    docker logs "$DB" 2>&1 | tail -40 >&2 || true
     docker logs "$API" 2>&1 | tail -40 >&2 || true
     exit 1
 }
@@ -47,6 +51,8 @@ for _ in $(seq 1 30); do
     docker exec "$DB" pg_isready -U fintrack_smoke -d fintrack_smoke >/dev/null 2>&1 && break
     sleep 1
 done
+
+docker exec "$DB" pg_isready -U fintrack_smoke -d fintrack_smoke >/dev/null 2>&1 || fail "PostgreSQL no arrancó con TLS"
 
 DATABASE_URL="postgresql://fintrack_smoke:$DB_PASSWORD@$DB:5432/fintrack_smoke?sslmode=verify-full"
 
