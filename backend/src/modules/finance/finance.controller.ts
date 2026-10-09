@@ -2,6 +2,7 @@ import type { Request, Response } from 'express'
 import { toAuthenticatedRequest } from '../../middlewares/auth.middleware.ts'
 import { ApiResponse } from '../../utils/api-response.ts'
 import type {
+    CopyPreviousSheetInput,
     CreateAccountInput,
     CreateDebtInput,
     CreateEntryInput,
@@ -13,8 +14,9 @@ import type {
     UpdateSettingsInput,
     UpdateSheetInput,
     UpdateSpendInput,
+    WorkbookQuery,
 } from './finance.schemas.ts'
-import { FinanceService } from './finance.service.ts'
+import { FinanceService, type Created } from './finance.service.ts'
 
 function getUserId(req: Request) {
     return toAuthenticatedRequest(req).auth.user.id
@@ -22,6 +24,15 @@ function getUserId(req: Request) {
 
 function getParam(req: Request, name: 'id' | 'yearMonth') {
     return String((req.params as Record<string, string>)[name])
+}
+
+// Una creación repetida con el mismo identificador responde 200 con el registro existente.
+function sendCreated<T>(res: Response, created: Created<T>) {
+    if (created.replayed) {
+        res.setHeader('Idempotent-Replayed', 'true')
+    }
+
+    return res.status(created.replayed ? 200 : 201).json(ApiResponse.success(created.value))
 }
 
 export class FinanceController {
@@ -32,7 +43,7 @@ export class FinanceController {
     }
 
     getWorkbook = async (req: Request, res: Response) => {
-        const workbook = await this.financeService.getWorkbook(getUserId(req))
+        const workbook = await this.financeService.getWorkbook(getUserId(req), req.query as WorkbookQuery)
 
         return res.status(200).json(ApiResponse.success(workbook))
     }
@@ -47,12 +58,7 @@ export class FinanceController {
     }
 
     createAccount = async (req: Request, res: Response) => {
-        const account = await this.financeService.createAccount(
-            getUserId(req),
-            req.body as CreateAccountInput,
-        )
-
-        return res.status(201).json(ApiResponse.success(account))
+        return sendCreated(res, await this.financeService.createAccount(getUserId(req), req.body as CreateAccountInput))
     }
 
     updateAccount = async (req: Request, res: Response) => {
@@ -75,12 +81,7 @@ export class FinanceController {
     }
 
     createSheet = async (req: Request, res: Response) => {
-        const sheet = await this.financeService.createSheet(
-            getUserId(req),
-            req.body as CreateSheetInput,
-        )
-
-        return res.status(201).json(ApiResponse.success(sheet))
+        return sendCreated(res, await this.financeService.createSheet(getUserId(req), req.body as CreateSheetInput))
     }
 
     updateSheet = async (req: Request, res: Response) => {
@@ -106,19 +107,17 @@ export class FinanceController {
         const sheet = await this.financeService.copyPreviousSheet(
             getUserId(req),
             getParam(req, 'yearMonth'),
+            (req.body ?? {}) as CopyPreviousSheetInput,
         )
 
         return res.status(200).json(ApiResponse.success(sheet))
     }
 
     createEntry = async (req: Request, res: Response) => {
-        const entry = await this.financeService.createEntry(
-            getUserId(req),
-            getParam(req, 'yearMonth'),
-            req.body as CreateEntryInput,
+        return sendCreated(
+            res,
+            await this.financeService.createEntry(getUserId(req), getParam(req, 'yearMonth'), req.body as CreateEntryInput),
         )
-
-        return res.status(201).json(ApiResponse.success(entry))
     }
 
     updateEntry = async (req: Request, res: Response) => {
@@ -141,13 +140,10 @@ export class FinanceController {
     }
 
     createSpend = async (req: Request, res: Response) => {
-        const spend = await this.financeService.createSpend(
-            getUserId(req),
-            getParam(req, 'id'),
-            req.body as CreateSpendInput,
+        return sendCreated(
+            res,
+            await this.financeService.createSpend(getUserId(req), getParam(req, 'id'), req.body as CreateSpendInput),
         )
-
-        return res.status(201).json(ApiResponse.success(spend))
     }
 
     updateSpend = async (req: Request, res: Response) => {
@@ -170,12 +166,7 @@ export class FinanceController {
     }
 
     createDebt = async (req: Request, res: Response) => {
-        const debt = await this.financeService.createDebt(
-            getUserId(req),
-            req.body as CreateDebtInput,
-        )
-
-        return res.status(201).json(ApiResponse.success(debt))
+        return sendCreated(res, await this.financeService.createDebt(getUserId(req), req.body as CreateDebtInput))
     }
 
     updateDebt = async (req: Request, res: Response) => {

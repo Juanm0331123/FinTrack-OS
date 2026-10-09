@@ -1,22 +1,15 @@
 import { randomUUID } from 'node:crypto'
+import { isUniqueViolation } from '../../config/database-errors.ts'
 import {
     ConflictError,
     NotFoundError,
     RequestValidationError,
     type ValidationIssue,
 } from '../../utils/app-error.ts'
-import {
-    toAccountDto,
-    toDebtDto,
-    toEntryDto,
-    toNumber,
-    toSettingsDto,
-    toSheetDto,
-    toSheetFieldsDto,
-    toSpendDto,
-} from './finance.mappers.ts'
+import { toAccountDto, toDebtDto, toEntryDto, toSettingsDto, toSheetDto, toSheetFieldsDto, toSpendDto } from './finance.mappers.ts'
 import { FinanceRepository } from './finance.repository.ts'
 import type {
+    CopyPreviousSheetInput,
     CreateAccountInput,
     CreateDebtInput,
     CreateEntryInput,
@@ -28,21 +21,58 @@ import type {
     UpdateSettingsInput,
     UpdateSheetInput,
     UpdateSpendInput,
+    WorkbookQuery,
 } from './finance.schemas.ts'
-import type { WorkbookDto } from './finance.types.ts'
-import { buildCopiedEntries, buildCopiedIncome, type CopiedEntry } from './sheet-copy.ts'
+import type { DecimalLike, WorkbookDto } from './finance.types.ts'
+import { toNullableNumber } from './finance.mappers.ts'
+import { buildCopiedEntries, buildCopiedIncome } from './sheet-copy.ts'
+
+// Cuotas funcionales por usuario: acotan el tamaño del libro y el costo de cada lectura.
+export const FINANCE_LIMITS = {
+    accounts: 50,
+    debts: 100,
+    entriesPerSheet: 300,
+    sheets: 240,
+    spendsPerEntry: 500,
+}
+
+export type Created<T> = { replayed: boolean; value: T }
 
 function toDateOnly(isoDate: string) {
     return new Date(`${isoDate}T00:00:00.000Z`)
 }
 
-function isUniqueViolation(error: unknown) {
-    return (
-        typeof error === 'object' &&
-        error !== null &&
-        'code' in error &&
-        (error as { code?: unknown }).code === 'P2002'
+const idempotencyConflict = () =>
+    new ConflictError(
+        'Ese identificador ya se usó para otro registro. Recarga la página e intenta de nuevo.',
+        'IDEMPOTENCY_CONFLICT',
     )
+
+const limitReached = (message: string) => new ConflictError(message, 'LIMIT_REACHED')
+
+function sameValue(stored: unknown, requested: unknown) {
+    if (requested === undefined) {
+        return true
+    }
+
+    if (stored !== null && typeof stored === 'object' && 'toNumber' in stored) {
+        return toNullableNumber(stored as DecimalLike) === requested
+    }
+
+    return (stored ?? null) === (requested ?? null)
+}
+
+// Un reintento es equivalente si cada campo enviado coincide con lo guardado.
+function matchesStored(stored: Record<string, unknown>, requested: Record<string, unknown>) {
+    return Object.entries(requested).every(([key, value]) => key === 'id' || sameValue(stored[key], value))
+}
+
+function assertDateInMonth(spentOn: string, yearMonth: string) {
+    if (!spentOn.startsWith(`${yearMonth}-`)) {
+        throw new RequestValidationError('Revisa los datos enviados.', [
+            { field: 'spentOn', message: `La fecha debe estar dentro del mes ${yearMonth}.` },
+        ])
+    }
 }
 
 export class FinanceService {
@@ -52,13 +82,13 @@ export class FinanceService {
         this.repository = repository
     }
 
-    async getWorkbook(userId: string): Promise<WorkbookDto> {
+    async getWorkbook(userId: string, period: WorkbookQuery = {}): Promise<WorkbookDto> {
+        await this.repository.ensureFinanceDefaults(userId)
+
         const [settings, accounts, sheets, debts] = await Promise.all([
-            this.repository.ensureSettings(userId),
-            this.repository
-                .ensureDefaultAccount(userId)
-                .then(() => this.repository.listAccounts(userId)),
-            this.repository.listSheets(userId),
+            this.repository.findSettings(userId),
+            this.repository.listAccounts(userId),
+            this.repository.listSheets(userId, period),
             this.repository.listDebts(userId),
         ])
 
@@ -71,17 +101,19 @@ export class FinanceService {
     }
 
     async updateSettings(userId: string, input: UpdateSettingsInput) {
-        const settings = await this.repository.upsertSettings(userId, input)
-
-        return toSettingsDto(settings)
+        return toSettingsDto(await this.repository.upsertSettings(userId, input))
     }
 
-    async createAccount(userId: string, input: CreateAccountInput) {
+    async createAccount(userId: string, input: CreateAccountInput): Promise<Created<ReturnType<typeof toAccountDto>>> {
         if (input.id) {
-            const existingById = await this.repository.findAccount(userId, input.id)
+            const owner = await this.repository.findAccountOwner(input.id)
 
-            if (existingById) {
-                return toAccountDto(existingById)
+            if (owner) {
+                if (owner.userId !== userId || owner.name.toLowerCase() !== input.name.toLowerCase()) {
+                    throw idempotencyConflict()
+                }
+
+                return { replayed: true, value: toAccountDto((await this.repository.findAccount(userId, input.id))!) }
             }
         }
 
@@ -89,30 +121,31 @@ export class FinanceService {
 
         if (existingByName) {
             if (existingByName.archivedAt) {
-                const restored = await this.repository.updateAccount(existingByName.id, {
-                    archivedAt: null,
-                })
-
-                return toAccountDto(restored)
+                return {
+                    replayed: false,
+                    value: toAccountDto(await this.repository.updateAccount(userId, existingByName.id, { archivedAt: null })),
+                }
             }
 
-            throw new ConflictError('Ya tienes una cuenta con ese nombre.')
+            throw new ConflictError('Ya tienes una cuenta con ese nombre.', 'ACCOUNT_NAME_TAKEN')
         }
 
-        const sortOrder = await this.repository.nextAccountSortOrder(userId)
+        if ((await this.repository.countAccounts(userId)) >= FINANCE_LIMITS.accounts) {
+            throw limitReached(`Puedes tener hasta ${FINANCE_LIMITS.accounts} cuentas.`)
+        }
 
         try {
             const account = await this.repository.createAccount({
                 id: input.id,
                 name: input.name,
-                sortOrder,
+                sortOrder: await this.repository.nextAccountSortOrder(userId),
                 userId,
             })
 
-            return toAccountDto(account)
+            return { replayed: false, value: toAccountDto(account) }
         } catch (error) {
             if (isUniqueViolation(error)) {
-                throw new ConflictError('Ya tienes una cuenta con ese nombre.')
+                throw new ConflictError('Ya tienes una cuenta con ese nombre.', 'ACCOUNT_NAME_TAKEN')
             }
 
             throw error
@@ -122,165 +155,144 @@ export class FinanceService {
     async updateAccount(userId: string, id: string, input: UpdateAccountInput) {
         const account = await this.getOwnedAccount(userId, id)
 
-        if (input.name && input.name.toLowerCase() !== account.name.toLowerCase()) {
-            const duplicate = await this.repository.findAccountByName(userId, input.name)
-
-            if (duplicate && duplicate.id !== id) {
-                throw new ConflictError('Ya tienes una cuenta con ese nombre.')
-            }
-        }
-
-        const updated = await this.repository.updateAccount(id, {
-            archivedAt:
-                input.archived === undefined
-                    ? undefined
-                    : input.archived
-                      ? (account.archivedAt ?? new Date())
-                      : null,
-            name: input.name,
-            sortOrder: input.sortOrder,
-        })
-
-        return toAccountDto(updated)
-    }
-
-    async deleteAccount(userId: string, id: string) {
-        const account = await this.getOwnedAccount(userId, id)
-        const usage = await this.repository.countAccountEntries(id)
-
-        if (usage > 0) {
-            const archived = await this.repository.updateAccount(id, {
-                archivedAt: account.archivedAt ?? new Date(),
+        try {
+            const updated = await this.repository.updateAccount(userId, id, {
+                archivedAt: input.archived === undefined ? undefined : input.archived ? (account.archivedAt ?? new Date()) : null,
+                name: input.name,
+                sortOrder: input.sortOrder,
             })
 
-            return { account: toAccountDto(archived), result: 'archived' as const }
-        }
-
-        await this.repository.deleteAccount(id)
-
-        return { id, result: 'deleted' as const }
-    }
-
-    async createSheet(userId: string, input: CreateSheetInput) {
-        const existing = await this.repository.findSheet(userId, input.yearMonth)
-
-        if (existing) {
-            throw new ConflictError('Ese mes ya tiene una hoja.')
-        }
-
-        const sheetId = randomUUID()
-        let income = {}
-        let entries: CopiedEntry[] = []
-
-        if (input.copyFrom === 'PREVIOUS') {
-            const previous = await this.repository.findPreviousSheet(userId, input.yearMonth)
-
-            if (previous) {
-                income = buildCopiedIncome(previous)
-                entries = buildCopiedEntries(previous.entries, {
-                    sheetId,
-                    startSortOrder: 0,
-                    userId,
-                })
-            }
-        }
-
-        try {
-            const sheet = await this.repository.createSheetWithEntries(
-                {
-                    id: sheetId,
-                    userId,
-                    yearMonth: input.yearMonth,
-                    ...income,
-                },
-                entries,
-            )
-
-            return toSheetDto(sheet)
+            return toAccountDto(updated)
         } catch (error) {
             if (isUniqueViolation(error)) {
-                throw new ConflictError('Ese mes ya tiene una hoja.')
+                throw new ConflictError('Ya tienes una cuenta con ese nombre.', 'ACCOUNT_NAME_TAKEN')
             }
 
             throw error
         }
     }
 
-    async updateSheet(userId: string, yearMonth: string, input: UpdateSheetInput) {
-        const sheet = await this.getOwnedSheet(userId, yearMonth)
-        const updated = await this.repository.updateSheet(sheet.id, input)
+    async deleteAccount(userId: string, id: string) {
+        await this.getOwnedAccount(userId, id)
 
-        return toSheetFieldsDto(updated)
+        const outcome = await this.repository.deleteOrArchiveAccount(userId, id)
+
+        return outcome.result === 'deleted'
+            ? { id, result: 'deleted' as const }
+            : { account: toAccountDto(outcome.account), result: 'archived' as const }
+    }
+
+    async createSheet(userId: string, input: CreateSheetInput): Promise<Created<ReturnType<typeof toSheetDto>>> {
+        if ((await this.repository.countSheets(userId)) >= FINANCE_LIMITS.sheets) {
+            throw limitReached(`Puedes tener hasta ${FINANCE_LIMITS.sheets} meses.`)
+        }
+
+        const result = await this.repository.createSheet({
+            buildContent: (previous, sheetId) =>
+                previous
+                    ? {
+                          entries: buildCopiedEntries(previous.entries, { sheetId, startSortOrder: 0, userId }),
+                          income: buildCopiedIncome(previous),
+                      }
+                    : { entries: [], income: {} },
+            copyPrevious: input.copyFrom === 'PREVIOUS',
+            operationId: input.operationId,
+            sheetId: randomUUID(),
+            userId,
+            yearMonth: input.yearMonth,
+        })
+
+        if ('conflict' in result || !result.sheet) {
+            throw new ConflictError('Ese mes ya tiene una hoja.', 'SHEET_EXISTS')
+        }
+
+        return { replayed: result.replayed, value: toSheetDto(result.sheet) }
+    }
+
+    async updateSheet(userId: string, yearMonth: string, input: UpdateSheetInput) {
+        await this.getOwnedSheetRef(userId, yearMonth)
+
+        return toSheetFieldsDto(await this.repository.updateSheet(userId, yearMonth, input))
     }
 
     async deleteSheet(userId: string, yearMonth: string) {
-        const sheet = await this.getOwnedSheet(userId, yearMonth)
-
-        await this.repository.deleteSheet(sheet.id)
+        await this.getOwnedSheetRef(userId, yearMonth)
+        await this.repository.deleteSheet(userId, yearMonth)
 
         return { deleted: true as const, yearMonth }
     }
 
-    async copyPreviousSheet(userId: string, yearMonth: string) {
-        const sheet = await this.getOwnedSheet(userId, yearMonth)
-        const previous = await this.repository.findPreviousSheet(userId, yearMonth)
+    async copyPreviousSheet(userId: string, yearMonth: string, input: CopyPreviousSheetInput = {}) {
+        const outcome = await this.repository.copyPreviousSheet({
+            buildEntries: (previous, sheetId, startSortOrder) =>
+                buildCopiedEntries(previous.entries, { sheetId, startSortOrder, userId }),
+            buildIncome: buildCopiedIncome,
+            operationId: input.operationId,
+            userId,
+            yearMonth,
+        })
 
-        if (!previous) {
+        if (outcome.status === 'missing-sheet') {
+            throw new NotFoundError('Ese mes todavía no tiene hoja.')
+        }
+
+        if (outcome.status === 'no-previous') {
             throw new NotFoundError('No hay un mes anterior para copiar.')
         }
 
-        const startSortOrder =
-            sheet.entries.reduce((max, entry) => Math.max(max, entry.sortOrder), -1) + 1
-        const entries = buildCopiedEntries(previous.entries, {
-            sheetId: sheet.id,
-            startSortOrder,
-            userId,
-        })
-        const income = toNumber(sheet.salary) === 0 ? buildCopiedIncome(previous) : null
-        const updated = await this.repository.appendEntries(sheet.id, entries, income)
-
-        return toSheetDto(updated)
+        return toSheetDto(outcome.sheet)
     }
 
-    async createEntry(userId: string, yearMonth: string, input: CreateEntryInput) {
-        const sheet = await this.getOwnedSheet(userId, yearMonth)
+    async createEntry(userId: string, yearMonth: string, input: CreateEntryInput): Promise<Created<ReturnType<typeof toEntryDto>>> {
+        const sheet = await this.getOwnedSheetRef(userId, yearMonth)
 
         if (input.id) {
-            const existing = await this.repository.findEntryById(input.id)
+            const replay = await this.replayEntry(userId, sheet.id, input)
 
-            if (existing) {
-                if (existing.userId !== userId) {
-                    throw new ConflictError('Ese identificador ya está en uso.')
-                }
-
-                return toEntryDto(existing)
+            if (replay) {
+                return replay
             }
         }
 
+        if ((await this.repository.countEntries(sheet.id)) >= FINANCE_LIMITS.entriesPerSheet) {
+            throw limitReached(`Un mes puede tener hasta ${FINANCE_LIMITS.entriesPerSheet} filas.`)
+        }
+
         await this.assertReferences(userId, input.accountId, input.debtId)
 
-        const sortOrder =
-            input.sortOrder ?? (await this.repository.nextEntrySortOrder(sheet.id))
-        const entry = await this.repository.createEntry({
-            accountId: input.accountId ?? null,
-            amount: input.amount ?? null,
-            category: input.category ?? 'OTHER',
-            concept: input.concept,
-            debtId: input.debtId ?? null,
-            dueDay: input.dueDay ?? null,
-            id: input.id,
-            isPaid: input.isPaid ?? false,
-            note: input.note ?? null,
-            sheetId: sheet.id,
-            sortOrder,
-            userId,
-        })
+        try {
+            const entry = await this.repository.createEntry({
+                accountId: input.accountId ?? null,
+                amount: input.amount ?? null,
+                category: input.category ?? 'OTHER',
+                concept: input.concept,
+                debtId: input.debtId ?? null,
+                dueDay: input.dueDay ?? null,
+                id: input.id,
+                isPaid: input.isPaid ?? false,
+                note: input.note ?? null,
+                sheetId: sheet.id,
+                sortOrder: input.sortOrder ?? (await this.repository.nextEntrySortOrder(sheet.id)),
+                userId,
+            })
 
-        return toEntryDto(entry)
+            return { replayed: false, value: toEntryDto(entry) }
+        } catch (error) {
+            // Dos reintentos simultáneos con el mismo id: el segundo resuelve como reintento.
+            if (input.id && isUniqueViolation(error)) {
+                const replay = await this.replayEntry(userId, sheet.id, input)
+
+                if (replay) {
+                    return replay
+                }
+            }
+
+            throw error
+        }
     }
 
     async updateEntry(userId: string, id: string, input: UpdateEntryInput) {
-        const entry = await this.repository.findEntry(userId, id)
+        const entry = await this.repository.findEntryRef(userId, id)
 
         if (!entry) {
             throw new NotFoundError('No encontramos ese gasto.')
@@ -288,28 +300,42 @@ export class FinanceService {
 
         await this.assertReferences(userId, input.accountId, input.debtId)
 
-        const updated = await this.repository.updateEntry(id, input)
+        const leavingPocket = entry.category === 'POCKET' && input.category !== undefined && input.category !== 'POCKET'
+        const result = await this.repository.updateEntry(userId, id, input, leavingPocket)
 
-        return toEntryDto(updated)
+        if (result.blocked) {
+            throw new ConflictError(
+                'Este bolsillo tiene gastos registrados. Elimínalos antes de cambiar la categoría para no perderlos de los totales.',
+                'POCKET_HAS_SPENDS',
+            )
+        }
+
+        return toEntryDto(result.entry)
     }
 
     async deleteEntry(userId: string, id: string) {
-        const entry = await this.repository.findEntry(userId, id)
-
-        if (!entry) {
+        if (!(await this.repository.findEntryRef(userId, id))) {
             throw new NotFoundError('No encontramos ese gasto.')
         }
 
-        await this.repository.deleteEntry(id)
+        await this.repository.deleteEntry(userId, id)
 
         return { deleted: true as const, id }
     }
 
-    async createSpend(userId: string, entryId: string, input: CreateSpendInput) {
-        const entry = await this.repository.findEntry(userId, entryId)
+    async createSpend(userId: string, entryId: string, input: CreateSpendInput): Promise<Created<ReturnType<typeof toSpendDto>>> {
+        const entry = await this.repository.findEntryRef(userId, entryId)
 
         if (!entry) {
             throw new NotFoundError('No encontramos ese bolsillo.')
+        }
+
+        if (input.id) {
+            const replay = await this.replaySpend(userId, entryId, input)
+
+            if (replay) {
+                return replay
+            }
         }
 
         if (entry.category !== 'POCKET') {
@@ -318,38 +344,52 @@ export class FinanceService {
             ])
         }
 
-        if (input.id) {
-            const existing = await this.repository.findSpendById(input.id)
+        assertDateInMonth(input.spentOn, entry.sheet.yearMonth)
 
-            if (existing) {
-                if (existing.userId !== userId) {
-                    throw new ConflictError('Ese identificador ya está en uso.')
-                }
-
-                return toSpendDto(existing)
-            }
+        if ((await this.repository.countSpends(entryId)) >= FINANCE_LIMITS.spendsPerEntry) {
+            throw limitReached(`Un bolsillo puede tener hasta ${FINANCE_LIMITS.spendsPerEntry} gastos.`)
         }
 
-        const spend = await this.repository.createSpend({
-            amount: input.amount,
-            entryId,
-            id: input.id,
-            note: input.note ?? null,
-            spentOn: toDateOnly(input.spentOn),
-            userId,
-        })
+        try {
+            const result = await this.repository.createSpend(userId, entryId, {
+                amount: input.amount,
+                id: input.id,
+                note: input.note ?? null,
+                spentOn: toDateOnly(input.spentOn),
+            })
 
-        return toSpendDto(spend)
+            if (result.notPocket) {
+                throw new RequestValidationError('Revisa los datos enviados.', [
+                    { field: 'entryId', message: 'Solo los bolsillos registran gastos.' },
+                ])
+            }
+
+            return { replayed: false, value: toSpendDto(result.spend) }
+        } catch (error) {
+            if (input.id && isUniqueViolation(error)) {
+                const replay = await this.replaySpend(userId, entryId, input)
+
+                if (replay) {
+                    return replay
+                }
+            }
+
+            throw error
+        }
     }
 
     async updateSpend(userId: string, id: string, input: UpdateSpendInput) {
-        const spend = await this.repository.findSpend(userId, id)
+        const spend = await this.repository.findSpendRef(userId, id)
 
         if (!spend) {
             throw new NotFoundError('No encontramos ese gasto del bolsillo.')
         }
 
-        const updated = await this.repository.updateSpend(id, {
+        if (input.spentOn !== undefined) {
+            assertDateInMonth(input.spentOn, spend.entry.sheet.yearMonth)
+        }
+
+        const updated = await this.repository.updateSpend(userId, id, {
             ...(input.amount !== undefined ? { amount: input.amount } : {}),
             ...(input.note !== undefined ? { note: input.note } : {}),
             ...(input.spentOn !== undefined ? { spentOn: toDateOnly(input.spentOn) } : {}),
@@ -359,54 +399,99 @@ export class FinanceService {
     }
 
     async deleteSpend(userId: string, id: string) {
-        const spend = await this.repository.findSpend(userId, id)
-
-        if (!spend) {
+        if (!(await this.repository.findSpendRef(userId, id))) {
             throw new NotFoundError('No encontramos ese gasto del bolsillo.')
         }
 
-        await this.repository.deleteSpend(id)
+        await this.repository.deleteSpend(userId, id)
 
         return { deleted: true as const, id }
     }
 
-    async createDebt(userId: string, input: CreateDebtInput) {
+    async createDebt(userId: string, input: CreateDebtInput): Promise<Created<ReturnType<typeof toDebtDto>>> {
         if (input.id) {
-            const existing = await this.repository.findDebtById(input.id)
+            const existing = await this.repository.findDebtForReplay(input.id)
 
             if (existing) {
-                if (existing.userId !== userId) {
-                    throw new ConflictError('Ese identificador ya está en uso.')
+                if (existing.userId !== userId || !matchesStored(existing, input)) {
+                    throw idempotencyConflict()
                 }
 
-                return toDebtDto(existing)
+                return { replayed: true, value: toDebtDto(existing) }
             }
         }
 
-        const sortOrder =
-            input.sortOrder ?? (await this.repository.nextDebtSortOrder(userId))
-        const debt = await this.repository.createDebt({
-            ...input,
-            sortOrder,
-            userId,
-        })
+        if ((await this.repository.countDebts(userId)) >= FINANCE_LIMITS.debts) {
+            throw limitReached(`Puedes tener hasta ${FINANCE_LIMITS.debts} deudas.`)
+        }
 
-        return toDebtDto(debt)
+        try {
+            const debt = await this.repository.createDebt({
+                ...input,
+                sortOrder: input.sortOrder ?? (await this.repository.nextDebtSortOrder(userId)),
+                userId,
+            })
+
+            return { replayed: false, value: toDebtDto(debt) }
+        } catch (error) {
+            if (input.id && isUniqueViolation(error)) {
+                const existing = await this.repository.findDebtForReplay(input.id)
+
+                if (existing && existing.userId === userId && matchesStored(existing, input)) {
+                    return { replayed: true, value: toDebtDto(existing) }
+                }
+
+                throw idempotencyConflict()
+            }
+
+            throw error
+        }
     }
 
     async updateDebt(userId: string, id: string, input: UpdateDebtInput) {
         await this.getOwnedDebt(userId, id)
 
-        const updated = await this.repository.updateDebt(id, input)
-
-        return toDebtDto(updated)
+        return toDebtDto(await this.repository.updateDebt(userId, id, input))
     }
 
     async deleteDebt(userId: string, id: string) {
         await this.getOwnedDebt(userId, id)
-        await this.repository.deleteDebt(id)
+        await this.repository.deleteDebt(userId, id)
 
         return { deleted: true as const, id }
+    }
+
+    // Reintento de creación: mismo dueño, misma hoja y mismo contenido devuelven la fila; un
+    // identificador reutilizado para otro destino o contenido es un conflicto explícito. Nunca se
+    // devuelve una fila ajena.
+    private async replayEntry(userId: string, sheetId: string, input: CreateEntryInput) {
+        const existing = await this.repository.findEntryForReplay(input.id!)
+
+        if (!existing) {
+            return null
+        }
+
+        if (existing.userId !== userId || existing.sheetId !== sheetId || !matchesStored(existing, input)) {
+            throw idempotencyConflict()
+        }
+
+        return { replayed: true, value: toEntryDto(existing) }
+    }
+
+    private async replaySpend(userId: string, entryId: string, input: CreateSpendInput) {
+        const existing = await this.repository.findSpendForReplay(input.id!)
+
+        if (!existing) {
+            return null
+        }
+
+        const stored = { ...existing, spentOn: existing.spentOn.toISOString().slice(0, 10) }
+
+        if (existing.userId !== userId || existing.entryId !== entryId || !matchesStored(stored, input)) {
+            throw idempotencyConflict()
+        }
+
+        return { replayed: true, value: toSpendDto(existing) }
     }
 
     private async getOwnedAccount(userId: string, id: string) {
@@ -419,8 +504,8 @@ export class FinanceService {
         return account
     }
 
-    private async getOwnedSheet(userId: string, yearMonth: string) {
-        const sheet = await this.repository.findSheet(userId, yearMonth)
+    private async getOwnedSheetRef(userId: string, yearMonth: string) {
+        const sheet = await this.repository.findSheetRef(userId, yearMonth)
 
         if (!sheet) {
             throw new NotFoundError('Ese mes todavía no tiene hoja.')
@@ -430,20 +515,12 @@ export class FinanceService {
     }
 
     private async getOwnedDebt(userId: string, id: string) {
-        const debt = await this.repository.findDebt(userId, id)
-
-        if (!debt) {
+        if (!(await this.repository.findDebt(userId, id))) {
             throw new NotFoundError('No encontramos esa deuda.')
         }
-
-        return debt
     }
 
-    private async assertReferences(
-        userId: string,
-        accountId: string | null | undefined,
-        debtId: string | null | undefined,
-    ) {
+    private async assertReferences(userId: string, accountId: string | null | undefined, debtId: string | null | undefined) {
         const [account, debt] = await Promise.all([
             accountId ? this.repository.findAccount(userId, accountId) : null,
             debtId ? this.repository.findDebt(userId, debtId) : null,
