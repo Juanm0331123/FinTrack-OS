@@ -12,6 +12,10 @@ import type { AuthenticatedResponse, AuthSession } from './auth.types'
 //   reparte la sesión nueva, así las demás pestañas no gastan la misma cookie;
 // - 401/403 cierran la sesión; 409 (otra pestaña rotó la cookie) se reintenta; 429 respeta
 //   Retry-After; 5xx y fallos de red conservan la sesión y se reintentan un número acotado de veces.
+//
+// Generaciones: cerrar sesión, iniciar otra o recibir un cambio de otra pestaña abre una generación
+// nueva. Una renovación iniciada en una generación anterior no adopta, difunde, cierra ni marca
+// nada al terminar: su resultado se descarta (y al cerrar sesión además se cancela la petición).
 
 const REFRESH_MARGIN_MS = 30_000
 const MAX_REFRESH_ATTEMPTS = 3
@@ -34,6 +38,14 @@ export class SessionUnavailableError extends Error {
     }
 }
 
+// La sesión vigente ya no es de la cuenta con la que empezó la operación.
+export class SessionChangedError extends Error {
+    constructor() {
+        super('La sesión cambió a otra cuenta. Recarga la página para continuar.')
+        this.name = 'SessionChangedError'
+    }
+}
+
 type ChannelMessage = { session: AuthSession; type: 'session' } | { type: 'signed-out' }
 
 export type SessionChannel = {
@@ -45,7 +57,7 @@ export type SessionManagerDeps = {
     channel?: SessionChannel
     hint: { get(): boolean; set(present: boolean): void }
     now: () => number
-    refresh: () => Promise<AuthenticatedResponse>
+    refresh: (signal?: AbortSignal) => Promise<AuthenticatedResponse>
     sleep: (ms: number) => Promise<void>
     withLock?: <T>(work: () => Promise<T>) => Promise<T>
 }
@@ -63,6 +75,8 @@ function retryAfterOf(error: AuthApiError) {
 export function createSessionManager(deps: SessionManagerDeps) {
     let snapshot: SessionSnapshot = { session: null, status: 'unknown' }
     let refreshInFlight: Promise<AuthSession | null> | null = null
+    let refreshAbort: AbortController | null = null
+    let generation = 0
     const listeners = new Set<() => void>()
 
     function publish(next: SessionSnapshot) {
@@ -83,6 +97,23 @@ export function createSessionManager(deps: SessionManagerDeps) {
 
     function isFresh(session: AuthSession | null): session is AuthSession {
         return Boolean(session) && new Date(session!.accessTokenExpiresAt).getTime() - deps.now() > REFRESH_MARGIN_MS
+    }
+
+    // Abre una generación nueva: las renovaciones en curso quedan obsoletas y la siguiente petición
+    // inicia otra en lugar de unirse a la anterior.
+    function startGeneration(options: { cancel: boolean }) {
+        generation += 1
+        refreshInFlight = null
+
+        if (options.cancel) {
+            refreshAbort?.abort()
+        }
+
+        refreshAbort = null
+    }
+
+    function currentSession() {
+        return snapshot.status === 'authenticated' ? snapshot.session : null
     }
 
     function adopt(session: AuthSession, broadcast: boolean) {
@@ -109,29 +140,55 @@ export function createSessionManager(deps: SessionManagerDeps) {
         }
 
         if (message.type === 'session') {
+            startGeneration({ cancel: false })
             adopt(message.session, false)
         } else {
+            startGeneration({ cancel: true })
             signOut(false)
         }
     })
 
-    async function refreshWithRetry(): Promise<AuthSession | null> {
+    async function refreshWithRetry(startedIn: number, signal: AbortSignal): Promise<AuthSession | null> {
         let lastError: unknown
+        const startedAs = currentSession()?.user.id ?? null
+        const isStale = () => startedIn !== generation
 
         for (let attempt = 0; attempt < MAX_REFRESH_ATTEMPTS; attempt += 1) {
+            if (isStale()) {
+                return currentSession()
+            }
+
             // Otra pestaña pudo renovar mientras esperábamos el lock: se reutiliza su sesión.
             if (isFresh(snapshot.session)) {
                 return snapshot.session
             }
 
             try {
-                const session = toSession(await deps.refresh())
+                const response = await deps.refresh(signal)
+
+                if (isStale()) {
+                    return currentSession()
+                }
+
+                // La cookie es de otra cuenta (otro inicio de sesión en este navegador): no se cambia
+                // de cuenta en silencio con los datos de la anterior en pantalla.
+                if (startedAs !== null && response.user.id !== startedAs) {
+                    signOut(true)
+
+                    return null
+                }
+
+                const session = toSession(response)
 
                 adopt(session, true)
 
                 return session
             } catch (error) {
                 lastError = error
+
+                if (isStale()) {
+                    return currentSession()
+                }
 
                 if (error instanceof AuthApiError) {
                     if (error.status === 401 || error.status === 403) {
@@ -152,6 +209,10 @@ export function createSessionManager(deps: SessionManagerDeps) {
             }
         }
 
+        if (isStale()) {
+            return currentSession()
+        }
+
         publish({ session: snapshot.session, status: 'unavailable' })
         throw new SessionUnavailableError(
             lastError instanceof Error ? lastError.message : 'No pudimos renovar tu sesión. Revisa tu conexión.',
@@ -159,28 +220,50 @@ export function createSessionManager(deps: SessionManagerDeps) {
     }
 
     function refreshCoordinated() {
-        refreshInFlight ??= (deps.withLock ? deps.withLock(refreshWithRetry) : refreshWithRetry()).finally(() => {
-            refreshInFlight = null
-        })
+        if (!refreshInFlight) {
+            const startedIn = generation
+            const controller = new AbortController()
+            const work = () => refreshWithRetry(startedIn, controller.signal)
+            const running: Promise<AuthSession | null> = (deps.withLock ? deps.withLock(work) : work()).finally(() => {
+                if (refreshInFlight === running) {
+                    refreshInFlight = null
+                    refreshAbort = null
+                }
+            })
+
+            refreshAbort = controller
+            refreshInFlight = running
+        }
 
         return refreshInFlight
     }
 
     return {
         clear() {
+            startGeneration({ cancel: true })
             signOut(true)
         },
 
-        async ensureAccessToken(options: { forceRefresh?: boolean } = {}) {
+        // Con userId, el token solo se entrega si la sesión sigue siendo de esa cuenta: una
+        // operación iniciada por A nunca viaja con la identidad de B.
+        async ensureAccessToken(options: { forceRefresh?: boolean; userId?: string } = {}) {
+            let session: AuthSession | null
+
             if (!options.forceRefresh && isFresh(snapshot.session)) {
-                return snapshot.session.accessToken
+                session = snapshot.session
+            } else {
+                if (options.forceRefresh && snapshot.session) {
+                    publish({ session: { ...snapshot.session, accessTokenExpiresAt: new Date(0).toISOString() }, status: snapshot.status })
+                }
+
+                session = await refreshCoordinated()
             }
 
-            if (options.forceRefresh && snapshot.session) {
-                publish({ session: { ...snapshot.session, accessTokenExpiresAt: new Date(0).toISOString() }, status: snapshot.status })
+            if (options.userId !== undefined && session !== null && session.user.id !== options.userId) {
+                throw new SessionChangedError()
             }
 
-            return (await refreshCoordinated())?.accessToken ?? null
+            return session?.accessToken ?? null
         },
 
         getSnapshot() {
@@ -203,6 +286,7 @@ export function createSessionManager(deps: SessionManagerDeps) {
         },
 
         setSession(response: AuthenticatedResponse) {
+            startGeneration({ cancel: false })
             adopt(toSession(response), true)
         },
 

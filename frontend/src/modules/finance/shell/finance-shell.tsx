@@ -31,6 +31,9 @@ function toShellUser(user: { firstName: string; lastName: string | null }): Shel
     }
 }
 
+// Tope de espera para guardar cambios pendientes antes de cerrar sesión.
+const LOGOUT_SAVE_TIMEOUT_MS = 4_000
+
 function WorkbookGate({ children }: { children: ReactNode }) {
     const status = useWorkbookState((state) => state.status)
     const error = useWorkbookState((state) => state.error)
@@ -103,21 +106,30 @@ export function FinanceShell({ children }: { children: ReactNode }) {
         return <ShellSkeleton />
     }
 
-    const user = toShellUser(session.user)
-    const onLogout = () => void handleLogout()
+    return (
+        <WorkbookProvider key={session.user.id} userId={session.user.id}>
+            <ShellFrame user={toShellUser(session.user)} onLogout={handleLogout}>
+                {children}
+            </ShellFrame>
+        </WorkbookProvider>
+    )
+}
+
+function ShellFrame({ children, onLogout, user }: { children: ReactNode; onLogout: () => Promise<void>; user: ShellUser }) {
+    const actions = useWorkbookActions()
+    // Los cambios pendientes se guardan con la cuenta actual antes de cerrar la sesión.
+    const logout = () => void actions.settle(LOGOUT_SAVE_TIMEOUT_MS).finally(onLogout)
 
     return (
-        <WorkbookProvider>
-            <div className="finance-theme min-h-dvh lg:flex">
-                <Sidebar user={user} onLogout={onLogout} />
-                <div className="flex min-w-0 flex-1 flex-col">
-                    <MobileTopBar user={user} onLogout={onLogout} />
-                    <main className="mx-auto w-full max-w-[1400px] flex-1 px-4 pt-4 pb-28 sm:px-6 lg:px-8 lg:pt-6 lg:pb-14">
-                        <WorkbookGate>{children}</WorkbookGate>
-                    </main>
-                </div>
-                <MobileTabBar />
+        <div className="finance-theme min-h-dvh lg:flex">
+            <Sidebar user={user} onLogout={logout} />
+            <div className="flex min-w-0 flex-1 flex-col">
+                <MobileTopBar user={user} onLogout={logout} />
+                <main className="mx-auto w-full max-w-[1400px] flex-1 px-4 pt-4 pb-28 sm:px-6 lg:px-8 lg:pt-6 lg:pb-14">
+                    <WorkbookGate>{children}</WorkbookGate>
+                </main>
             </div>
-        </WorkbookProvider>
+            <MobileTabBar />
+        </div>
     )
 }

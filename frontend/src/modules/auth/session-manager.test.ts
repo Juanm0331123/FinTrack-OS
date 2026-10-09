@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { AuthApiError } from './auth.api'
 import type { AuthenticatedResponse } from './auth.types'
-import { createSessionManager, SessionUnavailableError, type SessionChannel } from './session-manager'
+import { createSessionManager, SessionChangedError, SessionUnavailableError, type SessionChannel } from './session-manager'
 
 const USER = {
     createdAt: '2026-10-01T00:00:00.000Z',
@@ -18,8 +18,31 @@ const USER = {
     updatedAt: '2026-10-01T00:00:00.000Z',
 }
 
-function response(token: string, expiresInSeconds = 900): AuthenticatedResponse {
-    return { accessToken: token, accessTokenExpiresInSeconds: expiresInSeconds, user: USER }
+function response(token: string, expiresInSeconds = 900, user = USER): AuthenticatedResponse {
+    return { accessToken: token, accessTokenExpiresInSeconds: expiresInSeconds, user }
+}
+
+function userB() {
+    return { ...USER, email: 'otra@fintrack.test', firstName: 'Otra', id: 'user-2' }
+}
+
+// Renovación controlada por la prueba: queda en vuelo hasta que se resuelve a mano.
+function deferredRefresh() {
+    const calls: Array<{ resolve: (value: AuthenticatedResponse) => void; signal?: AbortSignal }> = []
+    const refresh = vi.fn(
+        (signal?: AbortSignal) =>
+            new Promise<AuthenticatedResponse>((resolve) => {
+                calls.push({ resolve, signal })
+            }),
+    )
+
+    return { calls, refresh }
+}
+
+async function settle() {
+    for (let index = 0; index < 5; index += 1) {
+        await Promise.resolve()
+    }
 }
 
 function apiError(status: number, code?: string, details?: Record<string, unknown>) {
@@ -192,5 +215,122 @@ describe('createSessionManager', () => {
         session.setSession(response('secreto'))
 
         expect(JSON.stringify(writes)).not.toContain('secreto')
+    })
+
+    describe('late refreshes never resurrect or replace a session (RCLIENT-01)', () => {
+        it('does not restore a session that was closed while the refresh was in flight', async () => {
+            const hint = memoryHint(true)
+            const posted: unknown[] = []
+            const { calls, refresh } = deferredRefresh()
+            const session = manager({ channel: { post: (message) => posted.push(message), subscribe: () => undefined }, hint, refresh })
+            const pending = session.ensureAccessToken()
+
+            await settle()
+            session.clear()
+            calls[0].resolve(response('tardío'))
+
+            expect(await pending).toBeNull()
+            expect(session.getSnapshot()).toMatchObject({ session: null, status: 'unauthenticated' })
+            expect(hint.get()).toBe(false)
+            expect(posted).toEqual([{ type: 'signed-out' }])
+        })
+
+        it('cancels the in-flight refresh request when the session is closed', async () => {
+            const { calls, refresh } = deferredRefresh()
+            const session = manager({ refresh })
+
+            void session.ensureAccessToken()
+            await settle()
+            session.clear()
+
+            expect(calls[0].signal?.aborted).toBe(true)
+        })
+
+        it('keeps account B when a refresh started for account A finishes after B signed in', async () => {
+            const { calls, refresh } = deferredRefresh()
+            const session = manager({ refresh })
+            const pending = session.ensureAccessToken()
+
+            await settle()
+            session.setSession(response('token-b', 900, userB()))
+            calls[0].resolve(response('token-a-tardío'))
+            await pending
+
+            expect(session.getSnapshot().session?.user.id).toBe('user-2')
+            expect(session.getSnapshot().session?.accessToken).toBe('token-b')
+        })
+
+        it('ignores a late refresh after another tab signed out', async () => {
+            const channel = sharedChannel()
+            const { calls, refresh } = deferredRefresh()
+            const tabA = manager({ channel: channel() })
+            const tabB = manager({ channel: channel(), refresh })
+            const pending = tabB.ensureAccessToken()
+
+            await settle()
+            tabA.clear()
+            calls[0].resolve(response('tardío'))
+
+            expect(await pending).toBeNull()
+            expect(tabB.getSnapshot().status).toBe('unauthenticated')
+        })
+
+        it('does not sign out account B because a stale refresh for account A was rejected', async () => {
+            let rejectStale: (error: unknown) => void = () => undefined
+            const refresh = vi.fn(
+                () =>
+                    new Promise<AuthenticatedResponse>((_resolve, reject) => {
+                        rejectStale = reject
+                    }),
+            )
+            const session = manager({ refresh })
+            const pending = session.ensureAccessToken()
+
+            await settle()
+            session.setSession(response('token-b', 900, userB()))
+            rejectStale(apiError(401, 'SESSION_EXPIRED'))
+            await pending
+
+            expect(session.getSnapshot()).toMatchObject({ status: 'authenticated' })
+            expect(session.getSnapshot().session?.user.id).toBe('user-2')
+        })
+
+        it('starts a new refresh after a sign-out instead of joining the stale one', async () => {
+            const { calls, refresh } = deferredRefresh()
+            const session = manager({ refresh })
+
+            void session.ensureAccessToken()
+            await settle()
+            session.clear()
+            session.setSession(response('expirado', 0, userB()))
+
+            const next = session.ensureAccessToken()
+
+            await settle()
+            expect(refresh).toHaveBeenCalledTimes(2)
+            calls[1].resolve(response('nuevo-b', 900, userB()))
+            expect(await next).toBe('nuevo-b')
+        })
+
+        it('refuses a token that belongs to a different user than the caller expects', async () => {
+            const session = manager()
+
+            session.setSession(response('token-b', 900, userB()))
+
+            await expect(session.ensureAccessToken({ userId: 'user-1' })).rejects.toBeInstanceOf(SessionChangedError)
+            expect(await session.ensureAccessToken({ userId: 'user-2' })).toBe('token-b')
+        })
+
+        it('signs out instead of silently switching accounts when the refresh cookie belongs to someone else', async () => {
+            let now = 0
+            const refresh = vi.fn(async () => response('de-otra-cuenta', 900, userB()))
+            const session = manager({ now: () => now, refresh })
+
+            session.setSession(response('token-a', 60))
+            now = 59_000
+
+            expect(await session.ensureAccessToken()).toBeNull()
+            expect(session.getSnapshot().status).toBe('unauthenticated')
+        })
     })
 })

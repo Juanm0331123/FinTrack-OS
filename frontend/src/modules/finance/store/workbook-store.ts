@@ -1,5 +1,4 @@
 import {
-    financeApi,
     FinanceApiError,
     type AccountInput,
     type DebtInput,
@@ -88,7 +87,7 @@ function entryPayload(entry: MonthEntry) {
     }
 }
 
-export function createWorkbookStore(api: FinanceApi = financeApi) {
+export function createWorkbookStore(api: FinanceApi) {
     let state: WorkbookState = {
         error: null,
         save: { error: null, pending: 0 },
@@ -96,6 +95,8 @@ export function createWorkbookStore(api: FinanceApi = financeApi) {
         workbook: null,
     }
     let loadPromise: Promise<void> | null = null
+    // Cambia en cada stop: una carga iniciada antes no se aplica al terminar.
+    let lifecycle = 0
     const listeners = new Set<() => void>()
     const pendingOperations = new Map<string, string>()
 
@@ -173,12 +174,20 @@ export function createWorkbookStore(api: FinanceApi = financeApi) {
 
     const actions = {
         load() {
+            const startedIn = lifecycle
+
             loadPromise ??= api
                 .getWorkbook()
                 .then((workbook) => {
-                    setState({ ...state, error: null, status: 'ready', workbook })
+                    if (startedIn === lifecycle) {
+                        setState({ ...state, error: null, status: 'ready', workbook })
+                    }
                 })
                 .catch((error: unknown) => {
+                    if (startedIn !== lifecycle) {
+                        return
+                    }
+
                     loadPromise = null
                     setState({
                         ...state,
@@ -199,6 +208,22 @@ export function createWorkbookStore(api: FinanceApi = financeApi) {
 
         flush() {
             queue.flushAll()
+        },
+
+        // Envía ya los cambios pendientes y espera a que terminen (con tope), p. ej. antes de
+        // cerrar sesión, para que se guarden con la identidad de su dueño.
+        async settle(timeoutMs: number) {
+            queue.flushAll()
+
+            let timer: ReturnType<typeof setTimeout> | undefined
+
+            await Promise.race([
+                queue.idle(),
+                new Promise<void>((resolve) => {
+                    timer = setTimeout(resolve, timeoutMs)
+                }),
+            ])
+            clearTimeout(timer)
         },
 
         hasUnsavedChanges() {
@@ -460,6 +485,18 @@ export function createWorkbookStore(api: FinanceApi = financeApi) {
     return {
         actions,
         getState: () => state,
+        // Ciclo de vida ligado al montaje del proveedor. stop descarta temporizadores, cambios sin
+        // enviar y fallos pendientes, cancela las peticiones en vuelo e ignora cargas tardías: nada
+        // de este libro se envía después ni con otra identidad.
+        start() {
+            void actions.load()
+        },
+        stop() {
+            lifecycle += 1
+            loadPromise = null
+            queue.dispose()
+            api.abortPending()
+        },
         subscribe(listener: () => void) {
             listeners.add(listener)
 

@@ -17,6 +17,7 @@ type RequestOptions = {
     accessToken?: string
     body?: Record<string, unknown>
     method?: 'GET' | 'POST'
+    signal?: AbortSignal
 }
 
 export class AuthApiError extends Error {
@@ -59,7 +60,9 @@ async function request<T>(path: string, options: RequestOptions = {}) {
                 ...(options.accessToken ? { Authorization: `Bearer ${options.accessToken}` } : {}),
             },
             method: options.method ?? 'POST',
-            signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+            signal: options.signal
+                ? AbortSignal.any([options.signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)])
+                : AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         })
     } catch {
         throw new AuthApiError(0, {
@@ -91,8 +94,8 @@ export function loginWithEmail(input: { email: string; password: string }) {
 }
 
 // El refresh token viaja solo en la cookie HttpOnly; el cuerpo no lo lleva.
-export function refreshSession() {
-    return request<AuthenticatedResponse>('/api/auth/refresh', { body: {} })
+export function refreshSession(signal?: AbortSignal) {
+    return request<AuthenticatedResponse>('/api/auth/refresh', { body: {}, signal })
 }
 
 export function verifyEmailCode(input: { code: string; email: string; password?: string }) {

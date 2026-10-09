@@ -30,6 +30,9 @@ export function createSaveQueue(options: {
     let running = 0
     let waiting = 0
     let lastError: string | null = null
+    // Cada dispose abre una época nueva: los trabajos encolados en una época anterior no se
+    // ejecutan y sus fallos no se registran.
+    let epoch = 0
 
     function emit() {
         options.onStatus({ error: lastError, pending: running + waiting })
@@ -48,16 +51,21 @@ export function createSaveQueue(options: {
 
     function enqueue(key: string, job: Job) {
         const state = stateFor(key)
+        const queuedIn = epoch
 
         running += 1
         emit()
 
         state.chain = state.chain.then(async () => {
             try {
-                await job()
+                if (queuedIn === epoch) {
+                    await job()
+                }
             } catch (error) {
-                lastError = errorMessage(error)
-                failed.push({ job, key })
+                if (queuedIn === epoch) {
+                    lastError = errorMessage(error)
+                    failed.push({ job, key })
+                }
             } finally {
                 running -= 1
                 emit()
@@ -102,10 +110,31 @@ export function createSaveQueue(options: {
                 emit()
             }
         },
+        // Descarta todo lo pendiente sin enviarlo: temporizadores, parches acumulados, trabajos aún
+        // no iniciados y fallos por reintentar. Se usa al cerrar el libro o cambiar de cuenta.
+        dispose() {
+            epoch += 1
+
+            for (const state of keys.values()) {
+                if (state.timer) {
+                    clearTimeout(state.timer)
+                }
+            }
+
+            keys.clear()
+            failed.length = 0
+            waiting = 0
+            lastError = null
+            emit()
+        },
         flushAll() {
             for (const key of keys.keys()) {
                 flush(key)
             }
+        },
+        // Resuelve cuando terminan los trabajos ya encolados (no espera parches con temporizador).
+        async idle() {
+            await Promise.all([...keys.values()].map((state) => state.chain))
         },
         hasUnsaved() {
             return running + waiting > 0

@@ -2,15 +2,23 @@
 
 import { createContext, useContext, useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
 
+import { createFinanceApi } from '../api/finance-api'
 import { createWorkbookStore, type WorkbookState, type WorkbookStore } from './workbook-store'
 
 const WorkbookStoreContext = createContext<WorkbookStore | null>(null)
 
-export function WorkbookProvider({ children }: { children: ReactNode }) {
-    const [store] = useState(() => createWorkbookStore())
+// El libro pertenece a una sola cuenta: quien lo monta debe usar key={userId} para que un cambio de
+// cuenta cree un libro nuevo. Al desmontarse, stop descarta lo pendiente y cancela las peticiones;
+// además cada petición comprueba que la sesión siga siendo de userId.
+export function WorkbookProvider({ children, userId }: { children: ReactNode; userId: string }) {
+    const [store] = useState(() => createWorkbookStore(createFinanceApi({ userId })))
 
     useEffect(() => {
-        void store.actions.load()
+        store.start()
+
+        return () => {
+            store.stop()
+        }
     }, [store])
 
     useEffect(() => {
