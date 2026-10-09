@@ -169,6 +169,8 @@ export async function createUser(
             firstName: 'Persona',
             lastName: 'Prueba',
             passwordHash: await bcrypt.hash(password, 4),
+            // Hash creado con la regla vigente de 72 bytes (las pruebas de hashes heredados usan 1).
+            passwordHashVersion: 2,
             role: options.role ?? 'USER',
             status: options.status ?? 'ACTIVE',
         },

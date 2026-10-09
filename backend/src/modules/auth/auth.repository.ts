@@ -1,8 +1,10 @@
+import { randomUUID } from 'node:crypto'
 import { AuthTokenType, Prisma, SessionRevokeReason, UserStatus } from '@prisma/client'
 import { prisma, withTransaction, type TransactionClient } from '../../config/prisma.ts'
-import { publicUserSelect } from '../users/users.types.ts'
+import { CURRENT_PASSWORD_HASH_VERSION, publicUserSelect } from '../users/users.types.ts'
 import {
     authCredentialsUserSelect,
+    stampedUserSelect,
     type AuthCredentialsUser,
     type NormalizedOAuthProfile,
     type SessionContext,
@@ -16,6 +18,8 @@ type NewRefreshToken = {
 
 type NewCodeToken = {
     expiresAt: Date
+    requiresPassword?: boolean
+    securityStamp: string
     tokenHash: string
     tokenSalt: string
     userId: string
@@ -30,6 +34,8 @@ const activeCodeTokenSelect = {
     attempts: true,
     expiresAt: true,
     id: true,
+    requiresPassword: true,
+    securityStamp: true,
     targetEmail: true,
     tokenHash: true,
     tokenSalt: true,
@@ -64,14 +70,31 @@ async function revokeSessions(
 }
 
 // Consume un token de un solo uso dentro de la transacción. La condición `usedAt/revokedAt
-// null` en el UPDATE garantiza que, ante peticiones concurrentes, solo una obtiene count = 1.
-async function consumeCodeToken(transaction: TransactionClient, tokenId: string, now: Date) {
+// null` garantiza que, ante peticiones concurrentes, solo una obtiene count = 1; el sello exige
+// que el token se haya emitido para las credenciales vigentes.
+async function consumeCodeToken(transaction: TransactionClient, tokenId: string, now: Date, securityStamp: string) {
     const result = await transaction.authToken.updateMany({
         data: { usedAt: now },
-        where: { expiresAt: { gt: now }, id: tokenId, revokedAt: null, usedAt: null },
+        where: { expiresAt: { gt: now }, id: tokenId, revokedAt: null, securityStamp, usedAt: null },
     })
 
     return result.count === 1
+}
+
+type LockedUser = { deletedAt: Date | null; securityStamp: string; status: UserStatus }
+
+// Bloquea la fila del usuario hasta el fin de la transacción: cualquier cambio de credenciales,
+// estado o sello (que también actualiza esa fila) queda serializado con la operación en curso.
+async function lockUser(transaction: TransactionClient, userId: string): Promise<LockedUser | null> {
+    const rows = await transaction.$queryRaw<Array<{ deleted_at: Date | null; security_stamp: string; status: UserStatus }>>`
+        SELECT "security_stamp"::text AS "security_stamp", "status"::text AS "status", "deleted_at"
+        FROM "users" WHERE "id" = ${userId}::uuid FOR UPDATE`
+
+    return rows[0] ? { deletedAt: rows[0].deleted_at, securityStamp: rows[0].security_stamp, status: rows[0].status } : null
+}
+
+function stampMatches(user: LockedUser | null, securityStamp: string): user is LockedUser {
+    return user !== null && user.securityStamp === securityStamp && !user.deletedAt
 }
 
 export class AuthRepository {
@@ -118,14 +141,19 @@ export class AuthRepository {
 
     // Crea la cuenta pendiente y su primer código en una transacción. Devuelve null si otra
     // petición creó el mismo correo en paralelo (violación única), para que el servicio decida.
-    async createPendingUser(userData: Prisma.UserCreateInput, code: Omit<NewCodeToken, 'userId'>) {
+    async createPendingUser(
+        userData: Prisma.UserCreateInput & { securityStamp: string },
+        code: Omit<NewCodeToken, 'securityStamp' | 'userId'>,
+    ) {
         try {
             return await withTransaction(async (transaction) => {
-                const user = await transaction.user.create({ data: userData, select: publicUserSelect })
+                const user = await transaction.user.create({ data: userData, select: stampedUserSelect })
 
                 await transaction.authToken.create({
                     data: {
                         expiresAt: code.expiresAt,
+                        requiresPassword: code.requiresPassword ?? true,
+                        securityStamp: userData.securityStamp,
                         tokenHash: code.tokenHash,
                         tokenSalt: code.tokenSalt,
                         type: AuthTokenType.EMAIL_VERIFICATION,
@@ -145,10 +173,10 @@ export class AuthRepository {
     }
 
     // Reemplaza credenciales y perfil de una cuenta que nunca se verificó. Solo actúa si sigue
-    // pendiente, para no tocar una cuenta activada en paralelo.
-    async updatePendingUser(userId: string, userData: Prisma.UserUpdateInput) {
+    // pendiente. El sello nuevo invalida todo código emitido para las credenciales anteriores.
+    async updatePendingUser(userId: string, userData: Prisma.UserUpdateManyMutationInput) {
         const result = await prisma.user.updateMany({
-            data: userData as Prisma.UserUpdateManyMutationInput,
+            data: { ...userData, securityStamp: randomUUID() },
             where: { id: userId, status: UserStatus.PENDING_VERIFICATION },
         })
 
@@ -156,7 +184,7 @@ export class AuthRepository {
             return null
         }
 
-        return prisma.user.findUnique({ select: publicUserSelect, where: { id: userId } })
+        return prisma.user.findUnique({ select: stampedUserSelect, where: { id: userId } })
     }
 
     issueCodeToken(type: AuthTokenType, token: NewCodeToken & { targetEmail?: string }) {
@@ -168,6 +196,8 @@ export class AuthRepository {
             return transaction.authToken.create({
                 data: {
                     expiresAt: token.expiresAt,
+                    requiresPassword: token.requiresPassword ?? false,
+                    securityStamp: token.securityStamp,
                     targetEmail: token.targetEmail ?? null,
                     tokenHash: token.tokenHash,
                     tokenSalt: token.tokenSalt,
@@ -203,24 +233,31 @@ export class AuthRepository {
             WHERE "id" = ${tokenId}::uuid AND "used_at" IS NULL AND "revoked_at" IS NULL`
     }
 
-    activateWithVerificationCode(tokenId: string, userId: string) {
+    // Activa solo si las credenciales siguen siendo las del código (mismo sello) bajo bloqueo:
+    // un re-registro concurrente o posterior invalida el código anterior.
+    activateWithVerificationCode(tokenId: string, userId: string, securityStamp: string) {
         return withTransaction(async (transaction) => {
             const now = new Date()
+            const user = await lockUser(transaction, userId)
 
-            if (!(await consumeCodeToken(transaction, tokenId, now))) {
+            if (!stampMatches(user, securityStamp) || user.status !== UserStatus.PENDING_VERIFICATION) {
+                return null
+            }
+
+            if (!(await consumeCodeToken(transaction, tokenId, now, securityStamp))) {
                 return null
             }
 
             const activated = await transaction.user.updateMany({
                 data: { status: UserStatus.ACTIVE },
-                where: { deletedAt: null, id: userId, status: UserStatus.PENDING_VERIFICATION },
+                where: { deletedAt: null, id: userId, securityStamp, status: UserStatus.PENDING_VERIFICATION },
             })
 
             if (activated.count !== 1) {
                 throw new TransactionAborted()
             }
 
-            return transaction.user.findUniqueOrThrow({ select: publicUserSelect, where: { id: userId } })
+            return transaction.user.findUniqueOrThrow({ select: stampedUserSelect, where: { id: userId } })
         }).catch((error: unknown) => {
             if (error instanceof TransactionAborted) {
                 return null
@@ -233,8 +270,13 @@ export class AuthRepository {
     exchangeResetCodeForSession(input: { codeTokenId: string; resetToken: Omit<NewCodeToken, 'tokenSalt'> }) {
         return withTransaction(async (transaction) => {
             const now = new Date()
+            const user = await lockUser(transaction, input.resetToken.userId)
 
-            if (!(await consumeCodeToken(transaction, input.codeTokenId, now))) {
+            if (!stampMatches(user, input.resetToken.securityStamp) || user.status === UserStatus.INACTIVE) {
+                return false
+            }
+
+            if (!(await consumeCodeToken(transaction, input.codeTokenId, now, input.resetToken.securityStamp))) {
                 return false
             }
 
@@ -242,6 +284,7 @@ export class AuthRepository {
             await transaction.authToken.create({
                 data: {
                     expiresAt: input.resetToken.expiresAt,
+                    securityStamp: input.resetToken.securityStamp,
                     tokenHash: input.resetToken.tokenHash,
                     type: AuthTokenType.PASSWORD_RESET,
                     userId: input.resetToken.userId,
@@ -252,17 +295,29 @@ export class AuthRepository {
         })
     }
 
-    resetPasswordWithSession(input: { passwordHash: string; resetTokenId: string; userId: string }) {
+    resetPasswordWithSession(input: { passwordHash: string; resetTokenId: string; securityStamp: string; userId: string }) {
         return withTransaction(async (transaction) => {
             const now = new Date()
+            const user = await lockUser(transaction, input.userId)
 
-            if (!(await consumeCodeToken(transaction, input.resetTokenId, now))) {
+            if (!stampMatches(user, input.securityStamp) || user.status === UserStatus.INACTIVE) {
+                return false
+            }
+
+            if (!(await consumeCodeToken(transaction, input.resetTokenId, now, input.securityStamp))) {
                 return false
             }
 
             await revokeOpenTokens(transaction, input.userId, AuthTokenType.PASSWORD_RESET, now)
             await revokeSessions(transaction, { userId: input.userId }, SessionRevokeReason.PASSWORD_RESET, now)
-            await transaction.user.update({ data: { passwordHash: input.passwordHash }, where: { id: input.userId } })
+            await transaction.user.update({
+                data: {
+                    passwordHash: input.passwordHash,
+                    passwordHashVersion: CURRENT_PASSWORD_HASH_VERSION,
+                    securityStamp: randomUUID(),
+                },
+                where: { id: input.userId },
+            })
 
             return true
         })
@@ -272,7 +327,14 @@ export class AuthRepository {
         return withTransaction(async (transaction) => {
             const now = new Date()
 
-            await transaction.user.update({ data: { passwordHash: input.passwordHash }, where: { id: input.userId } })
+            await transaction.user.update({
+                data: {
+                    passwordHash: input.passwordHash,
+                    passwordHashVersion: CURRENT_PASSWORD_HASH_VERSION,
+                    securityStamp: randomUUID(),
+                },
+                where: { id: input.userId },
+            })
             await revokeOpenTokens(transaction, input.userId, AuthTokenType.PASSWORD_RESET, now)
             await revokeSessions(
                 transaction,
@@ -283,16 +345,27 @@ export class AuthRepository {
         })
     }
 
-    confirmEmailChange(input: { currentSessionId: string; targetEmail: string; tokenId: string; userId: string }) {
+    confirmEmailChange(input: {
+        currentSessionId: string
+        securityStamp: string
+        targetEmail: string
+        tokenId: string
+        userId: string
+    }) {
         return withTransaction(async (transaction) => {
             const now = new Date()
+            const locked = await lockUser(transaction, input.userId)
 
-            if (!(await consumeCodeToken(transaction, input.tokenId, now))) {
+            if (!stampMatches(locked, input.securityStamp) || locked.status !== UserStatus.ACTIVE) {
+                return null
+            }
+
+            if (!(await consumeCodeToken(transaction, input.tokenId, now, input.securityStamp))) {
                 return null
             }
 
             const user = await transaction.user.update({
-                data: { email: input.targetEmail },
+                data: { email: input.targetEmail, securityStamp: randomUUID() },
                 select: publicUserSelect,
                 where: { id: input.userId },
             })
@@ -308,16 +381,26 @@ export class AuthRepository {
         })
     }
 
+    // Abre la sesión solo si nada cambió desde que se comprobaron las credenciales: mismo sello,
+    // cuenta activa y no borrada, bajo bloqueo de la fila. Un cambio de contraseña, recuperación,
+    // desactivación o logout-all que terminó antes hace que devuelva false sin crear nada.
     createSession(input: {
         absoluteExpiresAt: Date
         context: SessionContext
         idleExpiresAt: Date
         refreshToken: NewRefreshToken
         retentionCutoff: Date
+        securityStamp: string
         sessionId: string
         userId: string
     }) {
         return withTransaction(async (transaction) => {
+            const user = await lockUser(transaction, input.userId)
+
+            if (!stampMatches(user, input.securityStamp) || user.status !== UserStatus.ACTIVE) {
+                return false
+            }
+
             await transaction.authSession.create({
                 data: {
                     ...contextFields(input.context),
@@ -348,6 +431,8 @@ export class AuthRepository {
                     userId: input.userId,
                 },
             })
+
+            return true
         })
     }
 
@@ -460,10 +545,12 @@ export class AuthRepository {
         })
     }
 
-    revokeAllSessions(userId: string, reason: SessionRevokeReason) {
-        return prisma.authSession.updateMany({
-            data: { revokedAt: new Date(), revokeReason: reason },
-            where: { revokedAt: null, userId },
+    // Cierra todas las sesiones y cambia el sello en la misma transacción: un login que comprobó
+    // la contraseña antes no puede abrir una sesión después.
+    closeAllSessions(userId: string, reason: SessionRevokeReason) {
+        return withTransaction(async (transaction) => {
+            await transaction.user.update({ data: { securityStamp: randomUUID() }, where: { id: userId } })
+            await revokeSessions(transaction, { userId }, reason, new Date())
         })
     }
 
@@ -515,6 +602,8 @@ export class AuthRepository {
                         firstName: input.profile.firstName,
                         lastName: input.profile.lastName,
                         passwordHash: input.unusablePasswordHash,
+                        passwordHashVersion: CURRENT_PASSWORD_HASH_VERSION,
+                        securityStamp: randomUUID(),
                     },
                     where: { id: input.userId, status: UserStatus.PENDING_VERIFICATION },
                 })
@@ -526,7 +615,7 @@ export class AuthRepository {
                 }
             }
 
-            return transaction.user.findUniqueOrThrow({ select: publicUserSelect, where: { id: input.userId } })
+            return transaction.user.findUniqueOrThrow({ select: stampedUserSelect, where: { id: input.userId } })
         })
     }
 
@@ -538,10 +627,11 @@ export class AuthRepository {
                     firstName: profile.firstName,
                     lastName: profile.lastName,
                     passwordHash: unusablePasswordHash,
+                    passwordHashVersion: CURRENT_PASSWORD_HASH_VERSION,
                     status: UserStatus.PENDING_VERIFICATION,
                     timezone: 'UTC',
                 },
-                select: publicUserSelect,
+                select: stampedUserSelect,
             })
 
             await transaction.oAuthAccount.create({

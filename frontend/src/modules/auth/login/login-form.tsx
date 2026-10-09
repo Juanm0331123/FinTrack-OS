@@ -34,6 +34,8 @@ export function LoginForm() {
     const [pendingVerification, setPendingVerification] =
         useState<PendingVerificationState | null>(() => loadPendingVerification())
     const [serverErrorMessage, setServerErrorMessage] = useState<string | null>(null)
+    // Solo en memoria: el backend exige la contraseña junto al código para activar la cuenta.
+    const [verificationPassword, setVerificationPassword] = useState<string | null>(null)
     const [showPassword, setShowPassword] = useState(false)
     const [submission] = useState(createSingleFlight)
     const {
@@ -58,10 +60,12 @@ export function LoginForm() {
     function handlePendingVerificationClear() {
         clearPendingVerification()
         setPendingVerification(null)
+        setVerificationPassword(null)
     }
 
     function handleAuthenticated(session: AuthenticatedResponse) {
         clearPendingVerification()
+        setVerificationPassword(null)
         getBrowserSession().setSession(session)
         router.replace(APP_ROUTES.dashboard)
     }
@@ -96,6 +100,7 @@ export function LoginForm() {
                         : {}),
                 }
 
+                setVerificationPassword(values.password)
                 handlePendingVerificationChange(nextPendingVerification)
                 return
             }
@@ -128,6 +133,7 @@ export function LoginForm() {
                 onPendingVerificationChange={handlePendingVerificationChange}
                 onCancelPendingVerification={handlePendingVerificationClear}
                 onVerified={handleAuthenticated}
+                password={verificationPassword}
             />
         )
     }

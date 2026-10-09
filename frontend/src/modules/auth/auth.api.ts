@@ -95,7 +95,7 @@ export function refreshSession() {
     return request<AuthenticatedResponse>('/api/auth/refresh', { body: {} })
 }
 
-export function verifyEmailCode(input: { code: string; email: string }) {
+export function verifyEmailCode(input: { code: string; email: string; password?: string }) {
     return request<AuthenticatedResponse>('/api/auth/verify-email-code', { body: input })
 }
 

@@ -122,7 +122,7 @@ describe('one-time codes (AUTH-03, AUTH-08)', () => {
 
         const code = lastCodeSentTo(email)
         const results = await Promise.all(
-            [1, 2, 3].map(() => api.client().post('/api/auth/verify-email-code', { code, email })),
+            [1, 2, 3].map(() => api.client().post('/api/auth/verify-email-code', { code, email, password: TEST_PASSWORD })),
         )
 
         assert.deepEqual(
@@ -141,10 +141,10 @@ describe('one-time codes (AUTH-03, AUTH-08)', () => {
         const wrong = code === '000000' ? '111111' : '000000'
 
         for (let attempt = 0; attempt < 5; attempt += 1) {
-            assert.equal((await api.client().post('/api/auth/verify-email-code', { code: wrong, email })).status, 401)
+            assert.equal((await api.client().post('/api/auth/verify-email-code', { code: wrong, email, password: TEST_PASSWORD })).status, 401)
         }
 
-        assert.equal((await api.client().post('/api/auth/verify-email-code', { code, email })).status, 401)
+        assert.equal((await api.client().post('/api/auth/verify-email-code', { code, email, password: TEST_PASSWORD })).status, 401)
     })
 
     it('consumes a password-reset code and the reset authorization once', async () => {

@@ -31,6 +31,8 @@ export function RegisterForm() {
     const [pendingVerification, setPendingVerification] =
         useState<PendingVerificationState | null>(() => loadPendingVerification())
     const [serverErrorMessage, setServerErrorMessage] = useState<string | null>(null)
+    // Solo en memoria: el backend exige la contraseña junto al código para activar la cuenta.
+    const [verificationPassword, setVerificationPassword] = useState<string | null>(null)
     const [showConfirmPassword, setShowConfirmPassword] = useState(false)
     const [showPassword, setShowPassword] = useState(false)
     const [submission] = useState(createSingleFlight)
@@ -59,10 +61,12 @@ export function RegisterForm() {
     function handlePendingVerificationClear() {
         clearPendingVerification()
         setPendingVerification(null)
+        setVerificationPassword(null)
     }
 
     function handleAuthenticated(session: AuthenticatedResponse) {
         clearPendingVerification()
+        setVerificationPassword(null)
         getBrowserSession().setSession(session)
         router.replace(APP_ROUTES.dashboard)
     }
@@ -82,6 +86,7 @@ export function RegisterForm() {
                 password: values.password,
             })
 
+            setVerificationPassword(values.password)
             handlePendingVerificationChange({
                 email: response.email,
                 expiresAt: response.expiresAt,
@@ -105,6 +110,7 @@ export function RegisterForm() {
                 onPendingVerificationChange={handlePendingVerificationChange}
                 onCancelPendingVerification={handlePendingVerificationClear}
                 onVerified={handleAuthenticated}
+                password={verificationPassword}
             />
         )
     }

@@ -177,9 +177,9 @@ describe('migrations', () => {
         assert.ok(accountNames.some((row) => row.name === 'banco'), 'no data was rewritten')
     })
 
-    it('ship every migration folder in this suite’s baseline plus the remediation', () => {
+    it('ship every migration folder in this suite’s baseline plus the remediations', () => {
         const folders = readdirSync(join(backendRoot, 'prisma/migrations')).filter((name) => !name.endsWith('.toml'))
 
-        assert.deepEqual(folders, [...BASELINE_MIGRATIONS, '20261009000000_qa_remediation'])
+        assert.deepEqual(folders, [...BASELINE_MIGRATIONS, '20261009000000_qa_remediation', '20261010000000_credential_binding'])
     })
 })

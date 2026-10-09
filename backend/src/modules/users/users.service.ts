@@ -4,7 +4,7 @@ import { isUniqueViolation } from '../../config/database-errors.ts'
 import { ConflictError, ForbiddenError, NotFoundError } from '../../utils/app-error.ts'
 import { UsersRepository } from './users.repository.ts'
 import type { CreateUserInput, ListUsersQueryInput, UpdateUserInput } from './users.schemas.ts'
-import type { ListUsersResult, PublicUser } from './users.types.ts'
+import { CURRENT_PASSWORD_HASH_VERSION, type ListUsersResult, type PublicUser } from './users.types.ts'
 
 const PASSWORD_HASH_ROUNDS = 12
 
@@ -59,6 +59,7 @@ export class UsersService {
                 firstName: input.firstName,
                 lastName: input.lastName,
                 passwordHash,
+                passwordHashVersion: CURRENT_PASSWORD_HASH_VERSION,
                 ...(input.preferredCurrencyCode ? { preferredCurrencyCode: input.preferredCurrencyCode } : {}),
                 ...(input.role ? { role: input.role } : {}),
                 ...(input.status ? { status: input.status } : {}),

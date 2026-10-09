@@ -13,7 +13,7 @@ import {
     RequestValidationError,
     UnauthorizedError,
 } from '../../utils/app-error.ts'
-import type { PublicUser } from '../users/users.types.ts'
+import { CURRENT_PASSWORD_HASH_VERSION, type PublicUser } from '../users/users.types.ts'
 import { AuthRepository } from './auth.repository.ts'
 import {
     BCRYPT_MAX_PASSWORD_BYTES,
@@ -42,6 +42,7 @@ import {
 import type {
     AuthCredentialsUser,
     AuthenticatedSessionResult,
+    StampedUser,
     EmailChangeRequestedResult,
     IssuedSession,
     OAuthIntent,
@@ -111,6 +112,11 @@ const invalidResetToken = () =>
     )
 const sessionInvalid = () => new UnauthorizedError('Tu sesión no es válida. Vuelve a iniciar sesión.', 'SESSION_INVALID')
 const sessionExpired = () => new UnauthorizedError('Tu sesión expiró. Vuelve a iniciar sesión.', 'SESSION_EXPIRED')
+const credentialsChanged = () =>
+    new UnauthorizedError(
+        'Tus credenciales o el estado de tu cuenta cambiaron mientras iniciabas sesión. Vuelve a intentarlo.',
+        'CREDENTIALS_CHANGED',
+    )
 const currentPasswordInvalid = () =>
     new ForbiddenError('La contraseña actual no es correcta.', 'CURRENT_PASSWORD_INVALID')
 
@@ -142,6 +148,7 @@ export class AuthService {
             firstName: input.firstName,
             lastName: input.lastName ?? null,
             passwordHash,
+            passwordHashVersion: CURRENT_PASSWORD_HASH_VERSION,
             preferredCurrencyCode: input.preferredCurrencyCode ?? 'COP',
             role: UserRole.USER,
             timezone: input.timezone ?? 'UTC',
@@ -161,8 +168,8 @@ export class AuthService {
         const tokenSalt = createTokenSalt()
         const expiresAt = this.futureDate(env.EMAIL_VERIFICATION_TTL)
         const created = await this.authRepository.createPendingUser(
-            { ...profile, email, status: UserStatus.PENDING_VERIFICATION },
-            { expiresAt, tokenHash: hashToken(code, tokenSalt), tokenSalt },
+            { ...profile, email, securityStamp: randomUUID(), status: UserStatus.PENDING_VERIFICATION },
+            { expiresAt, requiresPassword: true, tokenHash: hashToken(code, tokenSalt), tokenSalt },
         )
 
         if (created) {
@@ -199,6 +206,19 @@ export class AuthService {
             throw invalidVerificationCode()
         }
 
+        // El código solo activa las credenciales para las que se emitió (mismo sello). Si lo emitió
+        // un registro con contraseña, además hay que demostrar esa contraseña: quien recibe el
+        // correo no puede activar una contraseña que eligió otra persona.
+        const credentialsMatch =
+            token.securityStamp === user.securityStamp &&
+            (!token.requiresPassword ||
+                (input.password !== undefined && (await bcrypt.compare(input.password, user.passwordHash))))
+
+        if (!credentialsMatch || !token.securityStamp) {
+            await this.authRepository.registerFailedCodeAttempt(token.id, env.AUTH_CODE_MAX_ATTEMPTS)
+            throw invalidVerificationCode()
+        }
+
         if (token.expiresAt <= this.clock()) {
             throw new UnauthorizedError('El código ya venció. Solicita uno nuevo.', 'EMAIL_VERIFICATION_EXPIRED', {
                 email: input.email,
@@ -206,7 +226,7 @@ export class AuthService {
             })
         }
 
-        const activated = await this.authRepository.activateWithVerificationCode(token.id, user.id)
+        const activated = await this.authRepository.activateWithVerificationCode(token.id, user.id, token.securityStamp)
 
         if (!activated) {
             throw invalidVerificationCode()
@@ -223,7 +243,7 @@ export class AuthService {
         const user = await this.authRepository.findUserByEmailForAuth(input.email)
         const result =
             user?.status === UserStatus.PENDING_VERIFICATION
-                ? await this.issueVerificationCode(user)
+                ? await this.issueVerificationCode(user, { requiresPassword: await this.resendRequiresPassword(user) })
                 : this.pendingResult(input.email, this.futureDate(env.EMAIL_VERIFICATION_TTL))
 
         await this.padNeutralResponse(startedAt)
@@ -262,6 +282,10 @@ export class AuthService {
             throw invalidResetCode()
         }
 
+        if (!token.securityStamp || token.securityStamp !== user.securityStamp) {
+            throw invalidResetCode()
+        }
+
         if (token.expiresAt <= this.clock()) {
             throw new UnauthorizedError('El código ya venció. Solicita uno nuevo.', 'PASSWORD_RESET_CODE_EXPIRED', {
                 email: input.email,
@@ -273,7 +297,12 @@ export class AuthService {
         const resetTokenExpiresAt = this.futureDate(env.PASSWORD_RESET_SESSION_TTL)
         const exchanged = await this.authRepository.exchangeResetCodeForSession({
             codeTokenId: token.id,
-            resetToken: { expiresAt: resetTokenExpiresAt, tokenHash: hashToken(resetToken), userId: user.id },
+            resetToken: {
+                expiresAt: resetTokenExpiresAt,
+                securityStamp: token.securityStamp,
+                tokenHash: hashToken(resetToken),
+                userId: user.id,
+            },
         })
 
         if (!exchanged) {
@@ -294,7 +323,7 @@ export class AuthService {
 
         const token = await this.authRepository.findLatestOpenResetSession(user.id)
 
-        if (!token || !tokenHashMatches(input.resetToken, token.tokenHash)) {
+        if (!token || !tokenHashMatches(input.resetToken, token.tokenHash) || !token.securityStamp) {
             throw invalidResetToken()
         }
 
@@ -310,6 +339,7 @@ export class AuthService {
         const changed = await this.authRepository.resetPasswordWithSession({
             passwordHash,
             resetTokenId: token.id,
+            securityStamp: token.securityStamp,
             userId: user.id,
         })
 
@@ -334,9 +364,15 @@ export class AuthService {
             throw invalidCredentials()
         }
 
-        // bcrypt ignoró lo que pasa de 72 bytes: otras claves con el mismo prefijo también
-        // coinciden. Se exige fijar una contraseña nueva mediante el código de recuperación.
-        if (utf8ByteLength(input.password) > BCRYPT_MAX_PASSWORD_BYTES) {
+        // bcrypt ignora lo que pasa de 72 bytes: toda entrada de 72 bytes o más coincide con
+        // cualquier contraseña que comparta esos 72 bytes. Una entrada más larga nunca pudo fijarse
+        // con la regla actual, y una de 72 bytes exactos contra un hash heredado (versión 1) puede
+        // ser el prefijo de una contraseña más larga. En ambos casos se exige una contraseña nueva.
+        const passwordBytes = utf8ByteLength(input.password)
+        const ambiguousLegacyHash =
+            passwordBytes === BCRYPT_MAX_PASSWORD_BYTES && user.passwordHashVersion < CURRENT_PASSWORD_HASH_VERSION
+
+        if (passwordBytes > BCRYPT_MAX_PASSWORD_BYTES || ambiguousLegacyHash) {
             const expiresAt = this.futureDate(env.PASSWORD_RESET_TTL)
 
             if (user.status !== UserStatus.INACTIVE) {
@@ -352,7 +388,7 @@ export class AuthService {
         }
 
         if (user.status === UserStatus.PENDING_VERIFICATION) {
-            return this.issueVerificationCode(user)
+            return this.issueVerificationCode(user, { requiresPassword: true })
         }
 
         if (user.status === UserStatus.INACTIVE) {
@@ -361,7 +397,7 @@ export class AuthService {
 
         auditAuthEvent('login', 'success', { userId: user.id })
 
-        return this.startSession(this.toPublicUser(user), context)
+        return this.startSession(user, context)
     }
 
     // Orden de validación: firma, expiración, emisor y audiencia primero (un token vencido o falso
@@ -461,7 +497,7 @@ export class AuthService {
     }
 
     async logoutAll(actor: AuthenticatedActor) {
-        await this.authRepository.revokeAllSessions(actor.userId, SessionRevokeReason.LOGOUT_ALL)
+        await this.authRepository.closeAllSessions(actor.userId, SessionRevokeReason.LOGOUT_ALL)
         auditAuthEvent('logout_all', 'completed', { userId: actor.userId })
     }
 
@@ -507,6 +543,7 @@ export class AuthService {
 
         await this.authRepository.issueCodeToken(AuthTokenType.EMAIL_CHANGE, {
             expiresAt,
+            securityStamp: user.securityStamp,
             targetEmail: input.newEmail,
             tokenHash: hashToken(code, tokenSalt),
             tokenSalt,
@@ -527,7 +564,13 @@ export class AuthService {
         const invalid = () =>
             new BadRequestError('El código no es válido. Si fallaste varias veces, solicita uno nuevo.', 'EMAIL_CHANGE_CODE_INVALID')
 
-        if (!user || !token?.targetEmail || !tokenHashMatches(input.code, token.tokenHash, token.tokenSalt)) {
+        if (
+            !user ||
+            !token?.targetEmail ||
+            !token.securityStamp ||
+            token.securityStamp !== user.securityStamp ||
+            !tokenHashMatches(input.code, token.tokenHash, token.tokenSalt)
+        ) {
             if (token) {
                 await this.authRepository.registerFailedCodeAttempt(token.id, env.AUTH_CODE_MAX_ATTEMPTS)
             }
@@ -544,6 +587,7 @@ export class AuthService {
         try {
             updated = await this.authRepository.confirmEmailChange({
                 currentSessionId: actor.sessionId,
+                securityStamp: token.securityStamp,
                 targetEmail: token.targetEmail,
                 tokenId: token.id,
                 userId: user.id,
@@ -595,7 +639,7 @@ export class AuthService {
                 'OAUTH_ACCOUNT_ALREADY_EXISTS',
                 { provider: profile.provider.toLowerCase() },
             )
-        let user: PublicUser
+        let user: StampedUser
 
         if (existingAccount) {
             if (existingAccount.user.deletedAt || existingAccount.user.status === UserStatus.INACTIVE) {
@@ -607,7 +651,7 @@ export class AuthService {
             }
 
             await this.authRepository.updateOAuthAccountMetadata(existingAccount.id, profile)
-            user = this.toPublicUser(existingAccount.user)
+            user = existingAccount.user
         } else {
             const existingUser = await this.authRepository.findUserByEmailForAuth(profile.email)
             const unusablePasswordHash = await bcrypt.hash(createOpaqueToken(), PASSWORD_HASH_ROUNDS)
@@ -637,7 +681,9 @@ export class AuthService {
         }
 
         if (user.status === UserStatus.PENDING_VERIFICATION) {
-            return this.issueVerificationCode(user)
+            // El proveedor ya verificó el correo: el código no exige contraseña, pero queda ligado
+            // al sello actual y cualquier re-registro posterior lo invalida.
+            return this.issueVerificationCode(user, { requiresPassword: false })
         }
 
         if (user.status === UserStatus.INACTIVE) {
@@ -645,6 +691,14 @@ export class AuthService {
         }
 
         return this.startSession(user, context)
+    }
+
+    // Un reenvío mantiene la exigencia de contraseña del código vigente, salvo que este se emitiera
+    // tras OAuth y las credenciales no hayan cambiado desde entonces.
+    private async resendRequiresPassword(user: AuthCredentialsUser) {
+        const latest = await this.authRepository.findLatestOpenCodeToken(user.id, AuthTokenType.EMAIL_VERIFICATION)
+
+        return !(latest && !latest.requiresPassword && latest.securityStamp === user.securityStamp)
     }
 
     private async refreshPendingRegistration(
@@ -662,7 +716,7 @@ export class AuthService {
 
         auditAuthEvent('register', outcome, { emailFingerprint: emailFingerprint(email) })
 
-        return this.issueVerificationCode(updated)
+        return this.issueVerificationCode(updated, { requiresPassword: true })
     }
 
     private async handleConsumedRefresh(sessionId: string, usedAt: Date, now: Date): Promise<never> {
@@ -694,30 +748,36 @@ export class AuthService {
         return user
     }
 
-    private async startSession(user: PublicUser, context: SessionContext): Promise<AuthenticatedSessionResult> {
+    private async startSession(user: StampedUser, context: SessionContext): Promise<AuthenticatedSessionResult> {
         const issued = await this.createSession(user, context)
 
         await this.authRepository.touchLastLogin(user.id)
 
-        return { ...issued, user }
+        return { ...issued, user: this.toPublicUser(user) }
     }
 
-    private async createSession(user: PublicUser, context: SessionContext): Promise<IssuedSession> {
+    private async createSession(user: StampedUser, context: SessionContext): Promise<IssuedSession> {
         const now = this.clock()
         const sessionId = randomUUID()
         const tokenId = randomUUID()
         const { absoluteExpiresAt, idleExpiresAt } = newSessionExpiry(now, sessionLifetimes())
         const refreshToken = await signRefreshToken({ expiresAt: idleExpiresAt, sessionId, tokenId, userId: user.id })
 
-        await this.authRepository.createSession({
+        const created = await this.authRepository.createSession({
             absoluteExpiresAt,
             context,
             idleExpiresAt,
             refreshToken: { expiresAt: idleExpiresAt, tokenHash: hashToken(refreshToken), tokenId },
             retentionCutoff: new Date(now.getTime() - env.AUTH_RETENTION_DAYS * 24 * 60 * 60 * 1000),
+            securityStamp: user.securityStamp,
             sessionId,
             userId: user.id,
         })
+
+        if (!created) {
+            auditAuthEvent('session', 'credentials_changed', { userId: user.id })
+            throw credentialsChanged()
+        }
 
         const { accessToken, accessTokenExpiresInSeconds } = await signAccessToken({
             role: user.role,
@@ -734,13 +794,18 @@ export class AuthService {
         }
     }
 
-    private async issueVerificationCode(user: PublicUser): Promise<PendingEmailVerificationResult> {
+    private async issueVerificationCode(
+        user: StampedUser,
+        options: { requiresPassword: boolean },
+    ): Promise<PendingEmailVerificationResult> {
         const code = createNumericCode(6)
         const tokenSalt = createTokenSalt()
         const expiresAt = this.futureDate(env.EMAIL_VERIFICATION_TTL)
 
         await this.authRepository.issueCodeToken(AuthTokenType.EMAIL_VERIFICATION, {
             expiresAt,
+            requiresPassword: options.requiresPassword,
+            securityStamp: user.securityStamp,
             tokenHash: hashToken(code, tokenSalt),
             tokenSalt,
             userId: user.id,
@@ -750,12 +815,13 @@ export class AuthService {
         return this.pendingResult(user.email, expiresAt, code)
     }
 
-    private async issuePasswordResetCode(user: PublicUser | AuthCredentialsUser, expiresAt: Date) {
+    private async issuePasswordResetCode(user: StampedUser, expiresAt: Date) {
         const code = createNumericCode(6)
         const tokenSalt = createTokenSalt()
 
         await this.authRepository.issueCodeToken(AuthTokenType.PASSWORD_RESET, {
             expiresAt,
+            securityStamp: user.securityStamp,
             tokenHash: hashToken(code, tokenSalt),
             tokenSalt,
             userId: user.id,
@@ -786,8 +852,15 @@ export class AuthService {
         return new Date(this.clock().getTime() + durationToMilliseconds(duration))
     }
 
-    private toPublicUser(user: AuthCredentialsUser): PublicUser {
-        const { deletedAt: _deletedAt, passwordHash: _passwordHash, ...publicUser } = user
+    // Quita los campos internos (hash, versión, sello, borrado) antes de responder.
+    private toPublicUser(user: StampedUser | AuthCredentialsUser): PublicUser {
+        const {
+            deletedAt: _deletedAt,
+            passwordHash: _passwordHash,
+            passwordHashVersion: _passwordHashVersion,
+            securityStamp: _securityStamp,
+            ...publicUser
+        } = user as AuthCredentialsUser
 
         return publicUser
     }

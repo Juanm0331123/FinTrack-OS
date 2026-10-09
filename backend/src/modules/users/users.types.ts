@@ -1,5 +1,9 @@
 import type { Prisma, UserRole, UserStatus } from '@prisma/client'
 
+// 1 = hash heredado (contraseñas de más de 72 bytes truncadas por bcrypt); 2 = hash creado con
+// la regla vigente de máximo 72 bytes.
+export const CURRENT_PASSWORD_HASH_VERSION = 2
+
 export const publicUserSelect = {
     id: true,
     firstName: true,

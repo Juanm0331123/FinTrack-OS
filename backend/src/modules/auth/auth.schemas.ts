@@ -96,6 +96,8 @@ export const verifyEmailSchema = z.object({
             code: sixDigitCodeSchema,
             deviceName: deviceNameSchema.optional(),
             email: emailSchema,
+            // Obligatoria cuando el código lo emitió un registro o login con contraseña.
+            password: loginPasswordSchema.optional(),
         })
         .strict(),
 })

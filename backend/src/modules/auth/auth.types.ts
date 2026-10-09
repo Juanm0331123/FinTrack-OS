@@ -5,7 +5,19 @@ export const authCredentialsUserSelect = {
     ...publicUserSelect,
     deletedAt: true,
     passwordHash: true,
+    passwordHashVersion: true,
+    securityStamp: true,
 } satisfies Prisma.UserSelect
+
+// Usuario público más su sello de seguridad (interno: nunca se serializa en respuestas).
+export const stampedUserSelect = {
+    ...publicUserSelect,
+    securityStamp: true,
+} satisfies Prisma.UserSelect
+
+export type StampedUser = Prisma.UserGetPayload<{
+    select: typeof stampedUserSelect
+}>
 
 export type AuthCredentialsUser = Prisma.UserGetPayload<{
     select: typeof authCredentialsUserSelect

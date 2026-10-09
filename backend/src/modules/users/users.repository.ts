@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { SessionRevokeReason, UserStatus, type Prisma } from '@prisma/client'
 import { prisma, withTransaction } from '../../config/prisma.ts'
 import { publicUserSelect, type ListUsersQuery } from './users.types.ts'
@@ -43,7 +44,13 @@ export class UsersRepository {
 
     update(id: string, data: Prisma.UserUpdateInput, options: { revokeSessions: boolean }) {
         return withTransaction(async (transaction) => {
-            const user = await transaction.user.update({ data, select: publicUserSelect, where: { id } })
+            // Un cambio de estado rota el sello: un login que ya validó la contraseña no puede
+            // abrir sesión con el estado anterior (RAUTH-02).
+            const user = await transaction.user.update({
+                data: data.status !== undefined ? { ...data, securityStamp: randomUUID() } : data,
+                select: publicUserSelect,
+                where: { id },
+            })
 
             if (options.revokeSessions) {
                 await transaction.authSession.updateMany({
@@ -59,7 +66,12 @@ export class UsersRepository {
     softDelete(id: string, tombstoneEmail: string) {
         return withTransaction(async (transaction) => {
             await transaction.user.update({
-                data: { deletedAt: new Date(), email: tombstoneEmail, status: UserStatus.INACTIVE },
+                data: {
+                    deletedAt: new Date(),
+                    email: tombstoneEmail,
+                    securityStamp: randomUUID(),
+                    status: UserStatus.INACTIVE,
+                },
                 where: { id },
             })
             await transaction.authSession.updateMany({
