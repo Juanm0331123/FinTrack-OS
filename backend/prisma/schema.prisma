@@ -21,6 +21,21 @@ enum UserRole {
 enum AuthTokenType {
   EMAIL_VERIFICATION
   PASSWORD_RESET
+  EMAIL_CHANGE
+}
+
+enum SessionRevokeReason {
+  LOGOUT
+  LOGOUT_ALL
+  PASSWORD_RESET
+  PASSWORD_CHANGE
+  EMAIL_CHANGE
+  REFRESH_REUSE
+}
+
+enum FinanceOperationKind {
+  CREATE_SHEET
+  COPY_PREVIOUS_SHEET
 }
 
 enum OAuthProvider {
@@ -55,21 +70,23 @@ enum DebtStrategy {
 }
 
 model User {
-  id                    String           @id @default(uuid()) @db.Uuid
-  firstName             String           @map("first_name") @db.VarChar(100)
-  lastName              String?          @map("last_name") @db.VarChar(100)
-  email                 String           @unique @db.VarChar(255)
-  passwordHash          String           @map("password_hash") @db.VarChar(255)
-  status                UserStatus       @default(PENDING_VERIFICATION)
-  role                  UserRole         @default(USER)
-  preferredCurrencyCode String           @default("COP") @map("preferred_currency_code") @db.Char(3)
-  timezone              String           @default("UTC") @db.VarChar(100)
-  lastLoginAt           DateTime?        @map("last_login_at")
-  deletedAt             DateTime?        @map("deleted_at")
-  createdAt             DateTime         @default(now()) @map("created_at")
-  updatedAt             DateTime         @updatedAt @map("updated_at")
+  id                    String             @id @default(uuid()) @db.Uuid
+  firstName             String             @map("first_name") @db.VarChar(100)
+  lastName              String?            @map("last_name") @db.VarChar(100)
+  email                 String             @unique @db.VarChar(255)
+  passwordHash          String             @map("password_hash") @db.VarChar(255)
+  status                UserStatus         @default(PENDING_VERIFICATION)
+  role                  UserRole           @default(USER)
+  preferredCurrencyCode String             @default("COP") @map("preferred_currency_code") @db.Char(3)
+  timezone              String             @default("UTC") @db.VarChar(100)
+  lastLoginAt           DateTime?          @map("last_login_at")
+  deletedAt             DateTime?          @map("deleted_at")
+  createdAt             DateTime           @default(now()) @map("created_at")
+  updatedAt             DateTime           @updatedAt @map("updated_at")
+  authSessions          AuthSession[]
   authTokens            AuthToken[]
   debts                 Debt[]
+  financeOperations     FinanceOperation[]
   financeSettings       FinanceSettings?
   moneyAccounts         MoneyAccount[]
   monthEntries          MonthEntry[]
@@ -84,34 +101,57 @@ model User {
   @@map("users")
 }
 
-model RefreshToken {
-  id         String    @id @default(uuid()) @db.Uuid
-  userId     String    @map("user_id") @db.Uuid
-  tokenHash  String    @unique @map("token_hash") @db.VarChar(255)
-  deviceName String?   @map("device_name") @db.VarChar(150)
-  ipAddress  String?   @map("ip_address") @db.VarChar(100)
-  userAgent  String?   @map("user_agent")
-  expiresAt  DateTime  @map("expires_at")
-  revokedAt  DateTime? @map("revoked_at")
-  createdAt  DateTime  @default(now()) @map("created_at")
-  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+model AuthSession {
+  id                String               @id @db.Uuid
+  userId            String               @map("user_id") @db.Uuid
+  deviceName        String?              @map("device_name") @db.VarChar(150)
+  ipAddress         String?              @map("ip_address") @db.VarChar(100)
+  userAgent         String?              @map("user_agent")
+  createdAt         DateTime             @default(now()) @map("created_at")
+  lastUsedAt        DateTime             @default(now()) @map("last_used_at")
+  idleExpiresAt     DateTime             @map("idle_expires_at")
+  absoluteExpiresAt DateTime             @map("absolute_expires_at")
+  revokedAt         DateTime?            @map("revoked_at")
+  revokeReason      SessionRevokeReason? @map("revoke_reason")
+  refreshTokens     RefreshToken[]
+  user              User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([userId, revokedAt])
+  @@index([absoluteExpiresAt])
+  @@map("auth_sessions")
+}
+
+model RefreshToken {
+  id        String      @id @db.Uuid
+  sessionId String      @map("session_id") @db.Uuid
+  userId    String      @map("user_id") @db.Uuid
+  tokenHash String      @unique @map("token_hash") @db.VarChar(255)
+  expiresAt DateTime    @map("expires_at")
+  usedAt    DateTime?   @map("used_at")
+  revokedAt DateTime?   @map("revoked_at")
+  createdAt DateTime    @default(now()) @map("created_at")
+  session   AuthSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
   @@index([userId])
   @@index([expiresAt])
   @@map("refresh_tokens")
 }
 
 model AuthToken {
-  id        String        @id @default(uuid()) @db.Uuid
-  userId    String        @map("user_id") @db.Uuid
-  type      AuthTokenType
-  tokenHash String        @unique @map("token_hash") @db.VarChar(255)
-  tokenSalt String?       @map("token_salt") @db.VarChar(255)
-  expiresAt DateTime      @map("expires_at")
-  usedAt    DateTime?     @map("used_at")
-  revokedAt DateTime?     @map("revoked_at")
-  createdAt DateTime      @default(now()) @map("created_at")
-  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id          String        @id @default(uuid()) @db.Uuid
+  userId      String        @map("user_id") @db.Uuid
+  type        AuthTokenType
+  tokenHash   String        @unique @map("token_hash") @db.VarChar(255)
+  tokenSalt   String?       @map("token_salt") @db.VarChar(255)
+  targetEmail String?       @map("target_email") @db.VarChar(255)
+  attempts    Int           @default(0)
+  expiresAt   DateTime      @map("expires_at")
+  usedAt      DateTime?     @map("used_at")
+  revokedAt   DateTime?     @map("revoked_at")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, type])
   @@index([userId, type, revokedAt, usedAt])
@@ -153,6 +193,7 @@ model MoneyAccount {
   id         String       @id @default(uuid()) @db.Uuid
   userId     String       @map("user_id") @db.Uuid
   name       String       @db.VarChar(60)
+  nameKey    String       @map("name_key") @db.VarChar(60)
   sortOrder  Int          @default(0) @map("sort_order")
   archivedAt DateTime?    @map("archived_at")
   createdAt  DateTime     @default(now()) @map("created_at")
@@ -160,7 +201,8 @@ model MoneyAccount {
   entries    MonthEntry[]
   user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, name])
+  @@unique([id, userId])
+  @@unique([userId, nameKey])
   @@index([userId])
   @@map("money_accounts")
 }
@@ -182,6 +224,7 @@ model MonthSheet {
   entries             MonthEntry[]
   user                User                @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@unique([id, userId])
   @@unique([userId, yearMonth])
   @@index([userId])
   @@map("month_sheets")
@@ -202,12 +245,14 @@ model MonthEntry {
   sortOrder Int           @default(0) @map("sort_order")
   createdAt DateTime      @default(now()) @map("created_at")
   updatedAt DateTime      @updatedAt @map("updated_at")
-  account   MoneyAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull)
-  debt      Debt?         @relation(fields: [debtId], references: [id], onDelete: SetNull)
-  sheet     MonthSheet    @relation(fields: [sheetId], references: [id], onDelete: Cascade)
+  account   MoneyAccount? @relation(fields: [accountId, userId], references: [id, userId], onDelete: NoAction)
+  debt      Debt?         @relation("EntryDebt", fields: [debtId], references: [id], onDelete: SetNull)
+  debtOwner Debt?         @relation("EntryDebtOwner", fields: [debtId, userId], references: [id, userId], onDelete: NoAction, map: "month_entries_debt_owner_fkey")
+  sheet     MonthSheet    @relation(fields: [sheetId, userId], references: [id, userId], onDelete: Cascade)
   spends    PocketSpend[]
   user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@unique([id, userId])
   @@index([sheetId, sortOrder])
   @@index([userId])
   @@index([accountId])
@@ -224,7 +269,7 @@ model PocketSpend {
   spentOn   DateTime   @map("spent_on") @db.Date
   createdAt DateTime   @default(now()) @map("created_at")
   updatedAt DateTime   @updatedAt @map("updated_at")
-  entry     MonthEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  entry     MonthEntry @relation(fields: [entryId, userId], references: [id, userId], onDelete: Cascade)
   user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([entryId, spentOn])
@@ -254,9 +299,33 @@ model Debt {
   sortOrder           Int          @default(0) @map("sort_order")
   createdAt           DateTime     @default(now()) @map("created_at")
   updatedAt           DateTime     @updatedAt @map("updated_at")
-  entries             MonthEntry[]
+  entries             MonthEntry[] @relation("EntryDebt")
+  ownedEntries        MonthEntry[] @relation("EntryDebtOwner")
   user                User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@unique([id, userId])
   @@index([userId])
   @@map("debts")
+}
+
+model FinanceOperation {
+  userId    String               @map("user_id") @db.Uuid
+  key       String               @db.Uuid
+  kind      FinanceOperationKind
+  yearMonth String               @map("year_month") @db.VarChar(7)
+  createdAt DateTime             @default(now()) @map("created_at")
+  user      User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, key])
+  @@index([createdAt])
+  @@map("finance_operations")
+}
+
+model RateLimitBucket {
+  key     String   @id @db.VarChar(200)
+  hits    Int
+  resetAt DateTime @map("reset_at")
+
+  @@index([resetAt])
+  @@map("rate_limit_buckets")
 }
