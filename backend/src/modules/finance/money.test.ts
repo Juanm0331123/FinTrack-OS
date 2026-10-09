@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { roundHalfUpToCents } from './money.ts'
+import { roundHalfUpTo, roundHalfUpToCents } from './money.ts'
 
 // Valores esperados según ROUND(valor; 2) de Excel, que redondea la mitad alejándose de cero
 // sobre el valor decimal escrito (no sobre su aproximación binaria). Coincide con el cast a
@@ -38,4 +38,26 @@ describe('roundHalfUpToCents', () => {
         assert.throws(() => roundHalfUpToCents(Number.POSITIVE_INFINITY))
         assert.throws(() => roundHalfUpToCents(Number.NaN))
     })
+})
+
+// Tasas y porcentajes con la escala de su columna (RDATA-07), con la misma regla de ROUND de Excel.
+const SCALED_ROUND_CASES: Array<[number, number, number]> = [
+    [0.1234567, 6, 0.123457],
+    [0.0012345678, 6, 0.001235],
+    [0.0000005, 6, 0.000001],
+    [0.00000049, 6, 0],
+    [1e-7, 6, 0],
+    [0.12345, 4, 0.1235],
+    [0.123456, 4, 0.1235],
+    [50.555, 2, 50.56],
+    [0.08, 4, 0.08],
+    [1, 6, 1],
+]
+
+describe('roundHalfUpTo', () => {
+    for (const [input, decimals, expected] of SCALED_ROUND_CASES) {
+        it(`rounds ${input} to ${expected} like Excel ROUND(x; ${decimals})`, () => {
+            assert.equal(roundHalfUpTo(input, decimals), expected)
+        })
+    }
 })

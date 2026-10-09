@@ -80,7 +80,7 @@ describe('import --replace keeps retained months linked (DATA-10)', () => {
     it('replacing only October keeps September linked to the same debt id', async () => {
         const user = await newUser()
 
-        await applyWorkbookImport(user.id, parseWorkbookFile(workbook([sheet('2026-09', [entry('Cuota TV sept')]), sheet('2026-10', [entry('Cuota TV oct')])])))
+        await applyWorkbookImport(user.id, parseWorkbookFile(workbook([sheet('2026-09', [entry('Cuota TV sept')]), sheet('2026-10', [entry('Cuota TV oct')])])), { replace: false })
 
         const debtBefore = await prisma.debt.findFirstOrThrow({ where: { userId: user.id } })
         const october = parseWorkbook([sheet('2026-10', [entry('Cuota TV oct (corregida)', { amount: 130000 })])], [debt('tv', 'televisor', 900000)])
@@ -89,7 +89,7 @@ describe('import --replace keeps retained months linked (DATA-10)', () => {
         assert.deepEqual(plan.sheetsToReplace, ['2026-10'])
         assert.equal(plan.debtsToUpdate, 1)
 
-        await applyWorkbookImport(user.id, october)
+        await applyWorkbookImport(user.id, october, { replace: true })
 
         const september = await prisma.monthEntry.findFirstOrThrow({ where: { sheet: { yearMonth: '2026-09' }, userId: user.id } })
         const debtAfter = await prisma.debt.findFirstOrThrow({ where: { userId: user.id } })
@@ -104,7 +104,7 @@ describe('import --replace keeps retained months linked (DATA-10)', () => {
         const user = await newUser()
         const file = parseWorkbook([sheet('2026-09', [])])
 
-        await applyWorkbookImport(user.id, file)
+        await applyWorkbookImport(user.id, file, { replace: false })
         await assert.rejects(planWorkbookImport(prisma, user.id, file, { replace: false }), /--replace/)
     })
 })
@@ -139,7 +139,7 @@ describe('import validation (DATA-11)', () => {
         await prisma.$executeRawUnsafe('CREATE TRIGGER qa_fail_october BEFORE INSERT ON month_sheets FOR EACH ROW EXECUTE FUNCTION qa_fail_october()')
 
         try {
-            await assert.rejects(applyWorkbookImport(user.id, file))
+            await assert.rejects(applyWorkbookImport(user.id, file, { replace: false }))
         } finally {
             await prisma.$executeRawUnsafe('DROP TRIGGER qa_fail_october ON month_sheets')
             await prisma.$executeRawUnsafe('DROP FUNCTION qa_fail_october()')

@@ -53,7 +53,8 @@ async function main() {
         return
     }
 
-    const summary = await applyWorkbookImport(user.id, workbook)
+    // La escritura revalida todo dentro de su transacción: si algo cambió desde el plan, falla.
+    const summary = await applyWorkbookImport(user.id, workbook, { replace })
 
     console.log(`Importado: ${summary.sheets} meses, ${summary.entries} filas, ${summary.debts} deudas y ${summary.accounts} cuentas.`)
 }

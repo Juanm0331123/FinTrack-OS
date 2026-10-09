@@ -106,14 +106,10 @@ export class FinanceService {
 
     async createAccount(userId: string, input: CreateAccountInput): Promise<Created<ReturnType<typeof toAccountDto>>> {
         if (input.id) {
-            const owner = await this.repository.findAccountOwner(input.id)
+            const replay = await this.replayAccount(userId, input)
 
-            if (owner) {
-                if (owner.userId !== userId || owner.name.toLowerCase() !== input.name.toLowerCase()) {
-                    throw idempotencyConflict()
-                }
-
-                return { replayed: true, value: toAccountDto((await this.repository.findAccount(userId, input.id))!) }
+            if (replay) {
+                return replay
             }
         }
 
@@ -130,25 +126,27 @@ export class FinanceService {
             throw new ConflictError('Ya tienes una cuenta con ese nombre.', 'ACCOUNT_NAME_TAKEN')
         }
 
-        if ((await this.repository.countAccounts(userId)) >= FINANCE_LIMITS.accounts) {
-            throw limitReached(`Puedes tener hasta ${FINANCE_LIMITS.accounts} cuentas.`)
-        }
-
         try {
-            const account = await this.repository.createAccount({
-                id: input.id,
-                name: input.name,
-                sortOrder: await this.repository.nextAccountSortOrder(userId),
-                userId,
-            })
+            const result = await this.repository.createAccount({ id: input.id, name: input.name, userId }, FINANCE_LIMITS.accounts)
 
-            return { replayed: false, value: toAccountDto(account) }
-        } catch (error) {
-            if (isUniqueViolation(error)) {
-                throw new ConflictError('Ya tienes una cuenta con ese nombre.', 'ACCOUNT_NAME_TAKEN')
+            if (result.limitReached) {
+                throw limitReached(`Puedes tener hasta ${FINANCE_LIMITS.accounts} cuentas.`)
             }
 
-            throw error
+            return { replayed: false, value: toAccountDto(result.account) }
+        } catch (error) {
+            if (!isUniqueViolation(error)) {
+                throw error
+            }
+
+            // Reintentos simultáneos con el mismo id y nombre: el que llegó segundo es un reintento.
+            const replay = input.id ? await this.replayAccount(userId, input) : null
+
+            if (replay) {
+                return replay
+            }
+
+            throw new ConflictError('Ya tienes una cuenta con ese nombre.', 'ACCOUNT_NAME_TAKEN')
         }
     }
 
@@ -183,10 +181,7 @@ export class FinanceService {
     }
 
     async createSheet(userId: string, input: CreateSheetInput): Promise<Created<ReturnType<typeof toSheetDto>>> {
-        if ((await this.repository.countSheets(userId)) >= FINANCE_LIMITS.sheets) {
-            throw limitReached(`Puedes tener hasta ${FINANCE_LIMITS.sheets} meses.`)
-        }
-
+        const copyFrom = input.copyFrom ?? 'NONE'
         const result = await this.repository.createSheet({
             buildContent: (previous, sheetId) =>
                 previous
@@ -195,18 +190,29 @@ export class FinanceService {
                           income: buildCopiedIncome(previous),
                       }
                     : { entries: [], income: {} },
-            copyPrevious: input.copyFrom === 'PREVIOUS',
+            copyPrevious: copyFrom === 'PREVIOUS',
+            entriesLimit: FINANCE_LIMITS.entriesPerSheet,
+            fingerprint: `copyFrom=${copyFrom}`,
             operationId: input.operationId,
             sheetId: randomUUID(),
+            sheetsLimit: FINANCE_LIMITS.sheets,
             userId,
             yearMonth: input.yearMonth,
         })
 
-        if ('conflict' in result || !result.sheet) {
-            throw new ConflictError('Ese mes ya tiene una hoja.', 'SHEET_EXISTS')
+        switch (result.status) {
+            case 'created':
+            case 'replayed':
+                return { replayed: result.status === 'replayed', value: toSheetDto(result.sheet) }
+            case 'idempotency-conflict':
+                throw idempotencyConflict()
+            case 'limit-reached':
+                throw limitReached(`Puedes tener hasta ${FINANCE_LIMITS.sheets} meses.`)
+            case 'entries-limit':
+                throw limitReached(`Un mes puede tener hasta ${FINANCE_LIMITS.entriesPerSheet} filas.`)
+            case 'sheet-exists':
+                throw new ConflictError('Ese mes ya tiene una hoja.', 'SHEET_EXISTS')
         }
-
-        return { replayed: result.replayed, value: toSheetDto(result.sheet) }
     }
 
     async updateSheet(userId: string, yearMonth: string, input: UpdateSheetInput) {
@@ -227,20 +233,25 @@ export class FinanceService {
             buildEntries: (previous, sheetId, startSortOrder) =>
                 buildCopiedEntries(previous.entries, { sheetId, startSortOrder, userId }),
             buildIncome: buildCopiedIncome,
+            entriesLimit: FINANCE_LIMITS.entriesPerSheet,
             operationId: input.operationId,
             userId,
             yearMonth,
         })
 
-        if (outcome.status === 'missing-sheet') {
-            throw new NotFoundError('Ese mes todavía no tiene hoja.')
+        switch (outcome.status) {
+            case 'copied':
+            case 'replayed':
+                return toSheetDto(outcome.sheet)
+            case 'missing-sheet':
+                throw new NotFoundError('Ese mes todavía no tiene hoja.')
+            case 'no-previous':
+                throw new NotFoundError('No hay un mes anterior para copiar.')
+            case 'idempotency-conflict':
+                throw idempotencyConflict()
+            case 'limit-reached':
+                throw limitReached(`Un mes puede tener hasta ${FINANCE_LIMITS.entriesPerSheet} filas: la copia las superaría.`)
         }
-
-        if (outcome.status === 'no-previous') {
-            throw new NotFoundError('No hay un mes anterior para copiar.')
-        }
-
-        return toSheetDto(outcome.sheet)
     }
 
     async createEntry(userId: string, yearMonth: string, input: CreateEntryInput): Promise<Created<ReturnType<typeof toEntryDto>>> {
@@ -254,14 +265,10 @@ export class FinanceService {
             }
         }
 
-        if ((await this.repository.countEntries(sheet.id)) >= FINANCE_LIMITS.entriesPerSheet) {
-            throw limitReached(`Un mes puede tener hasta ${FINANCE_LIMITS.entriesPerSheet} filas.`)
-        }
-
         await this.assertReferences(userId, input.accountId, input.debtId)
 
         try {
-            const entry = await this.repository.createEntry({
+            const result = await this.repository.createEntry({
                 accountId: input.accountId ?? null,
                 amount: input.amount ?? null,
                 category: input.category ?? 'OTHER',
@@ -272,11 +279,19 @@ export class FinanceService {
                 isPaid: input.isPaid ?? false,
                 note: input.note ?? null,
                 sheetId: sheet.id,
-                sortOrder: input.sortOrder ?? (await this.repository.nextEntrySortOrder(sheet.id)),
+                sortOrder: input.sortOrder,
                 userId,
-            })
+            }, FINANCE_LIMITS.entriesPerSheet)
 
-            return { replayed: false, value: toEntryDto(entry) }
+            if (result.status === 'missing-sheet') {
+                throw new NotFoundError('Ese mes todavía no tiene hoja.')
+            }
+
+            if (result.status === 'limit-reached') {
+                throw limitReached(`Un mes puede tener hasta ${FINANCE_LIMITS.entriesPerSheet} filas.`)
+            }
+
+            return { replayed: false, value: toEntryDto(result.entry) }
         } catch (error) {
             // Dos reintentos simultáneos con el mismo id: el segundo resuelve como reintento.
             if (input.id && isUniqueViolation(error)) {
@@ -300,8 +315,11 @@ export class FinanceService {
 
         await this.assertReferences(userId, input.accountId, input.debtId)
 
-        const leavingPocket = entry.category === 'POCKET' && input.category !== undefined && input.category !== 'POCKET'
-        const result = await this.repository.updateEntry(userId, id, input, leavingPocket)
+        // La decisión sobre los gastos se toma dentro de la transacción con la fila bloqueada: la
+        // categoría leída aquí puede haber cambiado (otro cambio pudo convertirla en bolsillo y
+        // registrarle gastos).
+        const toNonPocket = input.category !== undefined && input.category !== 'POCKET'
+        const result = await this.repository.updateEntry(userId, id, input, toNonPocket)
 
         if (result.blocked) {
             throw new ConflictError(
@@ -346,22 +364,22 @@ export class FinanceService {
 
         assertDateInMonth(input.spentOn, entry.sheet.yearMonth)
 
-        if ((await this.repository.countSpends(entryId)) >= FINANCE_LIMITS.spendsPerEntry) {
-            throw limitReached(`Un bolsillo puede tener hasta ${FINANCE_LIMITS.spendsPerEntry} gastos.`)
-        }
-
         try {
             const result = await this.repository.createSpend(userId, entryId, {
                 amount: input.amount,
                 id: input.id,
                 note: input.note ?? null,
                 spentOn: toDateOnly(input.spentOn),
-            })
+            }, FINANCE_LIMITS.spendsPerEntry)
 
-            if (result.notPocket) {
+            if (result.status === 'not-pocket') {
                 throw new RequestValidationError('Revisa los datos enviados.', [
                     { field: 'entryId', message: 'Solo los bolsillos registran gastos.' },
                 ])
+            }
+
+            if (result.status === 'limit-reached') {
+                throw limitReached(`Un bolsillo puede tener hasta ${FINANCE_LIMITS.spendsPerEntry} gastos.`)
             }
 
             return { replayed: false, value: toSpendDto(result.spend) }
@@ -421,18 +439,14 @@ export class FinanceService {
             }
         }
 
-        if ((await this.repository.countDebts(userId)) >= FINANCE_LIMITS.debts) {
-            throw limitReached(`Puedes tener hasta ${FINANCE_LIMITS.debts} deudas.`)
-        }
-
         try {
-            const debt = await this.repository.createDebt({
-                ...input,
-                sortOrder: input.sortOrder ?? (await this.repository.nextDebtSortOrder(userId)),
-                userId,
-            })
+            const result = await this.repository.createDebt({ ...input, userId }, FINANCE_LIMITS.debts)
 
-            return { replayed: false, value: toDebtDto(debt) }
+            if (result.limitReached) {
+                throw limitReached(`Puedes tener hasta ${FINANCE_LIMITS.debts} deudas.`)
+            }
+
+            return { replayed: false, value: toDebtDto(result.debt) }
         } catch (error) {
             if (input.id && isUniqueViolation(error)) {
                 const existing = await this.repository.findDebtForReplay(input.id)
@@ -459,6 +473,21 @@ export class FinanceService {
         await this.repository.deleteDebt(userId, id)
 
         return { deleted: true as const, id }
+    }
+
+    // Una cuenta con ese id: mismo dueño y nombre es un reintento; otro dueño o nombre, conflicto.
+    private async replayAccount(userId: string, input: CreateAccountInput) {
+        const owner = await this.repository.findAccountOwner(input.id!)
+
+        if (!owner) {
+            return null
+        }
+
+        if (owner.userId !== userId || owner.name.toLowerCase() !== input.name.toLowerCase()) {
+            throw idempotencyConflict()
+        }
+
+        return { replayed: true, value: toAccountDto((await this.repository.findAccount(userId, input.id!))!) }
     }
 
     // Reintento de creación: mismo dueño, misma hoja y mismo contenido devuelven la fila; un

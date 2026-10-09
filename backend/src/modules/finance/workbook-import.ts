@@ -1,13 +1,16 @@
-import type { PrismaClient } from '@prisma/client'
 import { z } from 'zod'
-import { withTransaction } from '../../config/prisma.ts'
-import { accountNameKey } from './finance.repository.ts'
+import { withTransaction, type TransactionClient } from '../../config/prisma.ts'
+import { accountNameKey, lockUserFinance } from './finance.repository.ts'
+import { FINANCE_LIMITS } from './finance.service.ts'
 import { DEBT_STRATEGIES, ENTRY_CATEGORIES, LEFTOVER_DESTINATIONS } from './finance.types.ts'
 import { roundHalfUpToCents } from './money.ts'
 
 // Importación de un libro completo (scripts/import-workbook.ts). Todo el archivo se valida antes
 // de escribir: tipos, rangos, meses, referencias a cuentas y deudas y duplicados. La escritura es
-// una única transacción: si algo falla no queda nada a medias.
+// una única transacción: si algo falla no queda nada a medias. Dentro de ella, con el bloqueo
+// financiero del usuario, se vuelven a comprobar los meses existentes, las deudas ambiguas y las
+// cuotas sobre el estado final: el plan es informativo y nada cambia entre plan y escritura sin
+// que se detecte. Sin --replace nunca se borra un mes.
 //
 // Transformaciones (documentadas en docs/qa-backend-remediacion.md):
 // - textos sin espacios al inicio y al final; un texto más largo que su columna es un error,
@@ -177,17 +180,20 @@ export type ImportPlan = {
     sheetsToReplace: string[]
 }
 
-export async function planWorkbookImport(
-    client: PrismaClient,
+// Compara el archivo con el estado actual de la cuenta. Se usa en el plan y, otra vez, dentro de
+// la transacción de escritura.
+async function inspectWorkbookImport(
+    client: TransactionClient,
     userId: string,
     workbook: WorkbookFile,
     options: { replace: boolean },
 ): Promise<ImportPlan> {
     const yearMonths = workbook.sheets.map((sheet) => sheet.yearMonth)
-    const [existingSheets, existingDebts, existingAccounts] = await Promise.all([
+    const [existingSheets, existingDebts, existingAccounts, totalSheets] = await Promise.all([
         client.monthSheet.findMany({ select: { yearMonth: true }, where: { userId, yearMonth: { in: yearMonths } } }),
         client.debt.findMany({ select: { name: true }, where: { userId } }),
         client.moneyAccount.findMany({ select: { nameKey: true }, where: { userId } }),
+        client.monthSheet.count({ where: { userId } }),
     ])
     const problems: string[] = []
     const replaced = existingSheets.map((sheet) => sheet.yearMonth).sort()
@@ -204,14 +210,9 @@ export async function planWorkbookImport(
         }
     }
 
-    if (problems.length > 0) {
-        throw new WorkbookImportError(problems)
-    }
-
     const existingAccountKeys = new Set(existingAccounts.map((account) => account.nameKey))
     const debtsToUpdate = workbook.debts.filter((debt) => existingDebtNames.includes(debt.name.toLowerCase())).length
-
-    return {
+    const plan = {
         accountsToCreate: workbook.accounts.filter((name) => !existingAccountKeys.has(accountNameKey(name))).length,
         debtsToCreate: workbook.debts.length - debtsToUpdate,
         debtsToUpdate,
@@ -219,10 +220,42 @@ export async function planWorkbookImport(
         sheetsToCreate: yearMonths.filter((yearMonth) => !replaced.includes(yearMonth)).sort(),
         sheetsToReplace: replaced,
     }
+
+    // Cuotas sobre el estado final de la cuenta, no solo sobre el tamaño del archivo.
+    if (totalSheets + plan.sheetsToCreate.length > FINANCE_LIMITS.sheets) {
+        problems.push(`la cuenta quedaría con ${totalSheets + plan.sheetsToCreate.length} meses; el máximo es ${FINANCE_LIMITS.sheets}`)
+    }
+
+    if (existingAccounts.length + plan.accountsToCreate > FINANCE_LIMITS.accounts) {
+        problems.push(`la cuenta quedaría con ${existingAccounts.length + plan.accountsToCreate} cuentas; el máximo es ${FINANCE_LIMITS.accounts}`)
+    }
+
+    if (existingDebts.length + plan.debtsToCreate > FINANCE_LIMITS.debts) {
+        problems.push(`la cuenta quedaría con ${existingDebts.length + plan.debtsToCreate} deudas; el máximo es ${FINANCE_LIMITS.debts}`)
+    }
+
+    if (problems.length > 0) {
+        throw new WorkbookImportError(problems)
+    }
+
+    return plan
 }
 
-export function applyWorkbookImport(userId: string, workbook: WorkbookFile) {
+export function planWorkbookImport(
+    client: TransactionClient,
+    userId: string,
+    workbook: WorkbookFile,
+    options: { replace: boolean },
+): Promise<ImportPlan> {
+    return inspectWorkbookImport(client, userId, workbook, options)
+}
+
+export function applyWorkbookImport(userId: string, workbook: WorkbookFile, options: { replace: boolean }) {
     return withTransaction(async (transaction) => {
+        await lockUserFinance(transaction, userId)
+
+        const plan = await inspectWorkbookImport(transaction, userId, workbook, options)
+
         await transaction.financeSettings.upsert({
             create: { ...workbook.settings, userId },
             update: workbook.settings,
@@ -256,10 +289,11 @@ export function applyWorkbookImport(userId: string, workbook: WorkbookFile) {
             debtIds.set(key, saved.id)
         }
 
-        const yearMonths = workbook.sheets.map((sheet) => sheet.yearMonth)
-
-        // Solo se borran los meses del archivo (con sus filas y gastos); el resto queda intacto.
-        await transaction.monthSheet.deleteMany({ where: { userId, yearMonth: { in: yearMonths } } })
+        // Solo con --replace, y solo los meses del archivo que existen (con sus filas y gastos); el
+        // resto queda intacto. Sin --replace, un mes existente ya hizo fallar la comprobación.
+        if (options.replace && plan.sheetsToReplace.length > 0) {
+            await transaction.monthSheet.deleteMany({ where: { userId, yearMonth: { in: plan.sheetsToReplace } } })
+        }
 
         for (const { entries, ...sheet } of workbook.sheets) {
             const created = await transaction.monthSheet.create({ data: { ...sheet, userId }, select: { id: true } })

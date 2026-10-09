@@ -80,15 +80,47 @@ export function accountNameKey(name: string) {
     return name.trim().normalize('NFC').toLowerCase()
 }
 
+type SheetRecord = Prisma.MonthSheetGetPayload<{ select: typeof sheetSelect }>
+
 export type CopyOutcome =
-    | { status: 'copied' | 'replayed'; sheet: Prisma.MonthSheetGetPayload<{ select: typeof sheetSelect }> }
-    | { status: 'no-previous' }
-    | { status: 'missing-sheet' }
+    | { status: 'copied' | 'replayed'; sheet: SheetRecord }
+    | { status: 'idempotency-conflict' | 'limit-reached' | 'missing-sheet' | 'no-previous' }
+
+export type CreateSheetOutcome =
+    | { status: 'created' | 'replayed'; sheet: SheetRecord }
+    | { status: 'entries-limit' | 'idempotency-conflict' | 'limit-reached' | 'sheet-exists' }
 
 async function maxEntrySortOrder(transaction: TransactionClient, sheetId: string) {
     const result = await transaction.monthEntry.aggregate({ _max: { sortOrder: true }, where: { sheetId } })
 
     return result._max.sortOrder ?? -1
+}
+
+// Serializa por usuario las escrituras que cuentan contra una cuota (cuentas, deudas, meses,
+// copias e importación) y el registro de claves de operación. Es un bloqueo transaccional: se
+// libera al confirmar o deshacer. Orden de bloqueo: usuario y después filas (hoja, fila).
+export async function lockUserFinance(transaction: TransactionClient, userId: string) {
+    await transaction.$queryRaw`SELECT 1 AS locked FROM pg_advisory_xact_lock(hashtextextended(${`finance:${userId}`}, 0))`
+}
+
+// Una clave de operación solo reproduce la misma acción: mismo tipo, mismo mes y misma huella.
+// Las operaciones registradas antes de existir la huella se comparan por tipo y mes.
+function sameOperation(
+    recorded: { fingerprint: string | null; kind: FinanceOperationKind; yearMonth: string },
+    expected: { fingerprint: string | null; kind: FinanceOperationKind; yearMonth: string },
+) {
+    return (
+        recorded.kind === expected.kind &&
+        recorded.yearMonth === expected.yearMonth &&
+        (recorded.fingerprint === null || recorded.fingerprint === expected.fingerprint)
+    )
+}
+
+function findOperation(transaction: TransactionClient, userId: string, key: string) {
+    return transaction.financeOperation.findUnique({
+        select: { fingerprint: true, kind: true, yearMonth: true },
+        where: { userId_key: { key, userId } },
+    })
 }
 
 export class FinanceRepository {
@@ -129,10 +161,6 @@ export class FinanceRepository {
         })
     }
 
-    countAccounts(userId: string) {
-        return prisma.moneyAccount.count({ where: { userId } })
-    }
-
     findAccount(userId: string, id: string) {
         return prisma.moneyAccount.findFirst({ select: accountSelect, where: { id, userId } })
     }
@@ -148,14 +176,24 @@ export class FinanceRepository {
         return prisma.moneyAccount.findUnique({ select: { name: true, userId: true }, where: { id } })
     }
 
-    async nextAccountSortOrder(userId: string) {
-        const result = await prisma.moneyAccount.aggregate({ _max: { sortOrder: true }, where: { userId } })
+    // Cuota y orden se deciden bajo el bloqueo del usuario: creaciones simultáneas no superan el
+    // límite ni repiten posición.
+    createAccount(data: { id?: string; name: string; userId: string }, limit: number) {
+        return withTransaction(async (transaction) => {
+            await lockUserFinance(transaction, data.userId)
 
-        return (result._max.sortOrder ?? -1) + 1
-    }
+            if ((await transaction.moneyAccount.count({ where: { userId: data.userId } })) >= limit) {
+                return { limitReached: true as const }
+            }
 
-    createAccount(data: { id?: string; name: string; sortOrder: number; userId: string }) {
-        return prisma.moneyAccount.create({ data: { ...data, nameKey: accountNameKey(data.name) }, select: accountSelect })
+            const last = await transaction.moneyAccount.aggregate({ _max: { sortOrder: true }, where: { userId: data.userId } })
+            const account = await transaction.moneyAccount.create({
+                data: { ...data, nameKey: accountNameKey(data.name), sortOrder: (last._max.sortOrder ?? -1) + 1 },
+                select: accountSelect,
+            })
+
+            return { account, limitReached: false as const }
+        })
     }
 
     updateAccount(userId: string, id: string, data: { archivedAt?: Date | null; name?: string; sortOrder?: number }) {
@@ -203,10 +241,6 @@ export class FinanceRepository {
         })
     }
 
-    countSheets(userId: string) {
-        return prisma.monthSheet.count({ where: { userId } })
-    }
-
     findSheetRef(userId: string, yearMonth: string) {
         return prisma.monthSheet.findUnique({
             select: { id: true, yearMonth: true },
@@ -244,34 +278,67 @@ export class FinanceRepository {
         })
     }
 
-    // Crea la hoja (vacía o copiada del mes anterior) en una transacción. Con operationId, un
-    // reintento de la misma acción devuelve la hoja ya creada en lugar de un conflicto.
+    // Crea la hoja (vacía o copiada del mes anterior) bajo el bloqueo del usuario. Con
+    // operationId, primero se resuelve el reintento (antes de la cuota: el último mes permitido
+    // también se puede reintentar); una clave usada para otra acción es un conflicto.
     async createSheet(input: {
         buildContent: (
             previous: Awaited<ReturnType<FinanceRepository['findPreviousSheet']>>,
             sheetId: string,
         ) => { entries: CopiedEntry[]; income: CopiedIncome | Record<string, never> }
         copyPrevious: boolean
+        entriesLimit: number
+        fingerprint: string
         operationId?: string
         sheetId: string
+        sheetsLimit: number
         userId: string
         yearMonth: string
-    }) {
-        try {
-            return await withTransaction(async (transaction) => {
-                if (input.operationId) {
-                    const recorded = await transaction.financeOperation.createMany({
-                        data: [{ key: input.operationId, kind: FinanceOperationKind.CREATE_SHEET, userId: input.userId, yearMonth: input.yearMonth }],
-                        skipDuplicates: true,
-                    })
+    }): Promise<CreateSheetOutcome> {
+        const expected = { fingerprint: input.fingerprint, kind: FinanceOperationKind.CREATE_SHEET, yearMonth: input.yearMonth }
 
-                    if (recorded.count === 0) {
-                        return { replayed: true, sheet: await this.findReplayedSheet(transaction, input) }
+        try {
+            return await withTransaction<CreateSheetOutcome>(async (transaction) => {
+                await lockUserFinance(transaction, input.userId)
+
+                if (input.operationId) {
+                    const recorded = await findOperation(transaction, input.userId, input.operationId)
+
+                    if (recorded) {
+                        const sheet = sameOperation(recorded, expected)
+                            ? await transaction.monthSheet.findUnique({
+                                  select: sheetSelect,
+                                  where: { userId_yearMonth: { userId: input.userId, yearMonth: input.yearMonth } },
+                              })
+                            : null
+
+                        return sheet ? { sheet, status: 'replayed' } : { status: 'idempotency-conflict' }
                     }
+                }
+
+                const existing = await transaction.monthSheet.findUnique({
+                    select: { id: true },
+                    where: { userId_yearMonth: { userId: input.userId, yearMonth: input.yearMonth } },
+                })
+
+                if (existing) {
+                    return { status: 'sheet-exists' }
+                }
+
+                if ((await transaction.monthSheet.count({ where: { userId: input.userId } })) >= input.sheetsLimit) {
+                    return { status: 'limit-reached' }
                 }
 
                 const previous = input.copyPrevious ? await this.findPreviousSheet(transaction, input.userId, input.yearMonth) : null
                 const content = input.buildContent(previous, input.sheetId)
+
+                if (content.entries.length > input.entriesLimit) {
+                    return { status: 'entries-limit' }
+                }
+
+                if (input.operationId) {
+                    await transaction.financeOperation.create({ data: { ...expected, key: input.operationId, userId: input.userId } })
+                }
 
                 await transaction.monthSheet.create({
                     data: { id: input.sheetId, userId: input.userId, yearMonth: input.yearMonth, ...content.income },
@@ -282,40 +349,24 @@ export class FinanceRepository {
                 }
 
                 return {
-                    replayed: false,
                     sheet: await transaction.monthSheet.findUniqueOrThrow({ select: sheetSelect, where: { id: input.sheetId } }),
+                    status: 'created',
                 }
             })
         } catch (error) {
             if (isUniqueViolation(error)) {
-                return { conflict: true as const }
+                return { status: 'sheet-exists' }
             }
 
             throw error
         }
     }
 
-    private async findReplayedSheet(
-        transaction: TransactionClient,
-        input: { operationId?: string; userId: string; yearMonth: string },
-    ) {
-        const operation = await transaction.financeOperation.findUniqueOrThrow({
-            where: { userId_key: { key: input.operationId!, userId: input.userId } },
-        })
-
-        if (operation.kind !== FinanceOperationKind.CREATE_SHEET || operation.yearMonth !== input.yearMonth) {
-            return null
-        }
-
-        return transaction.monthSheet.findUnique({
-            select: sheetSelect,
-            where: { userId_yearMonth: { userId: input.userId, yearMonth: input.yearMonth } },
-        })
-    }
-
-    // Copia del mes anterior serializada por hoja (FOR UPDATE): dos copias simultáneas no
-    // calculan el mismo orden, y el ingreso solo se copia si el salario sigue en cero en el
-    // momento de escribir, así que un salario confirmado en paralelo no se sobrescribe.
+    // Copia del mes anterior serializada por usuario y por hoja (FOR UPDATE): dos copias
+    // simultáneas no calculan el mismo orden ni superan la cuota de filas, y el ingreso solo se
+    // copia si el salario sigue en cero al escribir, así que un salario confirmado en paralelo no se
+    // sobrescribe. La operación se registra solo si la copia se hace: una copia fallida (sin mes
+    // anterior o sobre la cuota) no consume su clave y su reintento vuelve a intentarlo.
     copyPreviousSheet(input: {
         buildEntries: (
             previous: NonNullable<Awaited<ReturnType<FinanceRepository['findPreviousSheet']>>>,
@@ -323,11 +374,16 @@ export class FinanceRepository {
             startSortOrder: number,
         ) => CopiedEntry[]
         buildIncome: (previous: CopyableIncome) => CopiedIncome
+        entriesLimit: number
         operationId?: string
         userId: string
         yearMonth: string
     }) {
+        const expected = { fingerprint: null, kind: FinanceOperationKind.COPY_PREVIOUS_SHEET, yearMonth: input.yearMonth }
+
         return withTransaction<CopyOutcome>(async (transaction) => {
+            await lockUserFinance(transaction, input.userId)
+
             const locked = await transaction.$queryRaw<Array<{ id: string }>>`SELECT "id" FROM "month_sheets"
                 WHERE "user_id" = ${input.userId}::uuid AND "year_month" = ${input.yearMonth} FOR UPDATE`
             const sheetId = locked[0]?.id
@@ -337,16 +393,15 @@ export class FinanceRepository {
             }
 
             if (input.operationId) {
-                const recorded = await transaction.financeOperation.createMany({
-                    data: [{ key: input.operationId, kind: FinanceOperationKind.COPY_PREVIOUS_SHEET, userId: input.userId, yearMonth: input.yearMonth }],
-                    skipDuplicates: true,
-                })
+                const recorded = await findOperation(transaction, input.userId, input.operationId)
 
-                if (recorded.count === 0) {
-                    return {
-                        sheet: await transaction.monthSheet.findUniqueOrThrow({ select: sheetSelect, where: { id: sheetId } }),
-                        status: 'replayed',
-                    }
+                if (recorded) {
+                    return sameOperation(recorded, expected)
+                        ? {
+                              sheet: await transaction.monthSheet.findUniqueOrThrow({ select: sheetSelect, where: { id: sheetId } }),
+                              status: 'replayed',
+                          }
+                        : { status: 'idempotency-conflict' }
                 }
             }
 
@@ -357,6 +412,15 @@ export class FinanceRepository {
             }
 
             const entries = input.buildEntries(previous, sheetId, (await maxEntrySortOrder(transaction, sheetId)) + 1)
+            const current = await transaction.monthEntry.count({ where: { sheetId } })
+
+            if (current + entries.length > input.entriesLimit) {
+                return { status: 'limit-reached' }
+            }
+
+            if (input.operationId) {
+                await transaction.financeOperation.create({ data: { ...expected, key: input.operationId, userId: input.userId } })
+            }
 
             if (entries.length > 0) {
                 await transaction.monthEntry.createMany({ data: entries })
@@ -386,16 +450,6 @@ export class FinanceRepository {
         return prisma.monthSheet.delete({ select: { id: true }, where: { userId_yearMonth: { userId, yearMonth } } })
     }
 
-    async nextEntrySortOrder(sheetId: string) {
-        const result = await prisma.monthEntry.aggregate({ _max: { sortOrder: true }, where: { sheetId } })
-
-        return (result._max.sortOrder ?? -1) + 1
-    }
-
-    countEntries(sheetId: string) {
-        return prisma.monthEntry.count({ where: { sheetId } })
-    }
-
     // Lectura sin filtrar por usuario, solo para resolver idempotencia: el servicio nunca devuelve
     // el contenido si el dueño o el destino no coinciden.
     findEntryForReplay(id: string) {
@@ -409,15 +463,36 @@ export class FinanceRepository {
         })
     }
 
-    createEntry(data: Prisma.MonthEntryUncheckedCreateInput) {
-        return prisma.monthEntry.create({ data, select: entrySelect })
+    // Alta de fila con la hoja bloqueada (FOR UPDATE): la cuota y el orden se deciden sobre el
+    // estado actual, también frente a copias y altas simultáneas.
+    createEntry(data: Omit<Prisma.MonthEntryUncheckedCreateInput, 'sortOrder'> & { sortOrder?: number }, limit: number) {
+        return withTransaction(async (transaction) => {
+            const locked = await transaction.$queryRaw<Array<{ id: string }>>`SELECT "id" FROM "month_sheets"
+                WHERE "id" = ${data.sheetId}::uuid AND "user_id" = ${data.userId}::uuid FOR UPDATE`
+
+            if (!locked[0]) {
+                return { status: 'missing-sheet' as const }
+            }
+
+            if ((await transaction.monthEntry.count({ where: { sheetId: data.sheetId } })) >= limit) {
+                return { status: 'limit-reached' as const }
+            }
+
+            const entry = await transaction.monthEntry.create({
+                data: { ...data, sortOrder: data.sortOrder ?? (await maxEntrySortOrder(transaction, data.sheetId)) + 1 },
+                select: entrySelect,
+            })
+
+            return { entry, status: 'created' as const }
+        })
     }
 
-    // Cambio de categoría serializado con el registro de gastos: la fila se bloquea y, si deja de
-    // ser bolsillo, no puede tener gastos. createSpend bloquea la misma fila (FOR SHARE).
-    updateEntry(userId: string, id: string, data: Prisma.MonthEntryUncheckedUpdateInput, leavingPocket: boolean) {
+    // Cambio de categoría serializado con el registro de gastos: si la fila deja de ser (o no es)
+    // bolsillo, se bloquea y se decide sobre sus gastos actuales, no sobre una lectura previa.
+    // createSpend bloquea la misma fila.
+    updateEntry(userId: string, id: string, data: Prisma.MonthEntryUncheckedUpdateInput, toNonPocket: boolean) {
         return withTransaction(async (transaction) => {
-            if (leavingPocket) {
+            if (toNonPocket) {
                 await transaction.$queryRaw`SELECT "id" FROM "month_entries" WHERE "id" = ${id}::uuid AND "user_id" = ${userId}::uuid FOR UPDATE`
 
                 if ((await transaction.pocketSpend.count({ where: { entryId: id } })) > 0) {
@@ -451,22 +526,24 @@ export class FinanceRepository {
         })
     }
 
-    countSpends(entryId: string) {
-        return prisma.pocketSpend.count({ where: { entryId } })
-    }
-
-    createSpend(userId: string, entryId: string, data: { amount: number; id?: string; note: string | null; spentOn: Date }) {
+    // Gasto con la fila del bolsillo bloqueada (FOR UPDATE): la categoría y la cuota se comprueban
+    // sobre el estado actual y se serializan con otros gastos y con el cambio de categoría.
+    createSpend(userId: string, entryId: string, data: { amount: number; id?: string; note: string | null; spentOn: Date }, limit: number) {
         return withTransaction(async (transaction) => {
             const locked = await transaction.$queryRaw<Array<{ category: string }>>`SELECT "category" FROM "month_entries"
-                WHERE "id" = ${entryId}::uuid AND "user_id" = ${userId}::uuid FOR SHARE`
+                WHERE "id" = ${entryId}::uuid AND "user_id" = ${userId}::uuid FOR UPDATE`
 
             if (locked[0]?.category !== 'POCKET') {
-                return { notPocket: true as const }
+                return { status: 'not-pocket' as const }
+            }
+
+            if ((await transaction.pocketSpend.count({ where: { entryId } })) >= limit) {
+                return { status: 'limit-reached' as const }
             }
 
             return {
-                notPocket: false as const,
                 spend: await transaction.pocketSpend.create({ data: { ...data, entryId, userId }, select: spendSelect }),
+                status: 'created' as const,
             }
         })
     }
@@ -483,10 +560,6 @@ export class FinanceRepository {
         return prisma.debt.findMany({ orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }], select: debtSelect, where: { userId } })
     }
 
-    countDebts(userId: string) {
-        return prisma.debt.count({ where: { userId } })
-    }
-
     findDebtForReplay(id: string) {
         return prisma.debt.findUnique({ select: { ...debtSelect, userId: true }, where: { id } })
     }
@@ -495,14 +568,22 @@ export class FinanceRepository {
         return prisma.debt.findFirst({ select: { id: true }, where: { id, userId } })
     }
 
-    async nextDebtSortOrder(userId: string) {
-        const result = await prisma.debt.aggregate({ _max: { sortOrder: true }, where: { userId } })
+    createDebt(data: Omit<Prisma.DebtUncheckedCreateInput, 'sortOrder'> & { sortOrder?: number }, limit: number) {
+        return withTransaction(async (transaction) => {
+            await lockUserFinance(transaction, data.userId)
 
-        return (result._max.sortOrder ?? -1) + 1
-    }
+            if ((await transaction.debt.count({ where: { userId: data.userId } })) >= limit) {
+                return { limitReached: true as const }
+            }
 
-    createDebt(data: Prisma.DebtUncheckedCreateInput) {
-        return prisma.debt.create({ data, select: debtSelect })
+            const last = await transaction.debt.aggregate({ _max: { sortOrder: true }, where: { userId: data.userId } })
+            const debt = await transaction.debt.create({
+                data: { ...data, sortOrder: data.sortOrder ?? (last._max.sortOrder ?? -1) + 1 },
+                select: debtSelect,
+            })
+
+            return { debt, limitReached: false as const }
+        })
     }
 
     updateDebt(userId: string, id: string, data: Prisma.DebtUncheckedUpdateInput) {

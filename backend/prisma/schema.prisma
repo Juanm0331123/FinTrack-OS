@@ -313,12 +313,13 @@ model Debt {
 }
 
 model FinanceOperation {
-  userId    String               @map("user_id") @db.Uuid
-  key       String               @db.Uuid
-  kind      FinanceOperationKind
-  yearMonth String               @map("year_month") @db.VarChar(7)
-  createdAt DateTime             @default(now()) @map("created_at")
-  user      User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String               @map("user_id") @db.Uuid
+  key         String               @db.Uuid
+  kind        FinanceOperationKind
+  yearMonth   String               @map("year_month") @db.VarChar(7)
+  fingerprint String?              @db.VarChar(100)
+  createdAt   DateTime             @default(now()) @map("created_at")
+  user        User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([userId, key])
   @@index([createdAt])

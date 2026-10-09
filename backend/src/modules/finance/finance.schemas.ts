@@ -5,7 +5,7 @@ import {
     ENTRY_CATEGORIES,
     LEFTOVER_DESTINATIONS,
 } from './finance.types.ts'
-import { roundHalfUpToCents } from './money.ts'
+import { roundHalfUpTo, roundHalfUpToCents } from './money.ts'
 
 const MAX_AMOUNT = 999_999_999_999.99
 const MAX_SORT_ORDER = 1_000_000
@@ -29,15 +29,26 @@ const amountSchema = z
 
 const nullableAmountSchema = amountSchema.nullable()
 
-const rateSchema = z
-    .number({ error: 'La tasa debe ser un número.' })
-    .min(0, 'La tasa no puede ser negativa.')
-    .max(1, 'La tasa debe estar entre 0 y 1.')
+// Tasas y porcentajes se normalizan a la escala de su columna antes de guardar y de comparar un
+// reintento: numeric(9, 6) para tasas, numeric(6, 4) para prestaciones y numeric(5, 2) para el
+// porcentaje compartido.
+function rateWithScale(decimals: number) {
+    return z
+        .number({ error: 'La tasa debe ser un número.' })
+        .min(0, 'La tasa no puede ser negativa.')
+        .max(1, 'La tasa debe estar entre 0 y 1.')
+        .transform((value) => roundHalfUpTo(value, decimals))
+}
+
+const rateSchema = rateWithScale(6)
+
+const benefitsRateSchema = rateWithScale(4)
 
 const percentSchema = z
     .number({ error: 'El porcentaje debe ser un número.' })
     .min(0, 'El porcentaje no puede ser negativo.')
     .max(100, 'El porcentaje no puede superar 100.')
+    .transform((value) => roundHalfUpTo(value, 2))
 
 const dueDaySchema = z
     .number({ error: 'El día debe ser un número.' })
@@ -101,7 +112,7 @@ export const idParamsSchema = z.object({ params: idParams })
 export const updateSettingsSchema = z.object({
     body: z
         .object({
-            benefitsRate: rateSchema.optional(),
+            benefitsRate: benefitsRateSchema.optional(),
             cushionAmount: amountSchema.optional(),
             debtStrategy: z.enum(DEBT_STRATEGIES, { error: 'La estrategia de deudas no es válida.' }).optional(),
             redirectDebtOverpayments: z.boolean().optional(),
