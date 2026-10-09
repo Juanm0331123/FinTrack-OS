@@ -1,5 +1,5 @@
 import type { OAuthProvider, Prisma, UserRole } from '@prisma/client'
-import { publicUserSelect } from '../users/users.types.ts'
+import { publicUserSelect, type PublicUser } from '../users/users.types.ts'
 
 export const authCredentialsUserSelect = {
     ...publicUserSelect,
@@ -7,27 +7,20 @@ export const authCredentialsUserSelect = {
     passwordHash: true,
 } satisfies Prisma.UserSelect
 
-export const authStatusUserSelect = {
-    ...publicUserSelect,
-    deletedAt: true,
-} satisfies Prisma.UserSelect
-
 export type AuthCredentialsUser = Prisma.UserGetPayload<{
     select: typeof authCredentialsUserSelect
 }>
 
-export type AuthStatusUser = Prisma.UserGetPayload<{
-    select: typeof authStatusUserSelect
-}>
-
 export type AccessTokenClaims = {
     role: UserRole
-    tokenType: 'access'
+    sessionId: string
+    userId: string
 }
 
-export type RefreshTokenClaims = Omit<AccessTokenClaims, 'tokenType'> & {
+export type RefreshTokenClaims = {
     sessionId: string
-    tokenType: 'refresh'
+    tokenId: string
+    userId: string
 }
 
 export type SessionContext = {
@@ -38,25 +31,30 @@ export type SessionContext = {
 
 export type OAuthIntent = 'login' | 'register'
 
-export type TokenPair = {
+export type IssuedSession = {
     accessToken: string
     accessTokenExpiresInSeconds: number
     refreshToken: string
-    refreshTokenExpiresAt: Date
     refreshTokenMaxAgeMs: number
     sessionId: string
+}
+
+export type AuthenticatedSessionResult = IssuedSession & {
+    user: PublicUser
 }
 
 export type PendingEmailVerificationResult = {
     email: string
     expiresAt: Date
     requiresEmailVerification: true
+    verificationCode?: string
 }
 
 export type PasswordResetRequestAcceptedResult = {
     accepted: true
     email: string
     expiresAt: Date
+    resetCode?: string
 }
 
 export type PasswordResetVerificationResult = {
@@ -65,15 +63,16 @@ export type PasswordResetVerificationResult = {
     resetTokenExpiresAt: Date
 }
 
-export type AuthenticatedSessionResult = TokenPair & {
-    user: import('../users/users.types.ts').PublicUser
+export type EmailChangeRequestedResult = {
+    email: string
+    expiresAt: Date
+    verificationCode?: string
 }
 
 export type NormalizedOAuthProfile = {
-    avatarUrl?: string | null
-    displayName?: string | null
+    avatarUrl: string | null
+    displayName: string | null
     email: string
-    emailVerified: boolean
     firstName: string
     lastName: string | null
     provider: OAuthProvider

@@ -1,16 +1,6 @@
 import { UserRole, UserStatus } from '@prisma/client'
 import { z } from 'zod'
-
-const emailSchema = z
-    .string()
-    .trim()
-    .email('Email inválido.')
-    .max(255, 'El email no puede superar 255 caracteres.')
-
-const passwordSchema = z
-    .string()
-    .min(8, 'La contraseña debe tener al menos 8 caracteres.')
-    .max(72, 'La contraseña no puede superar 72 caracteres.')
+import { emailSchema, newPasswordSchema } from '../auth/auth.schemas.ts'
 
 const firstNameSchema = z
     .string()
@@ -42,10 +32,10 @@ export const createUserSchema = z.object({
             email: emailSchema,
             firstName: firstNameSchema,
             lastName: lastNameSchema.optional().nullable(),
-            password: passwordSchema,
+            password: newPasswordSchema,
             preferredCurrencyCode: currencyCodeSchema.optional(),
-            role: z.nativeEnum(UserRole).optional(),
-            status: z.nativeEnum(UserStatus).optional(),
+            role: z.enum(UserRole).optional(),
+            status: z.enum(UserStatus).optional(),
             timezone: timezoneSchema.optional(),
         })
         .strict(),
@@ -53,17 +43,17 @@ export const createUserSchema = z.object({
 
 export const updateUserSchema = z.object({
     params: z.object({
-        id: z.string().uuid('ID inválido.'),
+        id: z.uuid('ID inválido.'),
     }),
+    // El correo y la contraseña no se cambian aquí: requieren reautenticación y confirmación
+    // (POST /api/auth/password y /api/auth/email-change).
     body: z
         .object({
-            email: emailSchema.optional(),
             firstName: firstNameSchema.optional(),
             lastName: lastNameSchema.optional().nullable(),
-            password: passwordSchema.optional(),
             preferredCurrencyCode: currencyCodeSchema.optional(),
-            role: z.nativeEnum(UserRole).optional(),
-            status: z.nativeEnum(UserStatus).optional(),
+            role: z.enum(UserRole).optional(),
+            status: z.enum(UserStatus).optional(),
             timezone: timezoneSchema.optional(),
         })
         .strict()
@@ -75,7 +65,7 @@ export const updateUserSchema = z.object({
 
 export const userIdParamSchema = z.object({
     params: z.object({
-        id: z.string().uuid('ID inválido.'),
+        id: z.uuid('ID inválido.'),
     }),
 })
 
@@ -83,14 +73,14 @@ export const listUsersQuerySchema = z.object({
     query: z.object({
         page: z.coerce.number().int().positive().default(1),
         pageSize: z.coerce.number().int().min(1).max(100).default(10),
-        role: z.nativeEnum(UserRole).optional(),
+        role: z.enum(UserRole).optional(),
         search: z
             .string()
             .trim()
             .min(1, 'La búsqueda no puede estar vacía.')
             .max(255, 'La búsqueda no puede superar 255 caracteres.')
             .optional(),
-        status: z.nativeEnum(UserStatus).optional(),
+        status: z.enum(UserStatus).optional(),
     }),
 })
 

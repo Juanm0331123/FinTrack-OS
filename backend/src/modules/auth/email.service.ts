@@ -1,37 +1,62 @@
-import nodemailer from 'nodemailer'
+import { randomUUID } from 'node:crypto'
+import nodemailer, { type Transporter } from 'nodemailer'
 import { env } from '../../config/env.ts'
+import { describeError, logger } from '../../config/logger.ts'
+import { metrics } from '../../config/metrics.ts'
 import { ServiceUnavailableError } from '../../utils/app-error.ts'
+import {
+    renderEmailChangeCode,
+    renderEmailChangedNotice,
+    renderPasswordResetCode,
+    renderVerificationCode,
+    type RenderedEmail,
+} from './email.templates.ts'
 
-type SendVerificationCodeEmailInput = {
+type CodeEmailInput = {
     code: string
     email: string
     expiresAt: Date
     firstName: string
 }
 
-type SendPasswordResetCodeEmailInput = {
-    code: string
-    email: string
-    expiresAt: Date
-    firstName: string
-}
+type OutgoingEmail = RenderedEmail & { to: string }
 
 type EmailProvider = {
-    sendPasswordResetCodeEmail(input: SendPasswordResetCodeEmailInput): Promise<void>
-    sendVerificationCodeEmail(input: SendVerificationCodeEmailInput): Promise<void>
+    send(message: OutgoingEmail): Promise<void>
+}
+
+export type OutboxMessage = OutgoingEmail & { sentAt: Date }
+
+// Los envíos tienen plazo propio y no se reintentan automáticamente: un reintento ciego puede
+// duplicar códigos. El usuario puede pedir otro código, sujeto a los límites de envío.
+
+function deliveryFailed(provider: string, kind: string, error?: unknown) {
+    metrics.recordDependencyError('email', kind)
+    logger.error('email_delivery_failed', { ...(error ? describeError(error) : {}), deliveryFailure: kind, provider })
+
+    return new ServiceUnavailableError(
+        'No pudimos enviar el correo en este momento. Intenta de nuevo en unos minutos.',
+        'EMAIL_DELIVERY_FAILED',
+    )
+}
+
+const outbox: OutboxMessage[] = []
+
+// Solo existe con NODE_ENV=test (env.ts rechaza EMAIL_PROVIDER=outbox en otro entorno).
+export function readTestOutbox() {
+    return outbox
+}
+
+class OutboxEmailProvider implements EmailProvider {
+    async send(message: OutgoingEmail) {
+        outbox.push({ ...message, sentAt: new Date() })
+    }
 }
 
 class ConsoleEmailProvider implements EmailProvider {
-    async sendVerificationCodeEmail(input: SendVerificationCodeEmailInput) {
-        console.info(
-            `Email verification code for ${input.email}: ${input.code} (expires ${input.expiresAt.toISOString()})`,
-        )
-    }
-
-    async sendPasswordResetCodeEmail(input: SendPasswordResetCodeEmailInput) {
-        console.info(
-            `Password reset code for ${input.email}: ${input.code} (expires ${input.expiresAt.toISOString()})`,
-        )
+    async send(message: OutgoingEmail) {
+        // Solo en desarrollo local sin proveedor configurado: imprime el correo para leer el código.
+        process.stdout.write(`\n[correo de desarrollo] Para: ${message.to}\nAsunto: ${message.subject}\n${message.text}\n\n`)
     }
 }
 
@@ -40,228 +65,82 @@ class ResendEmailProvider implements EmailProvider {
     private readonly from: string
     private readonly replyTo?: string
 
-    constructor() {
-        if (!env.RESEND_API_KEY || !env.EMAIL_FROM) {
-            throw new ServiceUnavailableError(
-                'El envío de correos no está configurado.',
-                'EMAIL_DELIVERY_UNAVAILABLE',
-            )
-        }
-
-        this.apiKey = env.RESEND_API_KEY
-        this.from = env.EMAIL_FROM
+    constructor(apiKey: string, from: string) {
+        this.apiKey = apiKey
+        this.from = from
         this.replyTo = env.EMAIL_REPLY_TO
     }
 
-    async sendVerificationCodeEmail(input: SendVerificationCodeEmailInput) {
-        const response = await fetch('https://api.resend.com/emails', {
-            method: 'POST',
-            headers: {
-                Authorization: `Bearer ${this.apiKey}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                from: this.from,
-                to: [input.email],
-                subject: 'Tu código de verificación de FinTrack OS',
-                html: this.renderVerificationEmailHtml(input),
-                text: this.renderVerificationEmailText(input),
-                ...(this.replyTo ? { reply_to: this.replyTo } : {}),
-            }),
-        })
+    async send(message: OutgoingEmail) {
+        let response: Response
+
+        try {
+            response = await fetch('https://api.resend.com/emails', {
+                body: JSON.stringify({
+                    from: this.from,
+                    html: message.html,
+                    subject: message.subject,
+                    text: message.text,
+                    to: [message.to],
+                    ...(this.replyTo ? { reply_to: this.replyTo } : {}),
+                }),
+                headers: {
+                    Authorization: `Bearer ${this.apiKey}`,
+                    'Content-Type': 'application/json',
+                    // Si la petición se repitiera, Resend no entregaría un segundo correo.
+                    'Idempotency-Key': randomUUID(),
+                },
+                method: 'POST',
+                signal: AbortSignal.timeout(env.EMAIL_SEND_TIMEOUT_MS),
+            })
+        } catch (error) {
+            throw deliveryFailed('resend', (error as Error).name === 'TimeoutError' ? 'timeout' : 'network', error)
+        }
 
         if (!response.ok) {
-            const errorText = await response.text()
-
-            throw new ServiceUnavailableError(
-                env.NODE_ENV === 'production'
-                    ? 'El envío de correos no está disponible en este momento. Intenta más tarde.'
-                    : `Falló el envío del correo. ${errorText}`,
-                'EMAIL_DELIVERY_FAILED',
-            )
+            await response.body?.cancel()
+            throw deliveryFailed('resend', `http_${response.status}`)
         }
-    }
 
-    async sendPasswordResetCodeEmail(input: SendPasswordResetCodeEmailInput) {
-        const response = await fetch('https://api.resend.com/emails', {
-            method: 'POST',
-            headers: {
-                Authorization: `Bearer ${this.apiKey}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                from: this.from,
-                to: [input.email],
-                subject: 'Tu código para recuperar la contraseña de FinTrack OS',
-                html: renderPasswordResetEmailHtml(input),
-                text: renderPasswordResetEmailText(input),
-                ...(this.replyTo ? { reply_to: this.replyTo } : {}),
-            }),
-        })
-
-        if (!response.ok) {
-            const errorText = await response.text()
-
-            throw new ServiceUnavailableError(
-                env.NODE_ENV === 'production'
-                    ? 'El envío de correos no está disponible en este momento. Intenta más tarde.'
-                    : `Falló el envío del correo. ${errorText}`,
-                'EMAIL_DELIVERY_FAILED',
-            )
-        }
-    }
-
-    private renderVerificationEmailHtml(input: SendVerificationCodeEmailInput) {
-        return renderVerificationEmailHtml(input)
-    }
-
-    private renderVerificationEmailText(input: SendVerificationCodeEmailInput) {
-        return renderVerificationEmailText(input)
+        await response.body?.cancel()
     }
 }
 
 class GmailEmailProvider implements EmailProvider {
     private readonly from: string
     private readonly replyTo?: string
-    private readonly transporter: nodemailer.Transporter
+    private readonly transporter: Transporter
 
-    constructor() {
-        const from = env.EMAIL_FROM?.trim() || 'FinTrack OS <fintrackos.auth@gmail.com>'
-        const gmailAddress = extractEmailAddress(from)
-
-        if (!gmailAddress || !env.EMAIL_PASSWORD) {
-            throw new ServiceUnavailableError(
-                'El envío de correos no está configurado.',
-                'EMAIL_DELIVERY_UNAVAILABLE',
-            )
-        }
-
+    constructor(from: string, user: string, password: string) {
         this.from = from
         this.replyTo = env.EMAIL_REPLY_TO
         this.transporter = nodemailer.createTransport({
-            auth: {
-                pass: env.EMAIL_PASSWORD,
-                user: gmailAddress,
-            },
+            auth: { pass: password, user },
+            connectionTimeout: env.EMAIL_SEND_TIMEOUT_MS,
+            greetingTimeout: env.EMAIL_SEND_TIMEOUT_MS,
             host: 'smtp.gmail.com',
             port: 465,
             secure: true,
+            socketTimeout: env.EMAIL_SEND_TIMEOUT_MS,
         })
     }
 
-    async sendVerificationCodeEmail(input: SendVerificationCodeEmailInput) {
+    async send(message: OutgoingEmail) {
         try {
             await this.transporter.sendMail({
                 from: this.from,
-                to: input.email,
-                subject: 'Tu código de verificación de FinTrack OS',
-                html: renderVerificationEmailHtml(input),
-                text: renderVerificationEmailText(input),
+                html: message.html,
+                subject: message.subject,
+                text: message.text,
+                to: message.to,
                 ...(this.replyTo ? { replyTo: this.replyTo } : {}),
             })
         } catch (error) {
-            throw new ServiceUnavailableError(
-                env.NODE_ENV === 'production'
-                    ? 'El envío de correos no está disponible en este momento. Intenta más tarde.'
-                    : `Falló el envío del correo. ${error instanceof Error ? error.message : 'Error SMTP desconocido.'}`,
-                'EMAIL_DELIVERY_FAILED',
-            )
+            const code = (error as { code?: unknown }).code
+
+            throw deliveryFailed('gmail', typeof code === 'string' ? code.toLowerCase() : 'smtp_error', error)
         }
     }
-
-    async sendPasswordResetCodeEmail(input: SendPasswordResetCodeEmailInput) {
-        try {
-            await this.transporter.sendMail({
-                from: this.from,
-                to: input.email,
-                subject: 'Tu código para recuperar la contraseña de FinTrack OS',
-                html: renderPasswordResetEmailHtml(input),
-                text: renderPasswordResetEmailText(input),
-                ...(this.replyTo ? { replyTo: this.replyTo } : {}),
-            })
-        } catch (error) {
-            throw new ServiceUnavailableError(
-                env.NODE_ENV === 'production'
-                    ? 'El envío de correos no está disponible en este momento. Intenta más tarde.'
-                    : `Falló el envío del correo. ${error instanceof Error ? error.message : 'Error SMTP desconocido.'}`,
-                'EMAIL_DELIVERY_FAILED',
-            )
-        }
-    }
-}
-
-function renderVerificationEmailHtml(input: SendVerificationCodeEmailInput) {
-    return `
-        <div style="background:#f5f7fb;padding:32px 16px;font-family:Arial,sans-serif;color:#0f172a">
-          <div style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:20px;padding:32px;border:1px solid #dbe4f0">
-            <p style="margin:0 0 16px;font-size:14px;color:#475569">FinTrack OS</p>
-            <h1 style="margin:0 0 12px;font-size:28px;line-height:1.2;color:#0f172a">Verifica tu correo</h1>
-            <p style="margin:0 0 20px;font-size:16px;line-height:1.6;color:#334155">
-              Hola ${escapeHtml(input.firstName)}, usa este código para completar tu acceso a FinTrack OS.
-            </p>
-            <div style="margin:0 0 20px;padding:18px 20px;border-radius:16px;background:#eef4ff;border:1px solid #bfdbfe;text-align:center">
-              <p style="margin:0 0 8px;font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:#1d4ed8">Código de verificación</p>
-              <p style="margin:0;font-size:36px;line-height:1;font-weight:700;letter-spacing:.24em;color:#0f172a">${input.code}</p>
-            </div>
-            <p style="margin:0 0 12px;font-size:15px;line-height:1.6;color:#334155">
-              Este código vence en 10 minutos y solo funciona para <strong>${escapeHtml(input.email)}</strong>.
-            </p>
-            <p style="margin:0;font-size:14px;line-height:1.6;color:#64748b">
-              Si no solicitaste este acceso, puedes ignorar este correo.
-            </p>
-          </div>
-        </div>
-    `.trim()
-}
-
-function renderVerificationEmailText(input: SendVerificationCodeEmailInput) {
-    return [
-        'FinTrack OS',
-        '',
-        `Hola ${input.firstName},`,
-        '',
-        `Tu código de verificación es: ${input.code}`,
-        `Este código vence en 10 minutos y solo funciona para ${input.email}.`,
-        '',
-        'Si no solicitaste este acceso, puedes ignorar este correo.',
-    ].join('\n')
-}
-
-function renderPasswordResetEmailHtml(input: SendPasswordResetCodeEmailInput) {
-    return `
-        <div style="background:#f5f7fb;padding:32px 16px;font-family:Arial,sans-serif;color:#0f172a">
-          <div style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:20px;padding:32px;border:1px solid #dbe4f0">
-            <p style="margin:0 0 16px;font-size:14px;color:#475569">FinTrack OS</p>
-            <h1 style="margin:0 0 12px;font-size:28px;line-height:1.2;color:#0f172a">Recupera tu contraseña</h1>
-            <p style="margin:0 0 20px;font-size:16px;line-height:1.6;color:#334155">
-              Hola ${escapeHtml(input.firstName)}, usa este código para continuar con el cambio de contraseña.
-            </p>
-            <div style="margin:0 0 20px;padding:18px 20px;border-radius:16px;background:#fff6eb;border:1px solid #fdba74;text-align:center">
-              <p style="margin:0 0 8px;font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:#c2410c">Código de recuperación</p>
-              <p style="margin:0;font-size:36px;line-height:1;font-weight:700;letter-spacing:.24em;color:#0f172a">${input.code}</p>
-            </div>
-            <p style="margin:0 0 12px;font-size:15px;line-height:1.6;color:#334155">
-              Este código vence en 10 minutos y solo funciona para <strong>${escapeHtml(input.email)}</strong>.
-            </p>
-            <p style="margin:0;font-size:14px;line-height:1.6;color:#64748b">
-              Si no solicitaste cambiar tu contraseña, puedes ignorar este correo y tu cuenta seguirá igual.
-            </p>
-          </div>
-        </div>
-    `.trim()
-}
-
-function renderPasswordResetEmailText(input: SendPasswordResetCodeEmailInput) {
-    return [
-        'FinTrack OS',
-        '',
-        `Hola ${input.firstName},`,
-        '',
-        `Tu código para recuperar la contraseña es: ${input.code}`,
-        `Este código vence en 10 minutos y solo funciona para ${input.email}.`,
-        '',
-        'Si no solicitaste este cambio, puedes ignorar este correo y tu cuenta seguirá igual.',
-    ].join('\n')
 }
 
 function extractEmailAddress(value: string) {
@@ -274,52 +153,58 @@ function extractEmailAddress(value: string) {
     return value.includes('@') ? value.trim() : null
 }
 
-function escapeHtml(value: string) {
-    return value
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;')
-        .replaceAll('"', '&quot;')
-        .replaceAll("'", '&#39;')
+function createProvider(): EmailProvider {
+    if (env.EMAIL_PROVIDER === 'outbox') {
+        return new OutboxEmailProvider()
+    }
+
+    if (env.EMAIL_PROVIDER === 'resend' && env.RESEND_API_KEY && env.EMAIL_FROM) {
+        return new ResendEmailProvider(env.RESEND_API_KEY, env.EMAIL_FROM)
+    }
+
+    if (env.EMAIL_PROVIDER === 'gmail' && env.EMAIL_PASSWORD) {
+        const from = env.EMAIL_FROM?.trim() || 'FinTrack OS <fintrackos.auth@gmail.com>'
+        const address = extractEmailAddress(from)
+
+        if (address) {
+            return new GmailEmailProvider(from, address, env.EMAIL_PASSWORD)
+        }
+    }
+
+    if (!env.EMAIL_PROVIDER && env.NODE_ENV === 'development') {
+        return new ConsoleEmailProvider()
+    }
+
+    throw new ServiceUnavailableError('El envío de correos no está configurado.', 'EMAIL_DELIVERY_UNAVAILABLE')
 }
 
 export class EmailService {
-    private readonly provider: EmailProvider
+    private provider: EmailProvider | null = null
 
-    constructor() {
-        if (env.EMAIL_PROVIDER === 'gmail') {
-            this.provider = new GmailEmailProvider()
-            return
-        }
+    private getProvider() {
+        this.provider ??= createProvider()
 
-        if (env.EMAIL_PROVIDER === 'resend' && env.RESEND_API_KEY && env.EMAIL_FROM) {
-            this.provider = new ResendEmailProvider()
-            return
-        }
-
-        if (!env.EMAIL_PROVIDER) {
-            if (env.NODE_ENV === 'production') {
-                throw new ServiceUnavailableError(
-                    'El envío de correos no está configurado.',
-                    'EMAIL_DELIVERY_UNAVAILABLE',
-                )
-            }
-
-            this.provider = new ConsoleEmailProvider()
-            return
-        }
-
-        throw new ServiceUnavailableError(
-            'El envío de correos no está configurado.',
-            'EMAIL_DELIVERY_UNAVAILABLE',
-        )
+        return this.provider
     }
 
-    sendVerificationCodeEmail(input: SendVerificationCodeEmailInput) {
-        return this.provider.sendVerificationCodeEmail(input)
+    sendVerificationCodeEmail(input: CodeEmailInput) {
+        return this.getProvider().send({ ...renderVerificationCode(input), to: input.email })
     }
 
-    sendPasswordResetCodeEmail(input: SendPasswordResetCodeEmailInput) {
-        return this.provider.sendPasswordResetCodeEmail(input)
+    sendPasswordResetCodeEmail(input: CodeEmailInput) {
+        return this.getProvider().send({ ...renderPasswordResetCode(input), to: input.email })
+    }
+
+    sendEmailChangeCodeEmail(input: CodeEmailInput) {
+        return this.getProvider().send({ ...renderEmailChangeCode(input), to: input.email })
+    }
+
+    // Aviso al correo anterior. Es informativo: si falla, el cambio ya está confirmado.
+    async sendEmailChangedNotice(input: { firstName: string; newEmail: string; previousEmail: string }) {
+        try {
+            await this.getProvider().send({ ...renderEmailChangedNotice(input), to: input.previousEmail })
+        } catch (error) {
+            logger.warn('email_change_notice_failed', describeError(error))
+        }
     }
 }

@@ -1,17 +1,14 @@
-import type { Prisma } from '@prisma/client'
+import { Prisma, UserStatus } from '@prisma/client'
 import bcrypt from 'bcryptjs'
-import {
-    ConflictError,
-    ForbiddenError,
-    NotFoundError,
-} from '../../utils/app-error.ts'
+import { isUniqueViolation } from '../../config/database-errors.ts'
+import { ConflictError, ForbiddenError, NotFoundError } from '../../utils/app-error.ts'
 import { UsersRepository } from './users.repository.ts'
-import type {
-    CreateUserInput,
-    ListUsersQueryInput,
-    UpdateUserInput,
-} from './users.schemas.ts'
+import type { CreateUserInput, ListUsersQueryInput, UpdateUserInput } from './users.schemas.ts'
 import type { ListUsersResult, PublicUser } from './users.types.ts'
+
+const PASSWORD_HASH_ROUNDS = 12
+
+const emailTaken = () => new ConflictError('Ya existe una cuenta con ese correo.', 'EMAIL_ALREADY_REGISTERED')
 
 export class UsersService {
     private readonly usersRepository: UsersRepository
@@ -54,96 +51,52 @@ export class UsersService {
     }
 
     async createUser(input: CreateUserInput) {
-        const email = this.normalizeEmail(input.email)
-        const existingUser = await this.usersRepository.findActiveByEmail(email)
+        const passwordHash = await bcrypt.hash(input.password, PASSWORD_HASH_ROUNDS)
 
-        if (existingUser) {
-            throw new ConflictError('Ya existe una cuenta con ese correo.')
+        try {
+            return await this.usersRepository.create({
+                email: input.email,
+                firstName: input.firstName,
+                lastName: input.lastName,
+                passwordHash,
+                ...(input.preferredCurrencyCode ? { preferredCurrencyCode: input.preferredCurrencyCode } : {}),
+                ...(input.role ? { role: input.role } : {}),
+                ...(input.status ? { status: input.status } : {}),
+                ...(input.timezone ? { timezone: input.timezone } : {}),
+            })
+        } catch (error) {
+            if (isUniqueViolation(error)) {
+                throw emailTaken()
+            }
+
+            throw error
         }
-
-        const passwordHash = await bcrypt.hash(input.password, 12)
-
-        return this.usersRepository.create({
-            firstName: input.firstName,
-            lastName: input.lastName,
-            email,
-            passwordHash,
-            ...(input.preferredCurrencyCode
-                ? { preferredCurrencyCode: input.preferredCurrencyCode }
-                : {}),
-            ...(input.role ? { role: input.role } : {}),
-            ...(input.status ? { status: input.status } : {}),
-            ...(input.timezone ? { timezone: input.timezone } : {}),
-        })
     }
 
     async updateUser(id: string, input: UpdateUserInput, actor: PublicUser) {
         await this.getUserById(id)
+
+        if (actor.role !== 'ADMIN' && (input.role !== undefined || input.status !== undefined)) {
+            throw new ForbiddenError('No puedes cambiar esos datos del usuario.')
+        }
+
         const data: Prisma.UserUpdateInput = {}
-        const isAdmin = actor.role === 'ADMIN'
 
-        if (!isAdmin && (input.role !== undefined || input.status !== undefined)) {
-            throw new ForbiddenError(
-                'No puedes cambiar esos datos del usuario.',
-            )
-        }
-
-        if (input.email) {
-            const normalizedEmail = this.normalizeEmail(input.email)
-            const existingUser = await this.usersRepository.findActiveByEmail(normalizedEmail)
-
-            if (existingUser && existingUser.id !== id) {
-                throw new ConflictError('Ya existe una cuenta con ese correo.')
+        for (const key of ['firstName', 'lastName', 'preferredCurrencyCode', 'role', 'status', 'timezone'] as const) {
+            if (input[key] !== undefined) {
+                Object.assign(data, { [key]: input[key] })
             }
-
-            data.email = normalizedEmail
         }
 
-        if (input.firstName !== undefined) {
-            data.firstName = input.firstName
-        }
-
-        if (input.lastName !== undefined) {
-            data.lastName = input.lastName
-        }
-
-        if (input.password) {
-            data.passwordHash = await bcrypt.hash(input.password, 12)
-        }
-
-        if (input.preferredCurrencyCode !== undefined) {
-            data.preferredCurrencyCode = input.preferredCurrencyCode
-        }
-
-        if (input.role !== undefined) {
-            data.role = input.role
-        }
-
-        if (input.status !== undefined) {
-            data.status = input.status
-        }
-
-        if (input.timezone !== undefined) {
-            data.timezone = input.timezone
-        }
-
-        return this.usersRepository.update(id, data)
+        return this.usersRepository.update(id, data, {
+            revokeSessions: input.status !== undefined && input.status !== UserStatus.ACTIVE,
+        })
     }
 
     async deleteUser(id: string) {
         await this.getUserById(id)
-        const tombstoneEmail = this.buildDeletedEmail(id)
-
-        await this.usersRepository.softDelete(id, tombstoneEmail)
+        await this.usersRepository.softDelete(id, `deleted+${id}@fintrack.local`)
 
         return { id }
-    }
-
-    private buildDeletedEmail(userId: string) {
-        return `deleted+${userId}@fintrack.local`
-    }
-
-    private normalizeEmail(email: string) {
-        return email.trim().toLowerCase()
     }
 }

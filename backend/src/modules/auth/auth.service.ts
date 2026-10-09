@@ -1,16 +1,34 @@
-import { randomBytes, randomUUID } from 'node:crypto'
+import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
+import { setTimeout as delay } from 'node:timers/promises'
 import bcrypt from 'bcryptjs'
-import { OAuthProvider, UserRole, UserStatus } from '@prisma/client'
+import { AuthTokenType, OAuthProvider, SessionRevokeReason, UserRole, UserStatus } from '@prisma/client'
+import { isUniqueViolation } from '../../config/database-errors.ts'
+import { durationToMilliseconds, durationToSeconds } from '../../config/duration.ts'
 import { env } from '../../config/env.ts'
+import { logger } from '../../config/logger.ts'
 import {
+    BadRequestError,
     ConflictError,
     ForbiddenError,
-    ServiceUnavailableError,
+    RequestValidationError,
     UnauthorizedError,
 } from '../../utils/app-error.ts'
-import { type PublicUser } from '../users/users.types.ts'
+import type { PublicUser } from '../users/users.types.ts'
 import { AuthRepository } from './auth.repository.ts'
-import { EmailService } from './email.service.ts'
+import {
+    BCRYPT_MAX_PASSWORD_BYTES,
+    utf8ByteLength,
+    type ChangePasswordInput,
+    type ConfirmEmailChangeInput,
+    type LoginInput,
+    type RegisterInput,
+    type RequestEmailChangeInput,
+    type RequestPasswordResetInput,
+    type ResendEmailCodeInput,
+    type ResetPasswordInput,
+    type VerifyEmailCodeInput,
+    type VerifyPasswordResetCodeInput,
+} from './auth.schemas.ts'
 import {
     createNumericCode,
     createOpaqueToken,
@@ -18,1009 +36,758 @@ import {
     hashToken,
     signAccessToken,
     signRefreshToken,
+    tokenHashMatches,
     verifyRefreshToken,
 } from './auth.tokens.ts'
 import type {
-    LoginInput,
-    RequestPasswordResetInput,
-    RefreshSessionInput,
-    RegisterInput,
-    ResetPasswordInput,
-    ResendEmailCodeInput,
-    VerifyEmailCodeInput,
-    VerifyPasswordResetCodeInput,
-} from './auth.schemas.ts'
-import type {
-    AuthenticatedSessionResult,
     AuthCredentialsUser,
-    NormalizedOAuthProfile,
+    AuthenticatedSessionResult,
+    EmailChangeRequestedResult,
+    IssuedSession,
     OAuthIntent,
-    PendingEmailVerificationResult,
     PasswordResetRequestAcceptedResult,
     PasswordResetVerificationResult,
+    PendingEmailVerificationResult,
     SessionContext,
-    TokenPair,
 } from './auth.types.ts'
-
-type OAuthStartResult = {
-    authorizationUrl: string
-    state: string
-}
+import { EmailService } from './email.service.ts'
+import { OAuthClient } from './oauth.client.ts'
+import { classifyConsumedTokenReplay, isSessionUsable, newSessionExpiry, renewedIdleExpiry } from './session-policy.ts'
 
 const PASSWORD_HASH_ROUNDS = 12
-const GOOGLE_TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token'
-const GOOGLE_USERINFO_ENDPOINT = 'https://openidconnect.googleapis.com/v1/userinfo'
-const GITHUB_TOKEN_ENDPOINT = 'https://github.com/login/oauth/access_token'
-const GITHUB_USER_ENDPOINT = 'https://api.github.com/user'
-const GITHUB_EMAILS_ENDPOINT = 'https://api.github.com/user/emails'
+
+// Hash bcrypt (coste 12) de un valor aleatorio descartado. El login de un correo inexistente lo
+// compara igual que uno real, para que el tiempo de respuesta no revele si la cuenta existe.
+const DUMMY_PASSWORD_HASH = '$2b$12$vjpjd72ljCy0OWqPj0fgj.pfhbWcrS/bOx6maTU7tXSact41W9BUW'
+
+export type AuthenticatedActor = {
+    sessionId: string
+    userId: string
+}
+
+type Clock = () => Date
+
+function sessionLifetimes() {
+    return {
+        absoluteSeconds: durationToSeconds(env.SESSION_ABSOLUTE_TTL),
+        idleSeconds: durationToSeconds(env.JWT_REFRESH_TTL),
+    }
+}
+
+function secretsEqual(left: string, right: string) {
+    const leftBuffer = Buffer.from(left)
+    const rightBuffer = Buffer.from(right)
+
+    return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer)
+}
+
+// Seudónimo estable del correo para trazar incidentes en logs sin escribir el correo.
+function emailFingerprint(email: string) {
+    return createHmac('sha256', env.JWT_ACCESS_SECRET).update(`log-email:${email}`).digest('hex').slice(0, 16)
+}
+
+function auditAuthEvent(event: string, outcome: string, fields: Record<string, unknown> = {}) {
+    logger.info('auth_event', { event, outcome, ...fields })
+}
+
+const invalidCredentials = () => new UnauthorizedError('Correo o contraseña incorrectos.', 'INVALID_CREDENTIALS')
+const accountInactive = () => new ForbiddenError('Esta cuenta está inactiva.', 'ACCOUNT_INACTIVE')
+const emailUnavailable = () =>
+    new ConflictError(
+        'Ya existe una cuenta con ese correo. Inicia sesión o recupera tu contraseña.',
+        'EMAIL_ALREADY_REGISTERED',
+    )
+const invalidVerificationCode = () =>
+    new UnauthorizedError(
+        'El código no es válido. Si fallaste varias veces, solicita uno nuevo.',
+        'EMAIL_VERIFICATION_INVALID',
+    )
+const invalidResetCode = () =>
+    new UnauthorizedError('El código no es válido. Si fallaste varias veces, solicita uno nuevo.', 'PASSWORD_RESET_CODE_INVALID')
+const invalidResetToken = () =>
+    new UnauthorizedError(
+        'La autorización para cambiar la contraseña no es válida. Solicita un código nuevo.',
+        'PASSWORD_RESET_TOKEN_INVALID',
+    )
+const sessionInvalid = () => new UnauthorizedError('Tu sesión no es válida. Vuelve a iniciar sesión.', 'SESSION_INVALID')
+const sessionExpired = () => new UnauthorizedError('Tu sesión expiró. Vuelve a iniciar sesión.', 'SESSION_EXPIRED')
+const currentPasswordInvalid = () =>
+    new ForbiddenError('La contraseña actual no es correcta.', 'CURRENT_PASSWORD_INVALID')
 
 export class AuthService {
     private readonly authRepository: AuthRepository
+    private readonly clock: Clock
     private readonly emailService: EmailService
+    private readonly oauthClient: OAuthClient
 
     constructor(
         authRepository = new AuthRepository(),
         emailService = new EmailService(),
+        oauthClient = new OAuthClient(),
+        clock: Clock = () => new Date(),
     ) {
         this.authRepository = authRepository
+        this.clock = clock
         this.emailService = emailService
+        this.oauthClient = oauthClient
     }
 
-    async register(input: RegisterInput) {
-        const email = this.normalizeEmail(input.email)
-        const existingUser = await this.authRepository.findUserByEmailForAuth(email)
+    // Registro. Un correo activo o inactivo es un conflicto real (409, mismo mensaje para ambos).
+    // Un correo pendiente se reemplaza: quien registra de nuevo recibe el código. La creación
+    // concurrente del mismo correo se resuelve releyendo la cuenta, nunca con un error de índice.
+    async register(input: RegisterInput): Promise<PendingEmailVerificationResult> {
+        const email = input.email
         const passwordHash = await bcrypt.hash(input.password, PASSWORD_HASH_ROUNDS)
+        const profile = {
+            firstName: input.firstName,
+            lastName: input.lastName ?? null,
+            passwordHash,
+            preferredCurrencyCode: input.preferredCurrencyCode ?? 'COP',
+            role: UserRole.USER,
+            timezone: input.timezone ?? 'UTC',
+        }
+        const existing = await this.authRepository.findUserByEmailForAuth(email)
 
-        if (existingUser?.status === UserStatus.ACTIVE) {
-            throw new ConflictError('Ya existe una cuenta con ese correo.')
+        if (existing && existing.status !== UserStatus.PENDING_VERIFICATION) {
+            auditAuthEvent('register', 'conflict', { emailFingerprint: emailFingerprint(email) })
+            throw emailUnavailable()
         }
 
-        if (existingUser?.status === UserStatus.INACTIVE) {
-            throw new ForbiddenError('Esta cuenta está inactiva.')
+        if (existing) {
+            return this.refreshPendingRegistration(existing.id, email, profile, 'pending_refreshed')
         }
 
-        if (existingUser) {
-            const updatedUser = await this.authRepository.updatePendingRegisteredUser({
-                userId: existingUser.id,
-                userData: {
-                    email,
-                    firstName: input.firstName,
-                    lastName: input.lastName,
-                    passwordHash,
-                    preferredCurrencyCode: input.preferredCurrencyCode ?? 'COP',
-                    role: UserRole.USER,
-                    timezone: input.timezone ?? 'UTC',
-                },
-            })
-
-            return this.issueAndSendEmailVerificationCode(updatedUser)
-        }
-
-        const verificationCode = createNumericCode(6)
+        const code = createNumericCode(6)
         const tokenSalt = createTokenSalt()
-        const expiresAt = this.createFutureDate(env.EMAIL_VERIFICATION_TTL)
+        const expiresAt = this.futureDate(env.EMAIL_VERIFICATION_TTL)
+        const created = await this.authRepository.createPendingUser(
+            { ...profile, email, status: UserStatus.PENDING_VERIFICATION },
+            { expiresAt, tokenHash: hashToken(code, tokenSalt), tokenSalt },
+        )
 
-        const user = await this.authRepository.createRegisteredUser({
-            tokenExpiresAt: expiresAt,
-            tokenHash: hashToken(verificationCode, tokenSalt),
-            tokenSalt,
-            userData: {
-                email,
-                firstName: input.firstName,
-                lastName: input.lastName,
-                passwordHash,
-                preferredCurrencyCode: input.preferredCurrencyCode ?? 'COP',
-                role: UserRole.USER,
-                status: UserStatus.PENDING_VERIFICATION,
-                timezone: input.timezone ?? 'UTC',
-            },
-        })
+        if (created) {
+            auditAuthEvent('register', 'created', { emailFingerprint: emailFingerprint(email) })
+            await this.emailService.sendVerificationCodeEmail({ code, email, expiresAt, firstName: created.firstName })
 
-        return this.issueAndSendEmailVerificationCode(user, {
-            code: verificationCode,
-            expiresAt,
-            persistToken: false,
-        })
+            return this.pendingResult(email, expiresAt, code)
+        }
+
+        const raced = await this.authRepository.findUserByEmailForAuth(email)
+
+        if (!raced || raced.status !== UserStatus.PENDING_VERIFICATION) {
+            auditAuthEvent('register', 'race_conflict', { emailFingerprint: emailFingerprint(email) })
+            throw emailUnavailable()
+        }
+
+        return this.refreshPendingRegistration(raced.id, email, profile, 'race_resolved')
     }
 
-    async verifyEmailCode(
-        input: VerifyEmailCodeInput,
-        sessionContext: SessionContext,
-    ) {
-        const email = this.normalizeEmail(input.email)
-        const user = await this.authRepository.findUserByEmailForAuth(email)
+    async verifyEmailCode(input: VerifyEmailCodeInput, context: SessionContext): Promise<AuthenticatedSessionResult> {
+        const user = await this.authRepository.findUserByEmailForAuth(input.email)
 
-        if (!user || user.deletedAt) {
-            throw new UnauthorizedError(
-                'El código no es válido.',
-                'EMAIL_VERIFICATION_INVALID',
-            )
+        if (!user || user.status !== UserStatus.PENDING_VERIFICATION) {
+            throw invalidVerificationCode()
         }
 
-        if (user.status === UserStatus.ACTIVE) {
-            throw new ConflictError(
-                'Este correo ya está verificado.',
-                'EMAIL_ALREADY_VERIFIED',
-            )
-        }
+        const token = await this.authRepository.findLatestOpenCodeToken(user.id, AuthTokenType.EMAIL_VERIFICATION)
 
-        if (user.status === UserStatus.INACTIVE) {
-            throw new ForbiddenError('Esta cuenta está inactiva.')
-        }
-
-        const verificationRecord =
-            await this.authRepository.findLatestEmailVerificationTokenByUserId(user.id)
-
-        if (!verificationRecord || !verificationRecord.tokenSalt) {
-            throw new UnauthorizedError(
-                'El código no es válido.',
-                'EMAIL_VERIFICATION_INVALID',
-            )
-        }
-
-        if (verificationRecord.expiresAt.getTime() <= Date.now()) {
-            throw new UnauthorizedError(
-                'El código ya venció. Solicita uno nuevo.',
-                'EMAIL_VERIFICATION_EXPIRED',
-                {
-                    email,
-                    expiresAt: verificationRecord.expiresAt.toISOString(),
-                },
-            )
-        }
-
-        if (
-            verificationRecord.usedAt ||
-            verificationRecord.revokedAt ||
-            hashToken(input.code, verificationRecord.tokenSalt) !==
-                verificationRecord.tokenHash
-        ) {
-            throw new UnauthorizedError(
-                'El código no es válido.',
-                'EMAIL_VERIFICATION_INVALID',
-            )
-        }
-
-        const verifiedUser =
-            await this.authRepository.activateUserAndConsumeVerificationToken(
-                verificationRecord.id,
-                verificationRecord.userId,
-            )
-
-        const tokenPair = await this.createTokenPair(verifiedUser.id, verifiedUser.role)
-        await this.authRepository.createRefreshTokenSession({
-            ...sessionContext,
-            expiresAt: tokenPair.refreshTokenExpiresAt,
-            sessionId: tokenPair.sessionId,
-            tokenHash: hashToken(tokenPair.refreshToken),
-            userId: verifiedUser.id,
-        })
-        await this.authRepository.touchLastLogin(verifiedUser.id)
-
-        return {
-            ...tokenPair,
-            user: verifiedUser,
-        } satisfies AuthenticatedSessionResult
-    }
-
-    async resendEmailCode(input: ResendEmailCodeInput) {
-        const email = this.normalizeEmail(input.email)
-        const user = await this.authRepository.findUserByEmailForAuth(email)
-
-        if (!user || user.deletedAt) {
-            throw new UnauthorizedError(
-                'No hay una verificación de correo pendiente.',
-                'EMAIL_VERIFICATION_NOT_FOUND',
-            )
-        }
-
-        if (user.status === UserStatus.ACTIVE) {
-            throw new ConflictError(
-                'Este correo ya está verificado.',
-                'EMAIL_ALREADY_VERIFIED',
-            )
-        }
-
-        if (user.status === UserStatus.INACTIVE) {
-            throw new ForbiddenError('Esta cuenta está inactiva.')
-        }
-
-        return this.issueAndSendEmailVerificationCode(user)
-    }
-
-    async requestPasswordReset(
-        input: RequestPasswordResetInput,
-    ): Promise<PasswordResetRequestAcceptedResult> {
-        const email = this.normalizeEmail(input.email)
-        const expiresAt = this.createFutureDate(env.PASSWORD_RESET_TTL)
-        const user = await this.authRepository.findUserByEmailForAuth(email)
-
-        if (!user || user.deletedAt || user.status === UserStatus.INACTIVE) {
-            return {
-                accepted: true,
-                email,
-                expiresAt,
+        if (!token || !tokenHashMatches(input.code, token.tokenHash, token.tokenSalt)) {
+            if (token) {
+                await this.authRepository.registerFailedCodeAttempt(token.id, env.AUTH_CODE_MAX_ATTEMPTS)
             }
+
+            throw invalidVerificationCode()
         }
 
-        await this.issueAndSendPasswordResetCode(user, expiresAt)
-
-        return {
-            accepted: true,
-            email,
-            expiresAt,
+        if (token.expiresAt <= this.clock()) {
+            throw new UnauthorizedError('El código ya venció. Solicita uno nuevo.', 'EMAIL_VERIFICATION_EXPIRED', {
+                email: input.email,
+                expiresAt: token.expiresAt.toISOString(),
+            })
         }
+
+        const activated = await this.authRepository.activateWithVerificationCode(token.id, user.id)
+
+        if (!activated) {
+            throw invalidVerificationCode()
+        }
+
+        auditAuthEvent('verify_email', 'activated', { userId: activated.id })
+
+        return this.startSession(activated, context)
     }
 
-    async verifyPasswordResetCode(
-        input: VerifyPasswordResetCodeInput,
-    ): Promise<PasswordResetVerificationResult> {
-        const email = this.normalizeEmail(input.email)
-        const user = await this.authRepository.findUserByEmailForAuth(email)
+    // Respuesta neutral: el mismo resultado exista o no una verificación pendiente.
+    async resendEmailCode(input: ResendEmailCodeInput): Promise<PendingEmailVerificationResult> {
+        const startedAt = Date.now()
+        const user = await this.authRepository.findUserByEmailForAuth(input.email)
+        const result =
+            user?.status === UserStatus.PENDING_VERIFICATION
+                ? await this.issueVerificationCode(user)
+                : this.pendingResult(input.email, this.futureDate(env.EMAIL_VERIFICATION_TTL))
 
-        if (!user || user.deletedAt || user.status === UserStatus.INACTIVE) {
-            throw new UnauthorizedError(
-                'El código no es válido.',
-                'PASSWORD_RESET_CODE_INVALID',
-            )
+        await this.padNeutralResponse(startedAt)
+
+        return result
+    }
+
+    async requestPasswordReset(input: RequestPasswordResetInput): Promise<PasswordResetRequestAcceptedResult> {
+        const startedAt = Date.now()
+        const expiresAt = this.futureDate(env.PASSWORD_RESET_TTL)
+        const user = await this.authRepository.findUserByEmailForAuth(input.email)
+
+        if (user && user.status !== UserStatus.INACTIVE) {
+            await this.issuePasswordResetCode(user, expiresAt)
         }
 
-        const resetCodeRecord =
-            await this.authRepository.findLatestPasswordResetCodeTokenByUserId(
-                user.id,
-            )
+        await this.padNeutralResponse(startedAt)
 
-        if (!resetCodeRecord || !resetCodeRecord.tokenSalt) {
-            throw new UnauthorizedError(
-                'El código no es válido.',
-                'PASSWORD_RESET_CODE_INVALID',
-            )
+        return { accepted: true, email: input.email, expiresAt }
+    }
+
+    async verifyPasswordResetCode(input: VerifyPasswordResetCodeInput): Promise<PasswordResetVerificationResult> {
+        const user = await this.authRepository.findUserByEmailForAuth(input.email)
+
+        if (!user || user.status === UserStatus.INACTIVE) {
+            throw invalidResetCode()
         }
 
-        if (resetCodeRecord.expiresAt.getTime() <= Date.now()) {
-            throw new UnauthorizedError(
-                'El código ya venció. Solicita uno nuevo.',
-                'PASSWORD_RESET_CODE_EXPIRED',
-                {
-                    email,
-                    expiresAt: resetCodeRecord.expiresAt.toISOString(),
-                },
-            )
+        const token = await this.authRepository.findLatestOpenCodeToken(user.id, AuthTokenType.PASSWORD_RESET)
+
+        if (!token || !tokenHashMatches(input.code, token.tokenHash, token.tokenSalt)) {
+            if (token) {
+                await this.authRepository.registerFailedCodeAttempt(token.id, env.AUTH_CODE_MAX_ATTEMPTS)
+            }
+
+            throw invalidResetCode()
         }
 
-        if (
-            resetCodeRecord.usedAt ||
-            resetCodeRecord.revokedAt ||
-            hashToken(input.code, resetCodeRecord.tokenSalt) !==
-                resetCodeRecord.tokenHash
-        ) {
-            throw new UnauthorizedError(
-                'El código no es válido.',
-                'PASSWORD_RESET_CODE_INVALID',
-            )
+        if (token.expiresAt <= this.clock()) {
+            throw new UnauthorizedError('El código ya venció. Solicita uno nuevo.', 'PASSWORD_RESET_CODE_EXPIRED', {
+                email: input.email,
+                expiresAt: token.expiresAt.toISOString(),
+            })
         }
 
         const resetToken = createOpaqueToken()
-        const resetTokenExpiresAt = this.createFutureDate(
-            env.PASSWORD_RESET_SESSION_TTL,
-        )
-
-        await this.authRepository.consumePasswordResetCodeAndIssueSessionToken({
-            codeTokenId: resetCodeRecord.id,
-            resetTokenExpiresAt,
-            resetTokenHash: hashToken(resetToken),
-            userId: user.id,
+        const resetTokenExpiresAt = this.futureDate(env.PASSWORD_RESET_SESSION_TTL)
+        const exchanged = await this.authRepository.exchangeResetCodeForSession({
+            codeTokenId: token.id,
+            resetToken: { expiresAt: resetTokenExpiresAt, tokenHash: hashToken(resetToken), userId: user.id },
         })
 
-        return {
-            email,
-            resetToken,
-            resetTokenExpiresAt,
+        if (!exchanged) {
+            throw invalidResetCode()
         }
+
+        return { email: input.email, resetToken, resetTokenExpiresAt }
     }
 
+    // Recuperación: consume la autorización una sola vez, cambia la contraseña y cierra todas las
+    // sesiones (también invalida los access tokens emitidos, que dependen de su sesión).
     async resetPassword(input: ResetPasswordInput) {
-        const email = this.normalizeEmail(input.email)
-        const user = await this.authRepository.findUserByEmailForAuth(email)
+        const user = await this.authRepository.findUserByEmailForAuth(input.email)
 
-        if (!user || user.deletedAt || user.status === UserStatus.INACTIVE) {
-            throw new UnauthorizedError(
-                'La autorización para cambiar la contraseña no es válida. Solicita un código nuevo.',
-                'PASSWORD_RESET_TOKEN_INVALID',
-            )
+        if (!user || user.status === UserStatus.INACTIVE) {
+            throw invalidResetToken()
         }
 
-        const resetSessionRecord =
-            await this.authRepository.findLatestPasswordResetSessionTokenByUserId(
-                user.id,
-            )
+        const token = await this.authRepository.findLatestOpenResetSession(user.id)
 
-        if (!resetSessionRecord || resetSessionRecord.tokenSalt) {
-            throw new UnauthorizedError(
-                'La autorización para cambiar la contraseña no es válida. Solicita un código nuevo.',
-                'PASSWORD_RESET_TOKEN_INVALID',
-            )
+        if (!token || !tokenHashMatches(input.resetToken, token.tokenHash)) {
+            throw invalidResetToken()
         }
 
-        if (resetSessionRecord.expiresAt.getTime() <= Date.now()) {
+        if (token.expiresAt <= this.clock()) {
             throw new UnauthorizedError(
                 'La autorización para cambiar la contraseña venció. Solicita un código nuevo.',
                 'PASSWORD_RESET_TOKEN_EXPIRED',
-                {
-                    email,
-                    expiresAt: resetSessionRecord.expiresAt.toISOString(),
-                },
-            )
-        }
-
-        if (
-            resetSessionRecord.usedAt ||
-            resetSessionRecord.revokedAt ||
-            hashToken(input.resetToken) !== resetSessionRecord.tokenHash
-        ) {
-            throw new UnauthorizedError(
-                'La autorización para cambiar la contraseña no es válida. Solicita un código nuevo.',
-                'PASSWORD_RESET_TOKEN_INVALID',
+                { email: input.email, expiresAt: token.expiresAt.toISOString() },
             )
         }
 
         const passwordHash = await bcrypt.hash(input.password, PASSWORD_HASH_ROUNDS)
-
-        await this.authRepository.consumePasswordResetSessionAndUpdatePassword({
+        const changed = await this.authRepository.resetPasswordWithSession({
             passwordHash,
-            resetTokenId: resetSessionRecord.id,
+            resetTokenId: token.id,
             userId: user.id,
         })
 
-        return {
-            passwordReset: true,
+        if (!changed) {
+            throw invalidResetToken()
         }
+
+        auditAuthEvent('password_reset', 'completed', { userId: user.id })
+
+        return { passwordReset: true as const }
     }
 
     async login(
         input: LoginInput,
-        sessionContext: SessionContext,
+        context: SessionContext,
     ): Promise<AuthenticatedSessionResult | PendingEmailVerificationResult> {
-        const email = this.normalizeEmail(input.email)
-        const user = await this.authRepository.findUserByEmailForAuth(email)
+        const user = await this.authRepository.findUserByEmailForAuth(input.email)
+        const passwordMatches = await bcrypt.compare(input.password, user?.passwordHash ?? DUMMY_PASSWORD_HASH)
 
-        if (!user) {
-            throw new UnauthorizedError('Correo o contraseña incorrectos.')
+        if (!user || !passwordMatches) {
+            auditAuthEvent('login', 'invalid_credentials', { emailFingerprint: emailFingerprint(input.email) })
+            throw invalidCredentials()
         }
 
-        const passwordMatches = await bcrypt.compare(
-            input.password,
-            user.passwordHash,
-        )
+        // bcrypt ignoró lo que pasa de 72 bytes: otras claves con el mismo prefijo también
+        // coinciden. Se exige fijar una contraseña nueva mediante el código de recuperación.
+        if (utf8ByteLength(input.password) > BCRYPT_MAX_PASSWORD_BYTES) {
+            const expiresAt = this.futureDate(env.PASSWORD_RESET_TTL)
 
-        if (!passwordMatches) {
-            throw new UnauthorizedError('Correo o contraseña incorrectos.')
+            if (user.status !== UserStatus.INACTIVE) {
+                await this.issuePasswordResetCode(user, expiresAt)
+            }
+
+            auditAuthEvent('login', 'password_reset_required', { userId: user.id })
+            throw new ForbiddenError(
+                'Por seguridad debes crear una contraseña nueva. Te enviamos un código de recuperación a tu correo.',
+                'PASSWORD_RESET_REQUIRED',
+                { email: input.email, expiresAt: expiresAt.toISOString() },
+            )
         }
 
         if (user.status === UserStatus.PENDING_VERIFICATION) {
-            return this.issueAndSendEmailVerificationCode(user)
+            return this.issueVerificationCode(user)
         }
 
-        this.assertUserCanStartSession(user)
-
-        const tokenPair = await this.createTokenPair(user.id, user.role)
-        await this.authRepository.createRefreshTokenSession({
-            ...sessionContext,
-            expiresAt: tokenPair.refreshTokenExpiresAt,
-            sessionId: tokenPair.sessionId,
-            tokenHash: hashToken(tokenPair.refreshToken),
-            userId: user.id,
-        })
-        await this.authRepository.touchLastLogin(user.id)
-
-        return {
-            ...tokenPair,
-            user: this.toPublicUser(user),
+        if (user.status === UserStatus.INACTIVE) {
+            throw accountInactive()
         }
+
+        auditAuthEvent('login', 'success', { userId: user.id })
+
+        return this.startSession(this.toPublicUser(user), context)
     }
 
-    async refresh(input: RefreshSessionInput, sessionContext: SessionContext) {
-        const rawRefreshToken = input.refreshToken
-
+    // Orden de validación: firma, expiración, emisor y audiencia primero (un token vencido o falso
+    // nunca toca el estado). Luego el estado de la sesión. Solo un token vigente y ya rotado, que
+    // llega fuera de la ventana de reintento, revoca su propia familia; nunca otras sesiones.
+    async refresh(rawRefreshToken: string | undefined, context: SessionContext): Promise<AuthenticatedSessionResult> {
         if (!rawRefreshToken) {
-            throw new UnauthorizedError('Tu sesión expiró. Vuelve a iniciar sesión.')
+            throw new UnauthorizedError('Inicia sesión para continuar.', 'SESSION_MISSING')
         }
 
-        const refreshTokenRecord = await this.authRepository.findRefreshTokenByHash(
-            hashToken(rawRefreshToken),
-        )
-
-        if (!refreshTokenRecord) {
-            throw new UnauthorizedError('Tu sesión no es válida. Vuelve a iniciar sesión.')
-        }
-
-        if (refreshTokenRecord.revokedAt) {
-            await this.authRepository.revokeAllRefreshTokens(refreshTokenRecord.userId)
-            throw new UnauthorizedError('Tu sesión se cerró. Vuelve a iniciar sesión.')
-        }
-
-        if (refreshTokenRecord.expiresAt.getTime() <= Date.now()) {
-            await this.authRepository.revokeRefreshTokenById(refreshTokenRecord.id)
-            throw new UnauthorizedError('Tu sesión expiró. Vuelve a iniciar sesión.')
-        }
-
-        const tokenClaims = await verifyRefreshToken(rawRefreshToken)
+        const claims = await verifyRefreshToken(rawRefreshToken)
+        const record = await this.authRepository.findRefreshToken(claims.tokenId)
 
         if (
-            tokenClaims.sessionId !== refreshTokenRecord.id ||
-            tokenClaims.userId !== refreshTokenRecord.userId ||
-            tokenClaims.tokenType !== 'refresh'
+            !record ||
+            record.session.id !== claims.sessionId ||
+            record.session.userId !== claims.userId ||
+            !tokenHashMatches(rawRefreshToken, record.tokenHash)
         ) {
-            await this.authRepository.revokeAllRefreshTokens(refreshTokenRecord.userId)
-            throw new UnauthorizedError('Tu sesión no es válida. Vuelve a iniciar sesión.')
+            throw sessionInvalid()
         }
 
-        this.assertUserCanStartSession(refreshTokenRecord.user)
+        const now = this.clock()
+        const user = record.session.user
 
-        const tokenPair = await this.createTokenPair(
-            refreshTokenRecord.userId,
-            refreshTokenRecord.user.role,
-        )
+        if (!isSessionUsable(record.session, now) || user.deletedAt || user.status !== UserStatus.ACTIVE) {
+            throw sessionExpired()
+        }
 
-        await this.authRepository.rotateRefreshTokenSession({
-            ...sessionContext,
-            currentTokenId: refreshTokenRecord.id,
-            newExpiresAt: tokenPair.refreshTokenExpiresAt,
-            newSessionId: tokenPair.sessionId,
-            newTokenHash: hashToken(tokenPair.refreshToken),
-            userId: refreshTokenRecord.userId,
+        if (record.revokedAt) {
+            throw sessionInvalid()
+        }
+
+        if (record.usedAt) {
+            return this.handleConsumedRefresh(record.session.id, record.usedAt, now)
+        }
+
+        const nextTokenId = randomUUID()
+        const nextExpiresAt = renewedIdleExpiry(now, record.session.absoluteExpiresAt, sessionLifetimes().idleSeconds)
+        const nextRefreshToken = await signRefreshToken({
+            expiresAt: nextExpiresAt,
+            sessionId: record.session.id,
+            tokenId: nextTokenId,
+            userId: user.id,
         })
-        await this.authRepository.touchLastLogin(refreshTokenRecord.userId)
+        const outcome = await this.authRepository.rotateRefreshToken({
+            context,
+            currentTokenId: record.id,
+            idleExpiresAt: nextExpiresAt,
+            next: { expiresAt: nextExpiresAt, tokenHash: hashToken(nextRefreshToken), tokenId: nextTokenId },
+            now,
+            sessionId: record.session.id,
+            userId: user.id,
+        })
+
+        if (outcome.status === 'already-used') {
+            return this.handleConsumedRefresh(record.session.id, outcome.usedAt ?? now, now)
+        }
+
+        if (outcome.status === 'session-invalid') {
+            throw sessionExpired()
+        }
+
+        const { accessToken, accessTokenExpiresInSeconds } = await signAccessToken({
+            role: user.role,
+            sessionId: record.session.id,
+            userId: user.id,
+        })
+        const { deletedAt: _deletedAt, ...publicUser } = user
 
         return {
-            ...tokenPair,
-            user: this.toPublicUser(refreshTokenRecord.user),
+            accessToken,
+            accessTokenExpiresInSeconds,
+            refreshToken: nextRefreshToken,
+            refreshTokenMaxAgeMs: Math.max(0, nextExpiresAt.getTime() - now.getTime()),
+            sessionId: record.session.id,
+            user: publicUser,
         }
     }
 
-    async logout(userId: string, refreshToken?: string) {
-        if (!refreshToken) {
+    async logout(actor: AuthenticatedActor, rawRefreshToken?: string) {
+        await this.authRepository.revokeUserSession(actor.sessionId, actor.userId, SessionRevokeReason.LOGOUT)
+
+        if (!rawRefreshToken) {
             return
         }
 
-        const refreshTokenRecord = await this.authRepository.findRefreshTokenByHash(
-            hashToken(refreshToken),
-        )
+        try {
+            const claims = await verifyRefreshToken(rawRefreshToken)
 
-        if (!refreshTokenRecord || refreshTokenRecord.userId !== userId) {
-            return
+            if (claims.userId === actor.userId && claims.sessionId !== actor.sessionId) {
+                await this.authRepository.revokeUserSession(claims.sessionId, actor.userId, SessionRevokeReason.LOGOUT)
+            }
+        } catch {
+            // Una cookie inválida no impide cerrar la sesión del access token.
         }
-
-        await this.authRepository.revokeRefreshTokenById(refreshTokenRecord.id)
     }
 
-    async logoutAll(userId: string) {
-        await this.authRepository.revokeAllRefreshTokens(userId)
+    async logoutAll(actor: AuthenticatedActor) {
+        await this.authRepository.revokeAllSessions(actor.userId, SessionRevokeReason.LOGOUT_ALL)
+        auditAuthEvent('logout_all', 'completed', { userId: actor.userId })
     }
 
     async getAuthenticatedUser(userId: string) {
         const user = await this.authRepository.findActiveUserById(userId)
 
         if (!user) {
-            throw new UnauthorizedError('No encontramos tu usuario. Vuelve a iniciar sesión.')
+            throw sessionInvalid()
         }
 
         return user
     }
 
-    async startOAuth(provider: OAuthProvider): Promise<OAuthStartResult> {
-        const state = randomBytes(24).toString('base64url')
-        const providerConfig = this.getOAuthProviderConfig(provider)
+    // Cambio de contraseña con reautenticación. La sesión actual sigue; las demás se cierran.
+    async changePassword(actor: AuthenticatedActor, input: ChangePasswordInput) {
+        const user = await this.requireCurrentPassword(actor.userId, input.currentPassword)
+        const passwordHash = await bcrypt.hash(input.newPassword, PASSWORD_HASH_ROUNDS)
+
+        await this.authRepository.changePassword({ currentSessionId: actor.sessionId, passwordHash, userId: user.id })
+        auditAuthEvent('password_change', 'completed', { userId: user.id })
+
+        return { otherSessionsClosed: true as const, passwordChanged: true as const }
+    }
+
+    // Paso 1 del cambio de correo: reautenticación y código enviado al correo nuevo. El correo de
+    // la cuenta no cambia hasta confirmar que el usuario controla la dirección nueva.
+    async requestEmailChange(actor: AuthenticatedActor, input: RequestEmailChangeInput): Promise<EmailChangeRequestedResult> {
+        const user = await this.requireCurrentPassword(actor.userId, input.currentPassword)
+
+        if (input.newEmail === user.email) {
+            throw new RequestValidationError('Revisa los datos enviados.', [
+                { field: 'newEmail', message: 'Ese ya es tu correo actual.' },
+            ])
+        }
+
+        if (await this.authRepository.emailBelongsToAnotherUser(input.newEmail, user.id)) {
+            throw emailUnavailable()
+        }
+
+        const code = createNumericCode(6)
+        const tokenSalt = createTokenSalt()
+        const expiresAt = this.futureDate(env.EMAIL_VERIFICATION_TTL)
+
+        await this.authRepository.issueCodeToken(AuthTokenType.EMAIL_CHANGE, {
+            expiresAt,
+            targetEmail: input.newEmail,
+            tokenHash: hashToken(code, tokenSalt),
+            tokenSalt,
+            userId: user.id,
+        })
+        await this.emailService.sendEmailChangeCodeEmail({ code, email: input.newEmail, expiresAt, firstName: user.firstName })
 
         return {
-            authorizationUrl: `${providerConfig.authorizationUrl}?${providerConfig.createSearchParams(state).toString()}`,
-            state,
+            email: input.newEmail,
+            expiresAt,
+            ...(env.exposeDevAuthTokens ? { verificationCode: code } : {}),
         }
     }
 
-    async handleOAuthCallback(input: {
-        code: string
-        intent: OAuthIntent
-        provider: OAuthProvider
-        state: string
-        storedState?: string
-    } & SessionContext) {
-        if (!input.storedState || input.state !== input.storedState) {
-            throw new UnauthorizedError('La solicitud de inicio de sesión no es válida. Intenta de nuevo.')
+    async confirmEmailChange(actor: AuthenticatedActor, input: ConfirmEmailChangeInput) {
+        const user = await this.authRepository.findUserByIdForAuth(actor.userId)
+        const token = user ? await this.authRepository.findLatestOpenCodeToken(user.id, AuthTokenType.EMAIL_CHANGE) : null
+        const invalid = () =>
+            new BadRequestError('El código no es válido. Si fallaste varias veces, solicita uno nuevo.', 'EMAIL_CHANGE_CODE_INVALID')
+
+        if (!user || !token?.targetEmail || !tokenHashMatches(input.code, token.tokenHash, token.tokenSalt)) {
+            if (token) {
+                await this.authRepository.registerFailedCodeAttempt(token.id, env.AUTH_CODE_MAX_ATTEMPTS)
+            }
+
+            throw invalid()
         }
 
-        const profile = await this.exchangeOAuthCodeForProfile(
-            input.provider,
-            input.code,
-        )
+        if (token.expiresAt <= this.clock()) {
+            throw new BadRequestError('El código ya venció. Solicita uno nuevo.', 'EMAIL_CHANGE_CODE_EXPIRED')
+        }
 
-        if (!profile.emailVerified) {
-            throw new ForbiddenError(
-                'El proveedor no devolvió un correo verificado.',
+        let updated: PublicUser | null
+
+        try {
+            updated = await this.authRepository.confirmEmailChange({
+                currentSessionId: actor.sessionId,
+                targetEmail: token.targetEmail,
+                tokenId: token.id,
+                userId: user.id,
+            })
+        } catch (error) {
+            if (isUniqueViolation(error)) {
+                throw emailUnavailable()
+            }
+
+            throw error
+        }
+
+        if (!updated) {
+            throw invalid()
+        }
+
+        auditAuthEvent('email_change', 'completed', { userId: user.id })
+        await this.emailService.sendEmailChangedNotice({
+            firstName: user.firstName,
+            newEmail: updated.email,
+            previousEmail: user.email,
+        })
+
+        return { otherSessionsClosed: true as const, user: updated }
+    }
+
+    startOAuth(provider: OAuthProvider) {
+        const state = randomBytes(24).toString('base64url')
+
+        return { authorizationUrl: this.oauthClient.authorizationUrl(provider, state), state }
+    }
+
+    async handleOAuthCallback(
+        input: { code: string; intent: OAuthIntent; provider: OAuthProvider; state: string; storedState?: string },
+        context: SessionContext,
+    ): Promise<AuthenticatedSessionResult | PendingEmailVerificationResult> {
+        if (!input.storedState || !secretsEqual(input.state, input.storedState)) {
+            throw new UnauthorizedError(
+                'La solicitud de inicio de sesión no es válida. Intenta de nuevo.',
+                'OAUTH_STATE_INVALID',
             )
         }
 
-        const existingOAuthAccount = await this.authRepository.findOAuthAccount(
-            profile.provider,
-            profile.providerAccountId,
-        )
-
+        const profile = await this.oauthClient.exchangeCode(input.provider, input.code)
+        const existingAccount = await this.authRepository.findOAuthAccount(profile.provider, profile.providerAccountId)
+        const accountExists = () =>
+            new ConflictError(
+                'Ya existe una cuenta con este correo. Inicia sesión en lugar de crear una nueva.',
+                'OAUTH_ACCOUNT_ALREADY_EXISTS',
+                { provider: profile.provider.toLowerCase() },
+            )
         let user: PublicUser
 
-        if (existingOAuthAccount) {
-            if (existingOAuthAccount.user.deletedAt) {
-                throw new UnauthorizedError(
-                    'Esta cuenta ya no está disponible.',
-                )
-            }
-
-            if (existingOAuthAccount.user.status === UserStatus.INACTIVE) {
-                throw new ForbiddenError('Esta cuenta está inactiva.')
+        if (existingAccount) {
+            if (existingAccount.user.deletedAt || existingAccount.user.status === UserStatus.INACTIVE) {
+                throw accountInactive()
             }
 
             if (input.intent === 'register') {
-                throw new ConflictError(
-                    'Ya existe una cuenta con este correo. Inicia sesión en lugar de crear una nueva.',
-                    'OAUTH_ACCOUNT_ALREADY_EXISTS',
-                    {
-                        email: profile.email,
-                        provider: profile.provider.toLowerCase(),
-                    },
-                )
+                throw accountExists()
             }
 
-            await this.authRepository.updateOAuthAccountMetadata(
-                existingOAuthAccount.id,
-                profile,
-            )
-            user = this.toPublicUser(existingOAuthAccount.user)
+            await this.authRepository.updateOAuthAccountMetadata(existingAccount.id, profile)
+            user = this.toPublicUser(existingAccount.user)
         } else {
-            const existingUser = await this.authRepository.findUserByEmailForAuth(
-                this.normalizeEmail(profile.email),
-            )
+            const existingUser = await this.authRepository.findUserByEmailForAuth(profile.email)
+            const unusablePasswordHash = await bcrypt.hash(createOpaqueToken(), PASSWORD_HASH_ROUNDS)
 
             if (existingUser) {
                 if (existingUser.status === UserStatus.INACTIVE) {
-                    throw new ForbiddenError('Esta cuenta está inactiva.')
+                    throw accountInactive()
                 }
 
                 if (input.intent === 'register') {
-                    throw new ConflictError(
-                        'Ya existe una cuenta con este correo. Inicia sesión en lugar de crear una nueva.',
-                        'OAUTH_ACCOUNT_ALREADY_EXISTS',
-                        {
-                            email: profile.email,
-                            provider: profile.provider.toLowerCase(),
-                        },
-                    )
+                    throw accountExists()
                 }
 
-                user = await this.authRepository.linkOAuthAccountToUser(
-                    existingUser.id,
+                user = await this.authRepository.linkOAuthAccount({
+                    expectedStatus: existingUser.status,
                     profile,
-                    existingUser.status,
-                )
+                    unusablePasswordHash,
+                    userId: existingUser.id,
+                })
+                auditAuthEvent('oauth_link', existingUser.status === UserStatus.PENDING_VERIFICATION ? 'pending_reset' : 'linked', {
+                    provider: profile.provider,
+                    userId: existingUser.id,
+                })
             } else {
-                const placeholderPasswordHash = await bcrypt.hash(
-                    createOpaqueToken(),
-                    PASSWORD_HASH_ROUNDS,
-                )
-                user = await this.authRepository.createUserFromOAuth(
-                    profile,
-                    placeholderPasswordHash,
-                )
+                user = await this.authRepository.createUserFromOAuth(profile, unusablePasswordHash)
             }
         }
 
         if (user.status === UserStatus.PENDING_VERIFICATION) {
-            return this.issueAndSendEmailVerificationCode(user)
-        }
-
-        const tokenPair = await this.createTokenPair(user.id, user.role)
-        await this.authRepository.createRefreshTokenSession({
-            deviceName: input.deviceName,
-            expiresAt: tokenPair.refreshTokenExpiresAt,
-            ipAddress: input.ipAddress,
-            sessionId: tokenPair.sessionId,
-            tokenHash: hashToken(tokenPair.refreshToken),
-            userAgent: input.userAgent,
-            userId: user.id,
-        })
-        await this.authRepository.touchLastLogin(user.id)
-
-        return {
-            ...tokenPair,
-            user,
-        }
-    }
-
-    private assertUserCanStartSession(user: AuthCredentialsUser | PublicUser) {
-        if ('deletedAt' in user && user.deletedAt) {
-            throw new UnauthorizedError('Esta cuenta ya no está disponible.')
-        }
-
-        if (user.status === UserStatus.PENDING_VERIFICATION) {
-            throw new ForbiddenError('Confirma tu correo antes de iniciar sesión.')
+            return this.issueVerificationCode(user)
         }
 
         if (user.status === UserStatus.INACTIVE) {
-            throw new ForbiddenError('Esta cuenta está inactiva.')
+            throw accountInactive()
         }
+
+        return this.startSession(user, context)
     }
 
-    private async createTokenPair(userId: string, role: UserRole): Promise<TokenPair> {
+    private async refreshPendingRegistration(
+        userId: string,
+        email: string,
+        profile: Parameters<AuthRepository['updatePendingUser']>[1],
+        outcome: string,
+    ) {
+        const updated = await this.authRepository.updatePendingUser(userId, profile)
+
+        if (!updated) {
+            auditAuthEvent('register', 'activated_meanwhile', { emailFingerprint: emailFingerprint(email) })
+            throw emailUnavailable()
+        }
+
+        auditAuthEvent('register', outcome, { emailFingerprint: emailFingerprint(email) })
+
+        return this.issueVerificationCode(updated)
+    }
+
+    private async handleConsumedRefresh(sessionId: string, usedAt: Date, now: Date): Promise<never> {
+        if (classifyConsumedTokenReplay(usedAt, now, env.REFRESH_REUSE_GRACE_SECONDS) === 'concurrent-retry') {
+            throw new ConflictError(
+                'Tu sesión se acaba de renovar en otra pestaña. Reintenta.',
+                'REFRESH_TOKEN_ROTATED',
+            )
+        }
+
+        await this.authRepository.revokeSession(sessionId, SessionRevokeReason.REFRESH_REUSE)
+        auditAuthEvent('refresh', 'reuse_detected', { sessionId })
+
+        throw new UnauthorizedError('Tu sesión se cerró por seguridad. Vuelve a iniciar sesión.', 'SESSION_REVOKED')
+    }
+
+    private async requireCurrentPassword(userId: string, currentPassword: string) {
+        const user = await this.authRepository.findUserByIdForAuth(userId)
+
+        if (!user || user.status !== UserStatus.ACTIVE) {
+            throw sessionInvalid()
+        }
+
+        if (!(await bcrypt.compare(currentPassword, user.passwordHash))) {
+            auditAuthEvent('reauthentication', 'failed', { userId })
+            throw currentPasswordInvalid()
+        }
+
+        return user
+    }
+
+    private async startSession(user: PublicUser, context: SessionContext): Promise<AuthenticatedSessionResult> {
+        const issued = await this.createSession(user, context)
+
+        await this.authRepository.touchLastLogin(user.id)
+
+        return { ...issued, user }
+    }
+
+    private async createSession(user: PublicUser, context: SessionContext): Promise<IssuedSession> {
+        const now = this.clock()
         const sessionId = randomUUID()
-        const { accessToken, accessTokenExpiresInSeconds } =
-            await signAccessToken({
-                role,
-                userId,
-            })
-        const refreshTokenResult = await signRefreshToken({
-            role,
+        const tokenId = randomUUID()
+        const { absoluteExpiresAt, idleExpiresAt } = newSessionExpiry(now, sessionLifetimes())
+        const refreshToken = await signRefreshToken({ expiresAt: idleExpiresAt, sessionId, tokenId, userId: user.id })
+
+        await this.authRepository.createSession({
+            absoluteExpiresAt,
+            context,
+            idleExpiresAt,
+            refreshToken: { expiresAt: idleExpiresAt, tokenHash: hashToken(refreshToken), tokenId },
+            retentionCutoff: new Date(now.getTime() - env.AUTH_RETENTION_DAYS * 24 * 60 * 60 * 1000),
             sessionId,
-            userId,
+            userId: user.id,
+        })
+
+        const { accessToken, accessTokenExpiresInSeconds } = await signAccessToken({
+            role: user.role,
+            sessionId,
+            userId: user.id,
         })
 
         return {
             accessToken,
             accessTokenExpiresInSeconds,
-            refreshToken: refreshTokenResult.refreshToken,
-            refreshTokenExpiresAt: refreshTokenResult.refreshTokenExpiresAt,
-            refreshTokenMaxAgeMs: refreshTokenResult.refreshTokenMaxAgeMs,
+            refreshToken,
+            refreshTokenMaxAgeMs: idleExpiresAt.getTime() - now.getTime(),
             sessionId,
         }
     }
 
-    private createFutureDate(duration: string) {
-        const match = duration.trim().match(/^(\d+)(s|m|h|d)$/i)
+    private async issueVerificationCode(user: PublicUser): Promise<PendingEmailVerificationResult> {
+        const code = createNumericCode(6)
+        const tokenSalt = createTokenSalt()
+        const expiresAt = this.futureDate(env.EMAIL_VERIFICATION_TTL)
 
-        if (!match) {
-            throw new Error(
-                `Unsupported duration "${duration}". Use a value like 15m, 1h, or 7d.`,
-            )
-        }
-
-        const amount = Number(match[1])
-        const unit = match[2].toLowerCase()
-        const multiplier =
-            unit === 's'
-                ? 1000
-                : unit === 'm'
-                  ? 60 * 1000
-                  : unit === 'h'
-                    ? 60 * 60 * 1000
-                    : 24 * 60 * 60 * 1000
-
-        return new Date(Date.now() + amount * multiplier)
-    }
-
-    private getOAuthProviderConfig(provider: OAuthProvider) {
-        if (provider === OAuthProvider.GOOGLE) {
-            const clientId = env.GOOGLE_OAUTH_CLIENT_ID
-            const clientSecret = env.GOOGLE_OAUTH_CLIENT_SECRET
-            const callbackUrl = env.GOOGLE_OAUTH_CALLBACK_URL
-
-            if (!clientId || !clientSecret || !callbackUrl) {
-                throw new ServiceUnavailableError(
-                    'El acceso con Google no está disponible.',
-                )
-            }
-
-            return {
-                authorizationUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
-                callbackUrl,
-                clientId,
-                clientSecret,
-                createSearchParams: (state: string) =>
-                    new URLSearchParams({
-                        client_id: clientId,
-                        redirect_uri: callbackUrl,
-                        response_type: 'code',
-                        scope: 'openid email profile',
-                        state,
-                    }),
-            }
-        }
-
-        const clientId = env.GITHUB_OAUTH_CLIENT_ID
-        const clientSecret = env.GITHUB_OAUTH_CLIENT_SECRET
-        const callbackUrl = env.GITHUB_OAUTH_CALLBACK_URL
-
-        if (!clientId || !clientSecret || !callbackUrl) {
-            throw new ServiceUnavailableError('El acceso con GitHub no está disponible.')
-        }
-
-        return {
-            authorizationUrl: 'https://github.com/login/oauth/authorize',
-            callbackUrl,
-            clientId,
-            clientSecret,
-            createSearchParams: (state: string) =>
-                new URLSearchParams({
-                    client_id: clientId,
-                    redirect_uri: callbackUrl,
-                    scope: 'read:user user:email',
-                    state,
-                }),
-        }
-    }
-
-    private async exchangeOAuthCodeForProfile(
-        provider: OAuthProvider,
-        code: string,
-    ): Promise<NormalizedOAuthProfile> {
-        if (provider === OAuthProvider.GOOGLE) {
-            return this.exchangeGoogleCodeForProfile(code)
-        }
-
-        return this.exchangeGitHubCodeForProfile(code)
-    }
-
-    private async exchangeGoogleCodeForProfile(code: string) {
-        const providerConfig = this.getOAuthProviderConfig(OAuthProvider.GOOGLE)
-        const tokenResponse = await fetch(GOOGLE_TOKEN_ENDPOINT, {
-            body: new URLSearchParams({
-                client_id: providerConfig.clientId,
-                client_secret: providerConfig.clientSecret,
-                code,
-                grant_type: 'authorization_code',
-                redirect_uri: providerConfig.callbackUrl,
-            }),
-            headers: {
-                Accept: 'application/json',
-                'Content-Type': 'application/x-www-form-urlencoded',
-            },
-            method: 'POST',
-        })
-
-        const tokenData = await this.parseJsonResponse<{
-            access_token?: string
-        }>(tokenResponse, 'No pudimos completar el acceso con Google.')
-
-        if (!tokenData.access_token) {
-            throw new UnauthorizedError('Google no devolvió un acceso válido.')
-        }
-
-        const profileResponse = await fetch(GOOGLE_USERINFO_ENDPOINT, {
-            headers: {
-                Authorization: `Bearer ${tokenData.access_token}`,
-            },
-        })
-        const profile = await this.parseJsonResponse<{
-            email?: string
-            email_verified?: boolean
-            family_name?: string
-            given_name?: string
-            name?: string
-            picture?: string
-            sub?: string
-        }>(profileResponse, 'No pudimos leer tu perfil de Google.')
-
-        if (!profile.sub || !profile.email) {
-            throw new UnauthorizedError('Google no devolvió los datos de tu perfil.')
-        }
-
-        const splitName = this.splitDisplayName(profile.name)
-
-        return {
-            avatarUrl: profile.picture ?? null,
-            displayName: profile.name ?? null,
-            email: this.normalizeEmail(profile.email),
-            emailVerified: Boolean(profile.email_verified),
-            firstName: profile.given_name ?? splitName.firstName,
-            lastName: profile.family_name ?? splitName.lastName,
-            provider: OAuthProvider.GOOGLE,
-            providerAccountId: profile.sub,
-        }
-    }
-
-    private async exchangeGitHubCodeForProfile(code: string) {
-        const providerConfig = this.getOAuthProviderConfig(OAuthProvider.GITHUB)
-        const tokenResponse = await fetch(GITHUB_TOKEN_ENDPOINT, {
-            body: new URLSearchParams({
-                client_id: providerConfig.clientId,
-                client_secret: providerConfig.clientSecret,
-                code,
-                redirect_uri: providerConfig.callbackUrl,
-            }),
-            headers: {
-                Accept: 'application/json',
-                'Content-Type': 'application/x-www-form-urlencoded',
-            },
-            method: 'POST',
-        })
-        const tokenData = await this.parseJsonResponse<{
-            access_token?: string
-        }>(tokenResponse, 'No pudimos completar el acceso con GitHub.')
-
-        if (!tokenData.access_token) {
-            throw new UnauthorizedError('GitHub no devolvió un acceso válido.')
-        }
-
-        const headers = {
-            Accept: 'application/vnd.github+json',
-            Authorization: `Bearer ${tokenData.access_token}`,
-            'User-Agent': 'FinTrack-OS',
-        }
-        const profileResponse = await fetch(GITHUB_USER_ENDPOINT, { headers })
-        const profile = await this.parseJsonResponse<{
-            avatar_url?: string
-            email?: string | null
-            id?: number
-            login?: string
-            name?: string | null
-        }>(profileResponse, 'No pudimos leer tu perfil de GitHub.')
-
-        if (!profile.id) {
-            throw new UnauthorizedError('GitHub no devolvió los datos de tu perfil.')
-        }
-
-        let email = profile.email ? this.normalizeEmail(profile.email) : ''
-        let emailVerified = Boolean(profile.email)
-
-        if (!email) {
-            const emailsResponse = await fetch(GITHUB_EMAILS_ENDPOINT, { headers })
-            const emails = await this.parseJsonResponse<
-                Array<{
-                    email: string
-                    primary: boolean
-                    verified: boolean
-                }>
-            >(emailsResponse, 'No pudimos leer tu correo de GitHub.')
-            const primaryVerifiedEmail =
-                emails.find((entry) => entry.primary && entry.verified) ??
-                emails.find((entry) => entry.verified)
-
-            if (!primaryVerifiedEmail) {
-                throw new ForbiddenError(
-                    'GitHub no devolvió un correo verificado.',
-                )
-            }
-
-            email = this.normalizeEmail(primaryVerifiedEmail.email)
-            emailVerified = true
-        }
-
-        const splitName = this.splitDisplayName(profile.name ?? profile.login)
-
-        return {
-            avatarUrl: profile.avatar_url ?? null,
-            displayName: profile.name ?? profile.login ?? null,
-            email,
-            emailVerified,
-            firstName: splitName.firstName,
-            lastName: splitName.lastName,
-            provider: OAuthProvider.GITHUB,
-            providerAccountId: String(profile.id),
-        }
-    }
-
-    private normalizeEmail(email: string) {
-        return email.trim().toLowerCase()
-    }
-
-    private async issueAndSendEmailVerificationCode(
-        user: PublicUser,
-        options?: {
-            code?: string
-            expiresAt?: Date
-            persistToken?: boolean
-        },
-    ): Promise<PendingEmailVerificationResult & { verificationCode?: string }> {
-        const code = options?.code ?? createNumericCode(6)
-        const expiresAt = options?.expiresAt ?? this.createFutureDate(env.EMAIL_VERIFICATION_TTL)
-
-        if (options?.persistToken !== false) {
-            const tokenSalt = createTokenSalt()
-
-            await this.authRepository.issueEmailVerificationCode({
-                userId: user.id,
-                tokenExpiresAt: expiresAt,
-                tokenHash: hashToken(code, tokenSalt),
-                tokenSalt,
-            })
-        }
-
-        await this.emailService.sendVerificationCodeEmail({
-            code,
-            email: user.email,
+        await this.authRepository.issueCodeToken(AuthTokenType.EMAIL_VERIFICATION, {
             expiresAt,
-            firstName: user.firstName,
+            tokenHash: hashToken(code, tokenSalt),
+            tokenSalt,
+            userId: user.id,
         })
+        await this.emailService.sendVerificationCodeEmail({ code, email: user.email, expiresAt, firstName: user.firstName })
 
-        return {
-            email: user.email,
-            expiresAt,
-            requiresEmailVerification: true,
-            ...(env.exposeDevAuthTokens ? { verificationCode: code } : {}),
-        }
+        return this.pendingResult(user.email, expiresAt, code)
     }
 
-    private async issueAndSendPasswordResetCode(
-        user: PublicUser,
-        expiresAt = this.createFutureDate(env.PASSWORD_RESET_TTL),
-    ) {
+    private async issuePasswordResetCode(user: PublicUser | AuthCredentialsUser, expiresAt: Date) {
         const code = createNumericCode(6)
         const tokenSalt = createTokenSalt()
 
-        await this.authRepository.issuePasswordResetCode({
-            userId: user.id,
-            tokenExpiresAt: expiresAt,
+        await this.authRepository.issueCodeToken(AuthTokenType.PASSWORD_RESET, {
+            expiresAt,
             tokenHash: hashToken(code, tokenSalt),
             tokenSalt,
+            userId: user.id,
         })
-
-        await this.emailService.sendPasswordResetCodeEmail({
-            code,
-            email: user.email,
-            expiresAt,
-            firstName: user.firstName,
-        })
+        await this.emailService.sendPasswordResetCodeEmail({ code, email: user.email, expiresAt, firstName: user.firstName })
     }
 
-    private async parseJsonResponse<T>(response: globalThis.Response, message: string) {
-        if (!response.ok) {
-            const responseText = await response.text()
-            const detail = this.extractOAuthErrorDetail(responseText)
-            const fullMessage =
-                env.NODE_ENV === 'production' || !detail
-                    ? message
-                    : `${message} ${detail}`
-
-            throw new UnauthorizedError(fullMessage)
-        }
-
-        return (await response.json()) as T
-    }
-
-    private extractOAuthErrorDetail(responseText: string) {
-        if (!responseText) {
-            return null
-        }
-
-        try {
-            const parsed = JSON.parse(responseText) as {
-                error?: string
-                error_description?: string
-            }
-
-            if (parsed.error_description) {
-                return `Provider response: ${parsed.error_description}`
-            }
-
-            if (parsed.error) {
-                return `Provider response: ${parsed.error}`
-            }
-
-            return responseText
-        } catch {
-            return responseText
-        }
-    }
-
-    private splitDisplayName(value?: string | null) {
-        const trimmedValue = value?.trim()
-
-        if (!trimmedValue) {
-            return {
-                firstName: 'User',
-                lastName: null,
-            }
-        }
-
-        const [firstName, ...lastNameParts] = trimmedValue.split(/\s+/)
-
+    private pendingResult(email: string, expiresAt: Date, code?: string): PendingEmailVerificationResult {
         return {
-            firstName,
-            lastName: lastNameParts.length > 0 ? lastNameParts.join(' ') : null,
+            email,
+            expiresAt,
+            requiresEmailVerification: true,
+            ...(env.exposeDevAuthTokens && code ? { verificationCode: code } : {}),
         }
     }
 
-    private toPublicUser(
-        user: AuthCredentialsUser | (PublicUser & { deletedAt?: Date | null }),
-    ) {
-        const { deletedAt: _deletedAt, passwordHash: _passwordHash, ...publicUser } =
-            user as AuthCredentialsUser & { deletedAt?: Date | null }
+    // Iguala la duración de las respuestas neutrales para que enviar o no un correo no sea una
+    // diferencia trivial de tiempo. No elimina por completo latencias extremas del proveedor.
+    private async padNeutralResponse(startedAt: number) {
+        const remaining = env.AUTH_NEUTRAL_RESPONSE_MS - (Date.now() - startedAt)
+
+        if (remaining > 0) {
+            await delay(remaining)
+        }
+    }
+
+    private futureDate(duration: string) {
+        return new Date(this.clock().getTime() + durationToMilliseconds(duration))
+    }
+
+    private toPublicUser(user: AuthCredentialsUser): PublicUser {
+        const { deletedAt: _deletedAt, passwordHash: _passwordHash, ...publicUser } = user
 
         return publicUser
     }
