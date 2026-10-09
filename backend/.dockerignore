@@ -1,0 +1,19 @@
+# Nada de secretos ni artefactos locales en la imagen.
+.env
+.env.*
+!.env.example
+node_modules
+.tmp
+.local
+coverage
+test
+**/*.test.ts
+scripts
+.agents
+.claude
+AGENTS.md
+CLAUDE.md
+skills-lock.json
+Dockerfile
+.dockerignore
+compose.test.yaml

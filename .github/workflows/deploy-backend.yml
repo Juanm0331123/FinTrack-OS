@@ -1,0 +1,90 @@
+name: Deploy backend (manual)
+
+# Solo manual y contra el environment `production`, que debe configurarse en GitHub con revisión
+# obligatoria. No se dispara con push: el despliegue automático queda desactivado hasta el aval
+# independiente del QA (docs/qa-backend-remediacion.md). Las variables y secretos del servicio
+# se configuran una vez en Cloud Run; este flujo solo publica una imagen nueva.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Escribe DESPLEGAR para confirmar el despliegue a producción'
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  NODE_VERSION: 24.16.0
+  PNPM_VERSION: 11.27.1
+  REGION: us-east4
+  SERVICE: fintrack-backend
+
+jobs:
+  deploy:
+    if: ${{ inputs.confirm == 'DESPLEGAR' }}
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: npm install --global pnpm@${{ env.PNPM_VERSION }}
+      - run: pnpm install --frozen-lockfile
+      - name: prisma generate
+        run: pnpm prisma:generate
+        env:
+          DATABASE_URL: postgresql://generate:generate@localhost:5432/generate
+      - run: pnpm typecheck
+      - run: pnpm test
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEPLOY_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build y push a Artifact Registry
+        run: |
+          IMAGE="${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/fintrack/backend:${GITHUB_SHA}"
+          gcloud auth configure-docker "${{ env.REGION }}-docker.pkg.dev" --quiet
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      - name: Verificación previa de la migración (solo lectura)
+        run: node scripts/check-migration-conflicts.ts
+        env:
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL }}
+
+      - name: Migraciones (prisma migrate deploy con DIRECT_URL)
+        run: node node_modules/prisma/build/index.js migrate deploy
+        env:
+          DATABASE_URL: ${{ secrets.PRODUCTION_DIRECT_URL }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL }}
+
+      - name: Deploy a Cloud Run
+        run: |
+          gcloud run deploy "${{ env.SERVICE }}" \
+            --image "$IMAGE" \
+            --region "${{ env.REGION }}" \
+            --min-instances 0 \
+            --max-instances 2 \
+            --concurrency 20 \
+            --timeout 35 \
+            --cpu 1 \
+            --memory 512Mi \
+            --cpu-boost \
+            --quiet
+
+      - name: Smoke de producción
+        run: |
+          URL="$(gcloud run services describe "${{ env.SERVICE }}" --region "${{ env.REGION }}" --format 'value(status.url)')"
+          test "$(curl -s -o /dev/null -w '%{http_code}' "$URL/api/health/ready")" = "200"
+          test "$(curl -s -o /dev/null -w '%{http_code}' "$URL/api/auth/me")" = "403"

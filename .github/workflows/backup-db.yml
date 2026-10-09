@@ -1,0 +1,70 @@
+name: Backup cifrado de la base (manual)
+
+# pg_dump de producción → gzip → cifrado AES-256 (gpg simétrico) → Cloud Storage.
+# El repositorio es público: el volcado nunca se publica como artifact ni sin cifrar.
+# La programación semanal queda comentada hasta el aval del despliegue; para activarla,
+# descomentar `schedule` (docs/despliegue.md, sección Backups).
+on:
+  workflow_dispatch:
+  # schedule:
+  #   - cron: '0 8 * * 1'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 20
+    steps:
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_BACKUP_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Volcado cifrado y subida
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+          DIRECT_URL: ${{ secrets.PRODUCTION_BACKUP_URL }}
+          BUCKET: ${{ secrets.BACKUP_BUCKET }}
+        run: |
+          set -euo pipefail
+          umask 077
+          FILE="fintrack-$(date -u +%Y%m%dT%H%M%SZ).dump.gz.gpg"
+          # pg_dump debe coincidir con la versión mayor del servidor (Neon PG18).
+          docker run --rm -e DIRECT_URL postgres:18 \
+            pg_dump --format=custom --no-owner --no-privileges "$DIRECT_URL" \
+            | gzip -9 \
+            | gpg --batch --yes --symmetric --cipher-algo AES256 --pinentry-mode loopback \
+                --passphrase-fd 3 3<<<"$BACKUP_PASSPHRASE" -o "$RUNNER_TEMP/$FILE"
+          test -s "$RUNNER_TEMP/$FILE"
+          gcloud storage cp "$RUNNER_TEMP/$FILE" "gs://$BUCKET/$FILE"
+          rm -f "$RUNNER_TEMP/$FILE"
+          echo "Backup subido: $FILE"
+
+  cleanup-auth:
+    runs-on: ubuntu-latest
+    environment: production
+    needs: backup
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.16.0
+      - run: npm install --global pnpm@11.27.1
+      - run: pnpm install --frozen-lockfile
+      - name: prisma generate
+        run: pnpm prisma:generate
+        env:
+          DATABASE_URL: postgresql://generate:generate@localhost:5432/generate
+      - name: Retención de sesiones, tokens y contadores vencidos
+        run: node scripts/cleanup-auth.ts
+        env:
+          DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL }}

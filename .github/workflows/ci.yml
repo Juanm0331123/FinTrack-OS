@@ -1,0 +1,107 @@
+name: CI
+
+# Validación de cada rama y PR. No despliega nada: el despliegue es manual
+# (deploy-backend.yml) y requiere el aval documentado en docs/qa-backend-remediacion.md.
+on:
+  pull_request:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: 24.16.0
+  PNPM_VERSION: 11.27.1
+
+jobs:
+  backend:
+    name: Backend (typecheck, unit, integración, migraciones, auditoría)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_DB: fintrack_test
+          POSTGRES_PASSWORD: fintrack_test_only
+          POSTGRES_USER: fintrack_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U fintrack_test -d fintrack_test"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    env:
+      TEST_DATABASE_URL: postgresql://fintrack_test:fintrack_test_only@localhost:5432/fintrack_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: npm install --global pnpm@${{ env.PNPM_VERSION }}
+      - run: pnpm install --frozen-lockfile
+      - name: prisma generate (Prisma 7 no lo ejecuta al instalar)
+        run: pnpm prisma:generate
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+      - run: pnpm typecheck
+      - run: pnpm test
+      - name: prisma validate
+        run: pnpm prisma:validate
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+          DIRECT_URL: ${{ env.TEST_DATABASE_URL }}
+      - run: pnpm test:migrations
+      - run: pnpm test:integration
+      - name: prisma migrate status (base de prueba)
+        run: node node_modules/prisma/build/index.js migrate status
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+          DIRECT_URL: ${{ env.TEST_DATABASE_URL }}
+      - name: Auditoría de dependencias (bloquea avisos altos o críticos)
+        run: pnpm audit --audit-level high
+
+  frontend:
+    name: Frontend (lint, typecheck, test, build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: npm install --global pnpm@${{ env.PNPM_VERSION }}
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+        env:
+          NEXT_PUBLIC_BACKEND_URL: https://fintrack.ci.invalid
+      - name: Auditoría de dependencias (bloquea avisos altos o críticos)
+        run: pnpm audit --prod --audit-level high
+
+  docker-smoke:
+    name: Imagen Docker (migraciones, TLS verify-full, salud, SIGTERM)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: backend
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash scripts/docker-smoke.sh
