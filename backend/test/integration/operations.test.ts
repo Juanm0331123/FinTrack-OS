@@ -504,3 +504,62 @@ describe('fatal errors in a real process (ROPS-02)', () => {
         assert.match(server.output(), /shutdown_completed/)
     })
 })
+
+describe('public readiness is shared, not one query per visitor (ROPS-04)', () => {
+    it('answers a burst of readiness checks with a single database round trip', async () => {
+        const original = pool.query.bind(pool) as (...args: unknown[]) => Promise<unknown>
+        let selects = 0
+
+        // Espera breve para que una lectura anterior de readiness ya no sea válida.
+        await new Promise((resolve) => setTimeout(resolve, 2_100))
+        ;(pool as unknown as { query: (...args: unknown[]) => Promise<unknown> }).query = (...args: unknown[]) => {
+            if (args[0] === 'SELECT 1') {
+                selects += 1
+            }
+
+            return original(...args)
+        }
+
+        try {
+            const responses = await Promise.all(Array.from({ length: 20 }, () => api.client().get('/api/health/ready')))
+            const again = await api.client().get('/api/health/ready')
+
+            assert.ok(responses.every((response) => response.status === 200))
+            assert.equal(again.status, 200)
+            assert.equal(selects, 1)
+        } finally {
+            ;(pool as unknown as { query: typeof original }).query = original
+        }
+    })
+})
+
+describe('no-store on every API answer, including perimeter rejections (ROPS-05)', () => {
+    const edgeSecret = 'edge-secret-for-tests-only-0123456789abcdef'
+
+    it('marks edge, CORS and rate-limit rejections as not cacheable', async () => {
+        const server = await startServerProcess({ API_RATE_LIMIT_MAX: '2', EDGE_PROXY_SECRET: edgeSecret })
+
+        try {
+            const edge = await fetch(`${server.baseUrl}/api/auth/me`)
+            const cors = await fetch(`${server.baseUrl}/api/auth/me`, {
+                headers: { Origin: 'https://otro-sitio.example', 'x-fintrack-edge-auth': edgeSecret },
+            })
+            const limited = []
+
+            for (let attempt = 0; attempt < 3; attempt += 1) {
+                limited.push(await fetch(`${server.baseUrl}/api/auth/me`, { headers: { 'x-fintrack-edge-auth': edgeSecret } }))
+            }
+
+            const tooMany = limited.at(-1)!
+
+            assert.equal(edge.status, 403)
+            assert.equal(edge.headers.get('cache-control'), 'no-store')
+            assert.equal(cors.status, 403)
+            assert.equal(cors.headers.get('cache-control'), 'no-store')
+            assert.equal(tooMany.status, 429)
+            assert.equal(tooMany.headers.get('cache-control'), 'no-store')
+        } finally {
+            await server.stop()
+        }
+    })
+})

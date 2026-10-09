@@ -46,12 +46,14 @@ app.disable('x-powered-by')
 
 app.use(requestContextMiddleware)
 app.use(clientIpMiddleware)
+// Antes de CORS y del perímetro: también sus rechazos (403, 429) llevan no-store.
+app.use('/api', noStore)
 app.use(helmet())
 app.use(cors(corsOptions))
 
 // Protección perimetral antes de cualquier trabajo costoso: sin secreto de borde no hay tráfico
 // de negocio, y el límite por IP corta ráfagas antes de parsear, verificar JWT o consultar la base.
-app.use('/api', unlessHealth(requireEdgeProxy), perimeterRateLimiter, noStore, requestDeadline)
+app.use('/api', unlessHealth(requireEdgeProxy), perimeterRateLimiter, requestDeadline)
 app.use(compression())
 app.use(express.json({ limit: env.JSON_BODY_LIMIT }))
 app.use('/api', unlessHealth(invalidCredentialRateLimiter), apiRoutes)
