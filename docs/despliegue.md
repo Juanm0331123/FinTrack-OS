@@ -163,7 +163,7 @@ Implementado en `backend/Dockerfile` (multi-etapa sobre `node:24.16.0-bookworm-s
 3. `build`: `prisma generate` y `pnpm prune --prod`.
 4. `runtime`: usuario `node` (no root), sin `.env` (`backend/.dockerignore`), `NODE_ENV=production`, `CMD node src/server.ts`. Node 24 ejecuta TypeScript sin flags (`erasableSyntaxOnly` en `tsconfig.json` impide sintaxis que requiera transpilar).
 
-Sondas de Cloud Run: *startup* y *liveness* en `GET /api/health/live` (no consulta la base, para que una caída de Neon no reinicie instancias sanas en bucle). `GET /api/health/ready` comprueba la base con un plazo de 2 s y responde 503 durante una caída o el cierre; usarla en el *uptime check* de monitoreo.
+Sondas de Cloud Run: *startup* y *liveness* en `GET /api/health/live` (no consulta la base, para que una caída de Neon no reinicie instancias sanas en bucle). `GET /api/health/ready` comprueba la base con un plazo de 2 s (resultado compartido entre visitas durante 2 s, una sola consulta en curso) y responde 503 durante una caída o el cierre; usarla en el *uptime check* de monitoreo.
 
 Smoke reproducible: `cd backend && bash scripts/docker-smoke.sh` (migraciones, TLS `verify-full`, salud, protección de origen, logs y SIGTERM). Se ejecuta en CI.
 
