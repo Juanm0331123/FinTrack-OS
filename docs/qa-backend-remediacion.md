@@ -4,7 +4,7 @@ Entrega para revisión independiente del agente auditor original. Este documento
 
 - Baseline auditado: `main` / `origin/main` `e9208dc67062aaad1aa215f50b289bb93ddb82c3` (informe `.local/backend-qa/backend-qa-report.json`, 45 entradas: 12 altas, 28 medias, 5 bajas).
 - Rama de entrega: `fix/backend-qa-remediation` (sin integrar en `main`, sin desplegar). Commits y archivos: ver [Identificación de la entrega](#identificación-de-la-entrega).
-- Fecha: 2026-10-09.
+- Fecha: 2026-10-09. Segunda ronda (19 incidencias de la revisión independiente sobre `72c8d60`): ver [Segunda ronda](#segunda-ronda-revisión-independiente-19-incidencias).
 
 ## Cómo reproducir
 
@@ -36,7 +36,7 @@ Salvaguardas de las pruebas:
 - Usuarios sintéticos `*@fintrack.test`, nunca la cuenta del Project Owner. Cada archivo borra lo que crea en `after`, y el *global setup* limpia restos antes de empezar. Las bases temporales de migraciones se crean con nombre aleatorio y se eliminan en `after` aunque la prueba falle.
 - Correo y OAuth se sustituyen solo en la frontera HTTP (`EMAIL_PROVIDER=outbox`, válido únicamente con `NODE_ENV=test`, e interceptación de `fetch` hacia Google/GitHub/Resend en `test/support/fake-providers.ts`). La API y PostgreSQL funcionan de verdad.
 
-## Validaciones ejecutadas
+## Validaciones ejecutadas (primera ronda, hasta `f74e338`)
 
 | Comprobación | Entorno | Resultado |
 |---|---|---|
@@ -111,6 +111,76 @@ Estados: **CV** = CORREGIDO Y VERIFICADO (local, con API y PostgreSQL reales sal
 | DEP-02 | Media | 28 avisos en el árbol runtime. | `nodemailer` 10.0.10, `express-rate-limit` 8.7.0, `helmet` 8.3.0, `jose` 6.2.12, `pg` 8.23.0, `zod` 4.6.5, Prisma 7.10.0; transitivas (`body-parser`, `qs`, `proxy-addr`, `ip-address`) actualizadas dentro de rango; `morgan` retirado. | `backend/package.json`, lockfile | `pnpm audit --prod` | 28 → 0 | CV | Avisos futuros: CI bloquea altos/críticos. |
 | DEP-03 | Alta | pnpm 11.3.0 (18 avisos) y 25 avisos en el árbol opcional del CLI de Prisma. | pnpm 11.27.1 en `devEngines`, CI y Docker; Prisma CLI 7.10.0 con `overrides` de `deepmerge-ts` ^8 y `mysql2` ^3.23.1 (generate, validate, migrate y smoke verificados). | `package.json`, `pnpm-workspace.yaml` | `pnpm audit` completo; migraciones | pnpm 11.27.1: 0 avisos (auditoría npm del paquete); árbol completo backend: 0 | CV | Los `overrides` deben revisarse al actualizar Prisma. |
 | CLIENT-01 | Media | Access token persistido en `localStorage`. | Token solo en memoria; marca sin secretos para decidir si renovar; limpieza del token heredado; callback OAuth sin tokens en la URL (obtiene la sesión por `/auth/refresh`); estado de verificación en `sessionStorage`. CSRF: cookie `SameSite=Lax`, ruta `/api/auth`, refresh y logout solo por cookie con verificación de `Origin`/`Sec-Fetch-Site`. | `frontend/src/modules/auth/*`, `auth.controller.ts`, `trusted-origin.middleware.ts` | `session-manager.test.ts`; `auth-sessions`: «refresh cookie contract» (CSRF, cuerpo ignorado); navegador | Ningún JWT en almacenamiento web | CV | Un XSS activo aún podría usar el token en memoria mientras la página vive; no hay CSP propia en el frontend (Next) todavía. |
+
+## Segunda ronda: revisión independiente (19 incidencias)
+
+El auditor revisó la rama en `72c8d60` (CI en verde), rechazó el aval completo y confirmó 19 incidencias nuevas: 6 altas, 11 medias y 2 bajas. Esta ronda parte de `72c8d60` y conserva su corrección del smoke de Docker. Cada incidencia tiene primero una regresión permanente, que se ejecutó y falló por la causa descrita antes de corregir, y luego la corrección de la causa raíz. Las pruebas no dependen de `.local/`. Las entradas originales que reabrió el auditor (AUTH-01/02/06/08/09, REG-01, DATA-02/03/04/06/09/10/11, OPS-03/05/06/07/09/10/15/16 y CLIENT-01) remiten a esta tabla. **Estado «CV»** significa corregido y verificado localmente por quien implementó; la aceptación corresponde al auditor.
+
+| ID | Sev. | Causa raíz | Solución | Regresión (fallo observado antes del fix) | Resultado real | Estado |
+|---|---|---|---|---|---|---|
+| RAUTH-01 | Alta | El código de verificación activaba la contraseña que tuviera la cuenta en ese momento: un re-registro tras OAuth la reemplazaba y el código del dueño la activaba. | `users.security_stamp` cambia con todo cambio de credenciales. Cada código guarda el sello con que se emitió y solo se consume si coincide, con la fila del usuario bloqueada (`FOR UPDATE`). Los códigos de registro o login exigen además la contraseña (`auth_tokens.requires_password`); los de OAuth no, pero un re-registro los invalida. El frontend envía la contraseña escrita, o la pide si la página se recargó. | `auth-credential-races.test.ts` «pending account credentials…» (5). Antes: verificación 200 y login del atacante 200; luego 422 por falta de campo. | 5/5 aprobadas | CV |
+| RAUTH-02 | Alta | El login validaba la contraseña y creaba la sesión sin volver a mirar el estado: un cambio de contraseña, una recuperación, una desactivación o un logout-all intermedios no lo detenían. | `createSession` bloquea al usuario y compara sello y estado; si cambiaron, responde 401 `CREDENTIALS_CHANGED`. Logout-all, los cambios de estado y la baja rotan el sello. | Misma suite, «sessions only open…» (5, con barreras sobre PostgreSQL). Antes: se creaba la sesión obsoleta. | 5/5 aprobadas | CV |
+| RAUTH-03 | Media | Un hash heredado de una contraseña de más de 72 bytes coincidía con su prefijo exacto de 72 bytes. | `users.password_hash_version`: 1 = heredado, 2 = regla de 72 bytes. Una entrada de 72 bytes contra un hash versión 1 exige recuperar la contraseña (403 `PASSWORD_RESET_REQUIRED`). | Misma suite, «legacy hashes…» (3). Antes: el prefijo iniciaba sesión. | 3/3 aprobadas | CV |
+| RCLIENT-01 | Alta | Una renovación que terminaba tarde adoptaba y difundía su sesión aunque se hubiera cerrado sesión o cambiado de cuenta. | Generaciones en `session-manager.ts`: cerrar sesión, iniciar otra o recibir un cambio de otra pestaña invalida las renovaciones en curso, que ya no adoptan, difunden, cierran ni marcan nada. Al cerrar sesión además se cancela la petición. Si la cookie resulta de otra cuenta, se cierra la sesión en vez de cambiar de cuenta en silencio. `ensureAccessToken({ userId })` rechaza con `SessionChangedError`. | `session-manager.test.ts` «late refreshes…» (8: cierre, cambio A→B, otra pestaña, 401 obsoleto, cancelación). Antes: 8 en rojo. | 8/8 aprobadas | CV |
+| RCLIENT-02 | Alta | El libro de A seguía montado tras cambiar de cuenta y su cola podía guardar cambios de A autenticada como B. Los temporizadores quedaban huérfanos y el proveedor no tenía `dispose`. | `WorkbookProvider` se monta con `key={userId}` y con `createFinanceApi({ userId })`. Al desmontarse, `store.stop()` descarta temporizadores, parches, trabajos no iniciados y fallos, cancela las peticiones en vuelo e ignora cargas tardías. Al cerrar sesión, los cambios pendientes se guardan antes, con tope de 4 s. | `finance-api.test.ts` «the workbook never carries…» (5). Antes: el parche de A salía con la identidad B, el temporizador seguía vivo y se aplicaba la carga tardía. | 5/5 aprobadas | CV |
+| RCLIENT-03 | Alta | El reintento automático tras un 401 pedía el token sin comprobar la identidad y reenviaba la operación de A como B. | Toda petición, incluido el reintento, pide el token ligado a su `userId`. Si la sesión es de otra cuenta, falla con 401 `SESSION_CHANGED` y no envía nada. | `finance-api.test.ts` «finance requests stay bound…» (4). Antes: identidades `['A', 'B']`. | 4/4 aprobadas | CV |
+| RDATA-01 | Media | Una clave de operación existente se trataba como reintento sin comparar tipo, mes ni origen de copia. | Columna `finance_operations.fingerprint` (con `copyFrom` al crear hoja). Solo se reproduce el reintento si coinciden tipo, mes y huella; si no, 409 `IDEMPOTENCY_CONFLICT`. | `finance-consistency.test.ts` «operation ids only replay…» (3). Antes: 200 con 0 filas. | 3/3 aprobadas | CV |
+| RDATA-02 | Media | La copia registraba la operación antes de comprobar que existía el mes anterior, y el 404 confirmaba ese registro. | La operación se registra solo cuando la copia se hace. | «a failed copy…». Antes: la operación existía tras el 404. | aprobada | CV |
+| RDATA-03 | Media | Las cuotas se contaban antes de escribir, fuera de transacción, y la copia y la importación no las aplicaban. | Cuentas, deudas, meses, copias e importación se deciden bajo `pg_advisory_xact_lock` por usuario. Filas y gastos, con la hoja o la fila bloqueadas. La copia y la importación validan el estado final. | «quotas hold…» (5: dos copias de 300 filas, 4 filas, meses, cuentas, deudas y gastos simultáneos, importación del mes 241). Antes: 600 filas, 4/4 creaciones y 241 meses. | 5/5 aprobadas | CV |
+| RDATA-04 | Media | Solo se bloqueaba y comprobaba si la lectura previa de la fila era bolsillo. | Toda categoría distinta de bolsillo bloquea la fila y decide sobre sus gastos actuales dentro de la transacción. | «category changes…» (con bloqueo real y espera en `pg_stat_activity`). Antes: 200 con el gasto oculto. | aprobada (409 `POCKET_HAS_SPENDS`) | CV |
+| RDATA-05 | Alta | `applyWorkbookImport` siempre borraba los meses del archivo y no revalidaba nada después del plan. | Recibe `{ replace }` explícito. Con el bloqueo del usuario, vuelve a comprobar meses, deudas ambiguas y cuotas dentro de la transacción. Sin `--replace` nunca borra. | «an import without --replace…» (2). Antes: el mes creado después del plan desaparecía. | 2/2 aprobadas | CV |
+| RDATA-06 | Baja | La cuota se evaluaba antes de resolver el reintento. | El reintento se resuelve primero, dentro de la transacción. | «the last allowed month…». Antes: 409 `LIMIT_REACHED`. | aprobada (200, mismo id) | CV |
+| RDATA-07 | Media | Las tasas se guardaban redondeadas por la escala SQL, pero el reintento comparaba el valor sin redondear. | `roundHalfUpTo` (regla ROUND de Excel) normaliza las tasas a 6 decimales, la tasa de prestaciones a 4 y el porcentaje a 2, antes de guardar y antes de comparar. | «rates are normalized…» (2) y `money.test.ts` (10 casos nuevos). Antes: 409 en el reintento idéntico. | aprobadas | CV |
+| RDATA-08 | Media | Una colisión única al crear cuenta se traducía siempre en nombre ocupado. | Bajo el bloqueo del usuario, la colisión se resuelve releyendo por id: si es el mismo dueño con el mismo nombre, se devuelve el reintento. | «concurrent retries of an account…». Antes: 201/409/409. | aprobada (201/200/200) | CV |
+| ROPS-01 | Media | El preflight consultaba tablas que todavía no existían. | Comprueba con `to_regclass` qué tablas existen. Con la base vacía reporta `bootstrap: true` y sale con 0; con tablas existentes mantiene el bloqueo por ownership. | `migration-upgrade.test.ts` (3 nuevos). Antes: `relation "money_accounts" does not exist`. | 3/3 aprobadas | CV |
+| ROPS-02 | Media | `shutdown` salía con `exit(0)` antes de que llegara el `exit(1)` del manejador. | `shutdown(reason, { exitCode })`: el error fatal sale con 1 después de drenar y cerrar recursos. | `graceful-shutdown.test.ts` (1) y `operations` «fatal errors in a real process» (proceso real con precarga que lanza desde un temporizador). Antes: salida 0. | 2/2 aprobadas | CV |
+| ROPS-03 | Media | El decremento iba al primario aunque el incremento hubiera caído en el respaldo. | Cada incremento recuerda su almacén en el contexto de la petición (AsyncLocalStorage, vigente en `finish`) y el decremento se aplica allí. Sin contexto, se prefiere el respaldo si tiene incrementos pendientes de la ventana. Un decremento fallido del primario no se traslada al respaldo. | `rate-limit-store.test.ts` (5, con caída y recuperación intercaladas). Antes: primario 6 y respaldo 1. | 5/5 aprobadas | CV |
+| ROPS-04 | Media | La readiness pública hacía una consulta a la base por visita. | `createReadinessProbe`: resultado compartido durante 2 s y una sola comprobación en curso a la vez. | `readiness.test.ts` (3) y `operations` (20 lecturas simultáneas). Antes: 21 consultas. | aprobadas (1 consulta) | CV |
+| ROPS-05 | Baja | `noStore` se aplicaba después de los middlewares que ya respondían. | `noStore` en `/api` antes de CORS y del perímetro. | `operations` «no-store on every API answer…» (403 de borde, 403 de CORS y 429, en proceso real). Antes: `cache-control` nulo. | aprobada | CV |
+
+Cambios de contrato de esta ronda:
+
+- `POST /api/auth/verify-email-code` acepta `password`, obligatoria cuando el código lo emitió un registro o un login con contraseña. Sin ella o con otra, responde 401 `EMAIL_VERIFICATION_INVALID` y suma un intento fallido.
+- Login, verificación y OAuth pueden responder 401 `CREDENTIALS_CHANGED` si las credenciales o el estado cambiaron durante el inicio de sesión.
+- Finanzas:
+  - `copy-previous` puede responder 409 `IDEMPOTENCY_CONFLICT` o 409 `LIMIT_REACHED`.
+  - Crear hoja con una clave ya usada para otro `copyFrom` responde 409 `IDEMPOTENCY_CONFLICT`.
+  - Las tasas se devuelven normalizadas a su escala.
+- `/api/health/ready` puede reflejar un estado de hasta 2 s de antigüedad.
+- Todas las respuestas de `/api`, incluidos los rechazos del perímetro, llevan `no-store`.
+- CLI de importación: `--apply` sin `--replace` falla si al escribir ya existe alguno de los meses. Las cuotas se validan sobre el estado final.
+
+Migraciones nuevas, solo columnas con valor por defecto y probadas sobre base nueva y actualizada:
+
+- `20261010000000_credential_binding`: `security_stamp`, `password_hash_version`, `requires_password` y el sello en `auth_tokens`.
+- `20261010010000_operation_fingerprint`.
+
+Efecto al desplegar:
+
+- Los códigos de verificación pendientes emitidos antes quedan sin sello y no sirven; hay que pedir uno nuevo.
+- Las cuentas existentes quedan con hash versión 1. Solo una contraseña de exactamente 72 bytes tendrá que restablecerse.
+
+Riesgos residuales:
+
+- Si otra pestaña inicia sesión con otra cuenta, los cambios del libro de la primera que aún no se habían enviado se descartan: no se pueden guardar con la identidad nueva.
+- Un refresh abortado al cerrar sesión puede rotar la cookie en el servidor sin que el navegador reciba la nueva. Es inocuo porque la sesión se cierra.
+- Las cuotas por usuario serializan las altas de cuentas, deudas y meses de un mismo usuario. Es aceptable para el volumen previsto.
+- El proveedor React (`key` y `stop` al desmontar) se cubre con pruebas del store y de la API, sin pruebas de componente: el frontend no tiene Testing Library y no se añadieron dependencias.
+
+Validaciones de esta ronda (Windows 11, Node 24.16.0, `postgres:18` en Docker; resultados reales):
+
+| Comprobación | Resultado |
+|---|---|
+| Backend `pnpm typecheck` | aprobado |
+| Backend `pnpm test` (unitarias) | aprobado: 108/108 |
+| Backend `pnpm test:migrations` | aprobado: 7/7 |
+| Backend `pnpm test:integration` | 134 pruebas: 133 aprobadas, 1 omitida (SIGTERM real: Windows no entrega señales POSIX; se ejecuta en CI Linux) |
+| `pnpm prisma:validate` y `migrate diff --from-config-datasource` contra la base de prueba | aprobado, sin diferencias |
+| `bash scripts/docker-smoke.sh` (en Git Bash con `MSYS_NO_PATHCONV=1`) | aprobado: `SMOKE OK` |
+| `pnpm audit` backend y `pnpm audit --prod` frontend | 0 avisos |
+| Frontend `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build` | aprobado: lint limpio, 125/125, build con Proxy |
+| CI en GitHub Actions sobre la rama | ver [Identificación de la entrega](#identificación-de-la-entrega) |
+| Recorrido en navegador de esta ronda | **no ejecutado**: los cambios de sesión y libro se cubren con Vitest; queda para la revisión del auditor |
 
 ## Informe técnico
 
@@ -213,11 +283,12 @@ Requieren recursos que no existen todavía (Neon de producción/staging, proyect
 
 ## Identificación de la entrega
 
-- Rama: `fix/backend-qa-remediation`, creada desde `e9208dc`. No integrada en `main`, no subida al remoto y no desplegada.
-- Commits: `git log --oneline e9208dc..fix/backend-qa-remediation`.
+- Rama: `fix/backend-qa-remediation`, creada desde `e9208dc`, subida al remoto. No integrada en `main` y no desplegada.
+- Primera ronda: `e9208dc..f74e338`; corrección del smoke por el auditor: `72c8d60`; segunda ronda: `72c8d60..HEAD` (`git log --oneline 72c8d60..fix/backend-qa-remediation`).
 - Archivos afectados: `git diff --stat e9208dc..fix/backend-qa-remediation`. Principales: `backend/src/**`, `backend/prisma/**`, `backend/scripts/**`, `backend/test/**`, `backend/Dockerfile`, `backend/test/compose.yaml`, `frontend/src/modules/auth/**`, `frontend/src/modules/finance/{api,store,month,settings,shell}/**`, `frontend/src/proxy.ts`, `frontend/src/shared/lib/edge-proxy*.ts`, `.github/workflows/*`, `docs/despliegue.md`, este documento, `AGENTS.md` y `backend/AGENTS.md`.
+- CI: el resultado de GitHub Actions para el commit final se informa en la entrega al auditor (no se escribe aquí para no fijar un estado que este mismo commit cambia).
 - Working tree al entregar: limpio salvo archivos ignorados (`.local/`, `.tmp/`, `.env`).
 
 ## Recomendación
 
-**LISTO PARA REVISIÓN LOCAL.** Las 45 entradas tienen implementación y evidencia local reproducible; las suites corren desde un checkout limpio. **No** está listo para producción y no se recomienda aún revisión de staging como aprobada: faltan CI en GitHub, el entorno de staging y las verificaciones externas listadas (OPS-06, OPS-08, OPS-10, DATA-13, DATA-04 contra el Excel). Esta recomendación no sustituye el aval del auditor ni autoriza el despliegue.
+**LISTO PARA NUEVA REVISIÓN INDEPENDIENTE.** Las 19 incidencias de la segunda ronda tienen regresión permanente con fallo observado antes de la corrección, corrección de causa raíz y verificación local con API y PostgreSQL reales (o Vitest en el cliente). Esto no es un aval: el auditor decide si se cierran. **No** está listo para producción: siguen pendientes el entorno de staging y las verificaciones externas listadas (OPS-06, OPS-08, OPS-10, DATA-13, DATA-04 contra el Excel) y el recorrido en navegador de los cambios de sesión de esta ronda. Esta recomendación no autoriza integrar en `main` ni desplegar.
