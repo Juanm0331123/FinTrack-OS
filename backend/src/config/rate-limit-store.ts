@@ -2,12 +2,21 @@ import { MemoryStore, type ClientRateLimitInfo, type Options, type Store } from 
 import { describeError, logger } from './logger.ts'
 import { metrics } from './metrics.ts'
 import { prisma } from './prisma.ts'
+import { getRequestContext } from './request-context.ts'
 
 // Contadores compartidos entre réplicas (Cloud Run 0–2 instancias) y que sobreviven a reinicios
 // y al escalado a cero. Se guardan en la misma base PostgreSQL: no hay servicios nuevos.
 //
 // Ante un fallo del almacén compartido se usa un MemoryStore local por réplica: la aplicación
 // sigue atendiendo y conserva un límite (por instancia) en vez de quedar desprotegida.
+//
+// Cada incremento recuerda en qué almacén quedó, y su decremento (skipSuccessfulRequests) se
+// aplica en ese mismo almacén aunque el primario se haya recuperado o caído entretanto. La
+// procedencia se guarda en el contexto de la petición (AsyncLocalStorage, vigente también en el
+// evento finish); sin contexto, un decremento se aplica al respaldo si este tiene incrementos
+// pendientes de la ventana actual.
+
+type Source = 'fallback' | 'primary'
 
 const CLEANUP_EVERY_INCREMENTS = 500
 const FAILURE_LOG_INTERVAL_MS = 60_000
@@ -84,6 +93,9 @@ export class ResilientRateLimitStore implements Store {
     private readonly fallback = new MemoryStore()
     private lastFailureLogAt = 0
     private readonly primary: Store
+    private readonly sourcesByRequest = new WeakMap<object, Map<string, Source[]>>()
+    private readonly fallbackPending = new Map<string, number[]>()
+    private windowMs = 60_000
 
     constructor(primary: Store & { prefix?: string }) {
         this.primary = primary
@@ -91,8 +103,48 @@ export class ResilientRateLimitStore implements Store {
     }
 
     init(options: Options) {
+        this.windowMs = options.windowMs
         this.primary.init?.(options)
         this.fallback.init(options)
+    }
+
+    private remember(key: string, source: Source) {
+        const context = getRequestContext()
+
+        if (context) {
+            const sources = this.sourcesByRequest.get(context) ?? new Map<string, Source[]>()
+
+            sources.set(key, [...(sources.get(key) ?? []), source])
+            this.sourcesByRequest.set(context, sources)
+        }
+
+        if (source === 'fallback') {
+            this.fallbackPending.set(key, [...this.pendingInFallback(key), Date.now() + this.windowMs])
+        }
+    }
+
+    private pendingInFallback(key: string) {
+        const now = Date.now()
+
+        return (this.fallbackPending.get(key) ?? []).filter((expiresAt) => expiresAt > now)
+    }
+
+    private sourceToUndo(key: string): Source {
+        const context = getRequestContext()
+        const pending = this.pendingInFallback(key)
+        const source = (context && this.sourcesByRequest.get(context)?.get(key)?.pop()) || (pending.length > 0 ? 'fallback' : 'primary')
+
+        if (source === 'fallback') {
+            pending.shift()
+        }
+
+        if (pending.length > 0) {
+            this.fallbackPending.set(key, pending)
+        } else {
+            this.fallbackPending.delete(key)
+        }
+
+        return source
     }
 
     private reportFailure(operation: string, error: unknown) {
@@ -116,24 +168,39 @@ export class ResilientRateLimitStore implements Store {
 
     async increment(key: string) {
         try {
-            return await this.primary.increment(key)
+            const result = await this.primary.increment(key)
+
+            this.remember(key, 'primary')
+
+            return result
         } catch (error) {
             this.reportFailure('increment', error)
 
-            return this.fallback.increment(key)
+            const result = await this.fallback.increment(key)
+
+            this.remember(key, 'fallback')
+
+            return result
         }
     }
 
+    // Si el primario falla al deshacer su propio incremento, no se descuenta del respaldo: eso
+    // borraría un intento que sí ocurrió allí. El intento queda contado (más restrictivo).
     async decrement(key: string) {
+        if (this.sourceToUndo(key) === 'fallback') {
+            await this.fallback.decrement(key)
+            return
+        }
+
         try {
             await this.primary.decrement(key)
         } catch (error) {
             this.reportFailure('decrement', error)
-            this.fallback.decrement(key)
         }
     }
 
     async resetKey(key: string) {
+        this.fallbackPending.delete(key)
         this.fallback.resetKey(key)
 
         try {

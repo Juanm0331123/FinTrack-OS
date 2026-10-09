@@ -25,9 +25,12 @@ export async function freePort() {
 
 // Arranca `node src/server.ts` como proceso independiente (otra "réplica"), con el entorno de
 // prueba ya cargado en process.env más los cambios indicados.
-export async function startServerProcess(overrides: Record<string, string> = {}): Promise<ServerProcess> {
+export async function startServerProcess(
+    overrides: Record<string, string> = {},
+    options: { nodeArgs?: string[] } = {},
+): Promise<ServerProcess> {
     const port = await freePort()
-    const child = spawn(process.execPath, ['src/server.ts'], {
+    const child = spawn(process.execPath, [...(options.nodeArgs ?? []), 'src/server.ts'], {
         cwd: backendRoot,
         env: { ...process.env, LOG_LEVEL: 'debug', PORT: String(port), ...overrides },
     })

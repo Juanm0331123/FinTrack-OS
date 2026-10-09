@@ -486,3 +486,21 @@ describe('graceful shutdown of a real process (OPS-09)', () => {
         }
     })
 })
+
+describe('fatal errors in a real process (ROPS-02)', () => {
+    it('exits with a non-zero code after an uncaught exception, once the shutdown completes', async () => {
+        const server = await startServerProcess({}, { nodeArgs: ['--import', './test/support/throw-after-start.ts'] })
+        const exitCode = await new Promise<number | null>((resolve) => {
+            if (server.child.exitCode !== null) {
+                resolve(server.child.exitCode)
+                return
+            }
+
+            server.child.once('exit', (code) => resolve(code))
+        })
+
+        assert.equal(exitCode, 1)
+        assert.match(server.output(), /uncaught_exception/)
+        assert.match(server.output(), /shutdown_completed/)
+    })
+})

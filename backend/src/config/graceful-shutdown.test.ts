@@ -81,6 +81,23 @@ describe('createGracefulShutdown', () => {
         assert.equal(await inFlight, 'cortada')
     })
 
+    // ROPS-02: un cierre por error fatal no puede terminar con 0 aunque los recursos cierren bien.
+    it('exits with the fatal code the caller asks for even when everything closes cleanly', async () => {
+        const { server } = await serverWithSlowRoute(0)
+        const record = recorder()
+        const shutdown = createGracefulShutdown({
+            closeResources: async () => undefined,
+            exit: record.exit,
+            server,
+            timeoutMs: 1000,
+        })
+
+        void shutdown('uncaughtException', { exitCode: 1 })
+
+        assert.equal(await record.exited, 1)
+        assert.deepEqual(record.events, ['exit:1'])
+    })
+
     it('exits 1 when closing resources fails', async () => {
         const { server } = await serverWithSlowRoute(0)
         const record = recorder()

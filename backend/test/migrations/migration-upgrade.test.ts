@@ -55,6 +55,14 @@ function prismaCli(args: string[], url: string, configPath?: string) {
     })
 }
 
+function preflight(url: string) {
+    return spawnSync(process.execPath, ['scripts/check-migration-conflicts.ts'], {
+        cwd: backendRoot,
+        encoding: 'utf8',
+        env: { ...process.env, DATABASE_URL: url, DIRECT_URL: url },
+    })
+}
+
 // Config de Prisma que solo conoce las migraciones del esquema anterior.
 function baselineConfig() {
     const directory = join(backendRoot, '.tmp', `migrations-${randomBytes(4).toString('hex')}`).replace(/\\/g, '/')
@@ -175,6 +183,46 @@ describe('migrations', () => {
 
         assert.equal(tables.length, 0, 'no partial schema change')
         assert.ok(accountNames.some((row) => row.name === 'banco'), 'no data was rewritten')
+    })
+
+    // ROPS-01: el despliegue ejecuta la verificación previa antes de `migrate deploy`, también la
+    // primera vez, cuando la base todavía está vacía.
+    it('let the pre-migration check pass on an empty database (bootstrap)', async () => {
+        const url = await createDatabase()
+        const check = preflight(url)
+
+        assert.equal(check.status, 0, check.stderr)
+        assert.equal(JSON.parse(check.stdout).bootstrap, true)
+    })
+
+    it('keep the pre-migration check blocking inconsistent ownership on the previous schema', async () => {
+        const url = await createDatabase()
+
+        assert.equal(prismaCli(['migrate', 'deploy'], url, baselineConfig()).status, 0)
+        await query(url, readFileSync(join(backendRoot, 'test/migrations/baseline-seed.sql'), 'utf8'))
+        await query(
+            url,
+            `INSERT INTO month_entries (id, sheet_id, user_id, concept, updated_at)
+             VALUES ('00000000-0000-4000-8000-000000000598', '00000000-0000-4000-8000-000000000401', '00000000-0000-4000-8000-000000000002', 'Ajena', NOW())`,
+        )
+
+        const check = preflight(url)
+        const report = JSON.parse(check.stdout)
+
+        assert.equal(check.status, 2)
+        assert.equal(report.bootstrap, false)
+        assert.equal(report.entriesWithForeignSheet, 1)
+    })
+
+    it('run the pre-migration check on an already migrated database', async () => {
+        const url = await createDatabase()
+
+        assert.equal(prismaCli(['migrate', 'deploy'], url).status, 0)
+
+        const check = preflight(url)
+
+        assert.equal(check.status, 0, check.stderr)
+        assert.equal(JSON.parse(check.stdout).blocking, 0)
     })
 
     it('ship every migration folder in this suite’s baseline plus the remediations', () => {

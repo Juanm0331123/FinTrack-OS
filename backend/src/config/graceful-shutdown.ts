@@ -6,7 +6,10 @@ import { describeError, logger } from './logger.ts'
 // 1. marca readiness en 503 y deja de aceptar conexiones nuevas;
 // 2. espera a que terminen las peticiones en curso hasta `timeoutMs - forceCloseMarginMs`;
 // 3. corta las conexiones restantes, cierra Prisma y el pool, y sale.
-// Si algo se cuelga, un temporizador duro sale con código 1 antes del SIGKILL.
+// Si algo se cuelga, un temporizador duro sale con código 1 antes del SIGKILL. Un cierre causado
+// por un error fatal pasa exitCode 1: el proceso nunca termina con 0 tras un fallo inesperado.
+// El primer motivo fija el cierre; si un error fatal llega durante un cierre ya iniciado, eleva el
+// código de salida.
 export function createGracefulShutdown(options: {
     closeResources: () => Promise<void>
     exit: (code: number) => void
@@ -16,8 +19,10 @@ export function createGracefulShutdown(options: {
 }) {
     const forceCloseMarginMs = options.forceCloseMarginMs ?? 1500
     let shutdownPromise: Promise<void> | null = null
+    let requestedExitCode = 0
 
-    return function shutdown(reason: string) {
+    return function shutdown(reason: string, shutdownOptions: { exitCode?: number } = {}) {
+        requestedExitCode = Math.max(requestedExitCode, shutdownOptions.exitCode ?? 0)
         shutdownPromise ??= (async () => {
             const startedAt = Date.now()
             let exitCode = 0
@@ -51,6 +56,7 @@ export function createGracefulShutdown(options: {
             }
 
             clearTimeout(hardTimer)
+            exitCode = Math.max(exitCode, requestedExitCode)
             logger.info('shutdown_completed', { elapsedMs: Date.now() - startedAt, exitCode })
             options.exit(exitCode)
         })()

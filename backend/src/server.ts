@@ -34,5 +34,5 @@ process.on('unhandledRejection', (reason) => {
 
 process.on('uncaughtException', (error) => {
     logger.error('uncaught_exception', describeError(error))
-    void shutdown('uncaughtException').finally(() => process.exit(1))
+    void shutdown('uncaughtException', { exitCode: 1 })
 })

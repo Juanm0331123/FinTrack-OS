@@ -7,6 +7,9 @@ import pg from 'pg'
 // - filas cuyo dueño no coincide con el de su hoja, cuenta, deuda o fila padre (la migración se
 //   detiene si existen: hay que corregirlas a mano);
 // - nombres de cuenta repetidos sin distinguir mayúsculas (la migración los renombra con " (n)").
+// En una base vacía (primer despliegue) no hay nada que comprobar: reporta bootstrap y sale con
+// 0 para que `migrate deploy` cree el esquema. Una comprobación cuyas tablas aún no existen se
+// omite (null) en lugar de fallar.
 const connectionString = process.env.DIRECT_URL ?? process.env.DATABASE_URL
 
 if (!connectionString) {
@@ -16,38 +19,65 @@ if (!connectionString) {
 
 const client = new pg.Client({ application_name: 'fintrack-migration-check', connectionString })
 
-const CHECKS: Record<string, string> = {
-    duplicatedAccountNames: `SELECT COUNT(*)::int AS count FROM (
+const CHECKS: Record<string, { sql: string; tables: string[] }> = {
+    duplicatedAccountNames: {
+        sql: `SELECT COUNT(*)::int AS count FROM (
         SELECT 1 FROM money_accounts GROUP BY user_id, lower(normalize(btrim(name), NFC)) HAVING COUNT(*) > 1) duplicated`,
-    entriesWithForeignAccount: `SELECT COUNT(*)::int AS count FROM month_entries e
+        tables: ['money_accounts'],
+    },
+    entriesWithForeignAccount: {
+        sql: `SELECT COUNT(*)::int AS count FROM month_entries e
         JOIN money_accounts a ON a.id = e.account_id WHERE a.user_id <> e.user_id`,
-    entriesWithForeignDebt: `SELECT COUNT(*)::int AS count FROM month_entries e
+        tables: ['month_entries', 'money_accounts'],
+    },
+    entriesWithForeignDebt: {
+        sql: `SELECT COUNT(*)::int AS count FROM month_entries e
         JOIN debts d ON d.id = e.debt_id WHERE d.user_id <> e.user_id`,
-    entriesWithForeignSheet: `SELECT COUNT(*)::int AS count FROM month_entries e
+        tables: ['month_entries', 'debts'],
+    },
+    entriesWithForeignSheet: {
+        sql: `SELECT COUNT(*)::int AS count FROM month_entries e
         JOIN month_sheets s ON s.id = e.sheet_id WHERE s.user_id <> e.user_id`,
-    spendsWithForeignEntry: `SELECT COUNT(*)::int AS count FROM pocket_spends p
+        tables: ['month_entries', 'month_sheets'],
+    },
+    spendsWithForeignEntry: {
+        sql: `SELECT COUNT(*)::int AS count FROM pocket_spends p
         JOIN month_entries e ON e.id = p.entry_id WHERE e.user_id <> p.user_id`,
+        tables: ['pocket_spends', 'month_entries'],
+    },
 }
+
+const TABLES = [...new Set(Object.values(CHECKS).flatMap((check) => check.tables))]
 
 async function main() {
     await client.connect()
     await client.query('BEGIN TRANSACTION READ ONLY')
 
-    const results: Record<string, number> = {}
+    const existing = new Set(
+        (
+            await client.query<{ name: string }>(
+                `SELECT name FROM unnest($1::text[]) AS name WHERE to_regclass(format('public.%I', name)) IS NOT NULL`,
+                [TABLES],
+            )
+        ).rows.map((row) => row.name),
+    )
+    const results: Record<string, number | null> = {}
 
-    for (const [name, sql] of Object.entries(CHECKS)) {
-        results[name] = (await client.query<{ count: number }>(sql)).rows[0].count
+    for (const [name, check] of Object.entries(CHECKS)) {
+        results[name] = check.tables.every((table) => existing.has(table))
+            ? (await client.query<{ count: number }>(check.sql)).rows[0].count
+            : null
     }
 
     await client.query('ROLLBACK')
 
     const blocking =
-        results.entriesWithForeignAccount +
-        results.entriesWithForeignDebt +
-        results.entriesWithForeignSheet +
-        results.spendsWithForeignEntry
+        (results.entriesWithForeignAccount ?? 0) +
+        (results.entriesWithForeignDebt ?? 0) +
+        (results.entriesWithForeignSheet ?? 0) +
+        (results.spendsWithForeignEntry ?? 0)
 
-    console.log(JSON.stringify({ ...results, blocking }, null, 2))
+    console.log(JSON.stringify({ bootstrap: existing.size === 0, ...results, blocking }, null, 2))
 
     if (blocking > 0) {
         console.error('Hay filas con ownership inconsistente: la migración se detendrá hasta corregirlas.')
