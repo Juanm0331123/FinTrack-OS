@@ -3,6 +3,8 @@
 import { Archive, ArchiveRestore, ArrowDown, ArrowUp, Plus } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
+import { useResolvedAuthSession } from '@/modules/auth/auth-session'
+
 import { STRATEGY_HINTS, STRATEGY_OPTIONS } from '../debts/debt-strategy'
 import { CATEGORY_DESCRIPTIONS, CATEGORY_ORDER } from '../domain/categories'
 import type { MoneyAccount } from '../domain/types'
@@ -13,6 +15,7 @@ import { CategoryPill } from '../ui/category-pill'
 import { Field, inputClassName, MoneyInput, PercentInput, Segmented, Switch } from '../ui/fields'
 import { PageHeader } from '../ui/layout-parts'
 import { Panel, PanelHeader } from '../ui/panel'
+import { AccountSecurityPanel } from './account-security-panel'
 
 function messageOf(error: unknown) {
     return error instanceof Error ? error.message : 'No pudimos guardar el cambio.'
@@ -125,6 +128,7 @@ export function SettingsPage() {
     const settings = useSettings()
     const accounts = useAccounts()
     const actions = useWorkbookActions()
+    const email = useResolvedAuthSession().session?.user.email
     const [newAccount, setNewAccount] = useState('')
     const [message, setMessage] = useState<string | null>(null)
     const [busy, setBusy] = useState(false)
@@ -161,7 +165,7 @@ export function SettingsPage() {
 
     return (
         <div className="flex flex-col gap-[18px]">
-            <PageHeader title="Configuración" subtitle="Colchón, prestaciones, plan de deudas y cuentas" />
+            <PageHeader title="Configuración" subtitle="Colchón, prestaciones, plan de deudas, cuentas y seguridad" />
             <div className="grid grid-cols-1 items-start gap-[18px] xl:grid-cols-2">
                 <div className="flex flex-col gap-[18px]">
                     <Panel aria-labelledby="money-settings">
@@ -232,6 +236,7 @@ export function SettingsPage() {
                     </Panel>
                 </div>
 
+                <div className="flex flex-col gap-[18px]">
                 <Panel aria-labelledby="account-settings">
                     <PanelHeader id="account-settings" title="Cuentas" aside="Dónde sale cada gasto" />
                     <ul className="px-4 sm:px-[18px]">
@@ -295,6 +300,8 @@ export function SettingsPage() {
                         </div>
                     ) : null}
                 </Panel>
+                {email ? <AccountSecurityPanel currentEmail={email} /> : null}
+                </div>
             </div>
         </div>
     )

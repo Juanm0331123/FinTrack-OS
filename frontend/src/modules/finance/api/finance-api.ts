@@ -1,9 +1,5 @@
-import { refreshSession } from '@/modules/auth/auth.api'
-import {
-    isAuthSessionActive,
-    loadAuthSession,
-    saveAuthSession,
-} from '@/modules/auth/auth.storage'
+import { getBrowserSession } from '@/modules/auth/browser-session'
+import { SessionUnavailableError } from '@/modules/auth/session-manager'
 import { publicEnv } from '@/shared/config/env'
 import type {
     Debt,
@@ -17,6 +13,8 @@ import type {
     PocketSpend,
     Workbook,
 } from '../domain/types'
+
+const REQUEST_TIMEOUT_MS = 20_000
 
 type ErrorPayload = {
     code?: string
@@ -43,42 +41,34 @@ function messageFor(status: number, payload: ErrorPayload | null) {
         return fieldMessage
     }
 
-    if (status >= 500 || !payload?.message) {
-        return 'Algo falló en el servidor. Reintenta en un momento.'
-    }
-
     if (status === 401) {
         return 'Tu sesión expiró. Vuelve a iniciar sesión.'
+    }
+
+    if (status === 503 && payload?.message) {
+        return payload.message
+    }
+
+    if (status >= 500 || !payload?.message) {
+        return 'Algo falló en el servidor. Reintenta en un momento.'
     }
 
     return payload.message
 }
 
-let refreshInFlight: Promise<string | null> | null = null
+// Todas las peticiones obtienen el token del gestor de sesión compartido: una sola renovación en
+// curso por pestaña y coordinada entre pestañas. Un fallo temporal de renovación no borra la
+// sesión; se informa como error reintentable.
+async function accessToken(forceRefresh = false) {
+    try {
+        return await getBrowserSession().ensureAccessToken({ forceRefresh })
+    } catch (error) {
+        if (error instanceof SessionUnavailableError) {
+            throw new FinanceApiError(503, 'No pudimos renovar tu sesión ahora. Reintenta en unos segundos.', 'SESSION_UNAVAILABLE')
+        }
 
-function refreshAccessToken() {
-    refreshInFlight ??= refreshSession()
-        .then((session) => {
-            saveAuthSession(session)
-
-            return session.accessToken
-        })
-        .catch(() => null)
-        .finally(() => {
-            refreshInFlight = null
-        })
-
-    return refreshInFlight
-}
-
-async function getAccessToken() {
-    const session = loadAuthSession()
-
-    if (session && isAuthSessionActive(session)) {
-        return session.accessToken
+        throw error
     }
-
-    return refreshAccessToken()
 }
 
 type RequestOptions = {
@@ -88,15 +78,17 @@ type RequestOptions = {
 }
 
 async function request<T>(path: string, options: RequestOptions = {}, canRetry = true): Promise<T> {
-    const token = await getAccessToken()
+    const token = await accessToken(!canRetry)
 
     if (!token) {
-        throw new FinanceApiError(401, 'Tu sesión expiró. Vuelve a iniciar sesión.')
+        throw new FinanceApiError(401, 'Tu sesión expiró. Vuelve a iniciar sesión.', 'SESSION_MISSING')
     }
 
     let response: Response
 
     try {
+        const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+
         response = await fetch(`${publicEnv.backendUrl}/api/finance${path}`, {
             body: options.body === undefined ? undefined : JSON.stringify(options.body),
             credentials: 'include',
@@ -105,7 +97,7 @@ async function request<T>(path: string, options: RequestOptions = {}, canRetry =
                 ...(options.body === undefined ? {} : { 'Content-Type': 'application/json' }),
             },
             method: options.method ?? 'GET',
-            signal: options.signal,
+            signal: options.signal ? AbortSignal.any([options.signal, timeout]) : timeout,
         })
     } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') {
@@ -116,11 +108,7 @@ async function request<T>(path: string, options: RequestOptions = {}, canRetry =
     }
 
     if (response.status === 401 && canRetry) {
-        const refreshed = await refreshAccessToken()
-
-        if (refreshed) {
-            return request<T>(path, options, false)
-        }
+        return request<T>(path, options, false)
     }
 
     const payload = (await response.json().catch(() => null)) as
@@ -168,15 +156,15 @@ export type DeleteAccountResult =
     | { id: string; result: 'deleted' }
 
 export const financeApi = {
-    copyPreviousSheet: (yearMonth: string) =>
-        request<MonthSheet>(`/sheets/${yearMonth}/copy-previous`, { method: 'POST' }),
+    copyPreviousSheet: (yearMonth: string, operationId: string) =>
+        request<MonthSheet>(`/sheets/${yearMonth}/copy-previous`, { body: { operationId }, method: 'POST' }),
     createAccount: (input: { id: string; name: string }) =>
         request<MoneyAccount>('/accounts', { body: input, method: 'POST' }),
     createDebt: (input: DebtInput & { id: string; name: string }) =>
         request<Debt>('/debts', { body: input, method: 'POST' }),
     createEntry: (yearMonth: string, input: EntryInput & { concept: string; id: string }) =>
         request<MonthEntry>(`/sheets/${yearMonth}/entries`, { body: input, method: 'POST' }),
-    createSheet: (input: { copyFrom: 'NONE' | 'PREVIOUS'; yearMonth: string }) =>
+    createSheet: (input: { copyFrom: 'NONE' | 'PREVIOUS'; operationId: string; yearMonth: string }) =>
         request<MonthSheet>('/sheets', { body: input, method: 'POST' }),
     createSpend: (entryId: string, input: PocketSpend) =>
         request<PocketSpend>(`/entries/${entryId}/spends`, { body: input, method: 'POST' }),

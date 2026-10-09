@@ -5,3 +5,9 @@ allowBuilds:
 ignoredBuiltDependencies:
   - sharp
   - unrs-resolver
+
+# Herramientas de build fijadas por dependencias de Next (cálculo de navegadores objetivo):
+# fuerza versiones parcheadas de avisos de seguridad.
+overrides:
+  baseline-browser-mapping: ^2.11.0
+  browserslist: ^4.28.7

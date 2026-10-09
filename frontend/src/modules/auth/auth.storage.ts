@@ -1,189 +1,68 @@
 'use client'
 
-import type {
-    AuthSession,
-    AuthUser,
-    PendingVerificationState,
-} from './auth.types'
+import type { PendingVerificationState } from './auth.types'
 
-const AUTH_SESSION_STORAGE_KEY = 'fintrack.auth.session'
+// Estado temporal de flujos de verificación. Va en sessionStorage (dura lo que la pestaña) y
+// nunca contiene tokens de sesión: el access token vive solo en memoria (session-manager.ts).
 const PENDING_VERIFICATION_STORAGE_KEY = 'fintrack.auth.pending-verification'
-const AUTH_SESSION_EVENT = 'fintrack:auth-session-change'
+const PASSWORD_RESET_HANDOFF_KEY = 'fintrack.auth.password-reset-required'
 
-function isBrowser() {
-    return typeof window !== 'undefined'
-}
-
-function notifyAuthSessionChange() {
-    if (!isBrowser()) {
-        return
-    }
-
-    window.dispatchEvent(new Event(AUTH_SESSION_EVENT))
-}
-
-export function saveAuthSession(input: {
-    accessToken: string
-    accessTokenExpiresInSeconds: number
-    user: AuthUser
-}) {
-    if (!isBrowser()) {
-        return
-    }
-
-    const session: AuthSession = {
-        accessToken: input.accessToken,
-        accessTokenExpiresAt: new Date(
-            Date.now() + input.accessTokenExpiresInSeconds * 1000,
-        ).toISOString(),
-        user: input.user,
-    }
-
-    window.localStorage.setItem(
-        AUTH_SESSION_STORAGE_KEY,
-        JSON.stringify(session),
-    )
-    notifyAuthSessionChange()
-}
-
-export function loadAuthSession() {
-    if (!isBrowser()) {
-        return null
-    }
-
-    const rawValue = window.localStorage.getItem(AUTH_SESSION_STORAGE_KEY)
-
-    if (!rawValue) {
-        return null
-    }
-
+function storage() {
     try {
-        return JSON.parse(rawValue) as AuthSession
-    } catch {
-        window.localStorage.removeItem(AUTH_SESSION_STORAGE_KEY)
-        return null
-    }
-}
-
-export function isAuthSessionExpired(accessTokenExpiresAt: string) {
-    return new Date(accessTokenExpiresAt).getTime() <= Date.now()
-}
-
-export function isAuthSessionActive(session: AuthSession | null | undefined) {
-    if (!session?.accessToken || !session.accessTokenExpiresAt) {
-        return false
-    }
-
-    return !isAuthSessionExpired(session.accessTokenExpiresAt)
-}
-
-export function getAuthSessionSnapshot() {
-    if (!isBrowser()) {
-        return ''
-    }
-
-    return window.localStorage.getItem(AUTH_SESSION_STORAGE_KEY) ?? ''
-}
-
-export function parseAuthSessionSnapshot(rawValue: string) {
-    if (!rawValue) {
-        return null
-    }
-
-    try {
-        return JSON.parse(rawValue) as AuthSession
+        return typeof window === 'undefined' ? null : window.sessionStorage
     } catch {
         return null
     }
 }
 
-export function subscribeAuthSessionStore(onStoreChange: () => void) {
-    if (!isBrowser()) {
-        return () => undefined
-    }
+function readJson<T>(key: string) {
+    const raw = storage()?.getItem(key)
 
-    const handleStorage = (event: StorageEvent) => {
-        if (!event.key || event.key === AUTH_SESSION_STORAGE_KEY) {
-            onStoreChange()
-        }
-    }
-
-    window.addEventListener('storage', handleStorage)
-    window.addEventListener(AUTH_SESSION_EVENT, onStoreChange)
-
-    return () => {
-        window.removeEventListener('storage', handleStorage)
-        window.removeEventListener(AUTH_SESSION_EVENT, onStoreChange)
-    }
-}
-
-export function loadActiveAuthSession() {
-    const session = parseAuthSessionSnapshot(getAuthSessionSnapshot())
-
-    if (!isAuthSessionActive(session)) {
-        if (session) {
-            clearAuthSession()
-        }
-
+    if (!raw) {
         return null
     }
 
-    return session
-}
-
-export function clearAuthSession() {
-    if (!isBrowser()) {
-        return
-    }
-
-    const hadSession = window.localStorage.getItem(AUTH_SESSION_STORAGE_KEY) !== null
-    window.localStorage.removeItem(AUTH_SESSION_STORAGE_KEY)
-
-    if (hadSession) {
-        notifyAuthSessionChange()
+    try {
+        return JSON.parse(raw) as T
+    } catch {
+        storage()?.removeItem(key)
+        return null
     }
 }
 
 export function savePendingVerification(state: PendingVerificationState) {
-    if (!isBrowser()) {
-        return
-    }
-
-    window.localStorage.setItem(
-        PENDING_VERIFICATION_STORAGE_KEY,
-        JSON.stringify(state),
-    )
+    storage()?.setItem(PENDING_VERIFICATION_STORAGE_KEY, JSON.stringify(state))
 }
 
 export function loadPendingVerification() {
-    if (!isBrowser()) {
-        return null
-    }
-
-    const rawValue = window.localStorage.getItem(PENDING_VERIFICATION_STORAGE_KEY)
-
-    if (!rawValue) {
-        return null
-    }
-
-    try {
-        return JSON.parse(rawValue) as PendingVerificationState
-    } catch {
-        window.localStorage.removeItem(PENDING_VERIFICATION_STORAGE_KEY)
-        return null
-    }
+    return readJson<PendingVerificationState>(PENDING_VERIFICATION_STORAGE_KEY)
 }
 
 export function clearPendingVerification() {
-    if (!isBrowser()) {
-        return
-    }
-
-    window.localStorage.removeItem(PENDING_VERIFICATION_STORAGE_KEY)
+    storage()?.removeItem(PENDING_VERIFICATION_STORAGE_KEY)
 }
 
 export function isPendingVerificationExpired(expiresAt: string) {
     return new Date(expiresAt).getTime() <= Date.now()
+}
+
+export type PasswordResetHandoff = {
+    email: string
+    expiresAt: string
+}
+
+// El login detectó una contraseña heredada de más de 72 bytes y el backend ya envió un código de
+// recuperación: la página de recuperación continúa directamente en el paso de verificación.
+export function savePasswordResetHandoff(state: PasswordResetHandoff) {
+    storage()?.setItem(PASSWORD_RESET_HANDOFF_KEY, JSON.stringify(state))
+}
+
+export function takePasswordResetHandoff() {
+    const state = readJson<PasswordResetHandoff>(PASSWORD_RESET_HANDOFF_KEY)
+
+    storage()?.removeItem(PASSWORD_RESET_HANDOFF_KEY)
+
+    return state
 }
 
 export function maskEmailAddress(email: string) {

@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { fitsPasswordBytes, PASSWORD_TOO_LONG_MESSAGE } from '../password-rules'
+
 export const forgotPasswordRequestSchema = z.object({
     email: z
         .string()
@@ -14,7 +16,7 @@ export const forgotPasswordResetSchema = z
         password: z
             .string()
             .min(8, 'La contraseña debe tener al menos 8 caracteres.')
-            .max(72, 'La contraseña no puede superar 72 caracteres.'),
+            .refine(fitsPasswordBytes, PASSWORD_TOO_LONG_MESSAGE),
     })
     .refine((value) => value.password === value.confirmPassword, {
         message: 'Las contraseñas no coinciden.',

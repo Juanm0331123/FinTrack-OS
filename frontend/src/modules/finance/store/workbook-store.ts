@@ -1,5 +1,6 @@
 import {
     financeApi,
+    FinanceApiError,
     type AccountInput,
     type DebtInput,
     type EntryInput,
@@ -52,6 +53,41 @@ function cleanNote(note: string | null | undefined) {
     return trimmed ? trimmed : null
 }
 
+// Un fallo sin respuesta definitiva (red, timeout, 5xx, 429) puede haberse aplicado en el
+// servidor: el reintento debe usar el mismo operationId. Un 4xx definitivo cierra la operación.
+function isRetryableFailure(error: unknown) {
+    return !(error instanceof FinanceApiError) || error.status === 0 || error.status === 429 || error.status >= 500
+}
+
+// Borrar algo que el servidor ya no tiene (o nunca recibió) deja el mismo resultado.
+async function deleteIgnoringMissing(run: () => Promise<unknown>) {
+    try {
+        await run()
+    } catch (error) {
+        if (!(error instanceof FinanceApiError && error.status === 404)) {
+            throw error
+        }
+    }
+}
+
+function isIdempotencyConflict(error: unknown) {
+    return error instanceof FinanceApiError && error.code === 'IDEMPOTENCY_CONFLICT'
+}
+
+function entryPayload(entry: MonthEntry) {
+    return {
+        accountId: entry.accountId,
+        amount: entry.amount,
+        category: entry.category,
+        concept: entry.concept,
+        debtId: entry.debtId,
+        dueDay: entry.dueDay,
+        isPaid: entry.isPaid,
+        note: entry.note,
+        sortOrder: entry.sortOrder,
+    }
+}
+
 export function createWorkbookStore(api: FinanceApi = financeApi) {
     let state: WorkbookState = {
         error: null,
@@ -61,6 +97,31 @@ export function createWorkbookStore(api: FinanceApi = financeApi) {
     }
     let loadPromise: Promise<void> | null = null
     const listeners = new Set<() => void>()
+    const pendingOperations = new Map<string, string>()
+
+    async function withOperationId<T>(key: string, run: (operationId: string) => Promise<T>) {
+        const operationId = pendingOperations.get(key) ?? createId()
+
+        pendingOperations.set(key, operationId)
+
+        try {
+            const result = await run(operationId)
+
+            pendingOperations.delete(key)
+
+            return result
+        } catch (error) {
+            if (!isRetryableFailure(error)) {
+                pendingOperations.delete(key)
+            }
+
+            throw error
+        }
+    }
+
+    function findEntry(yearMonth: string, entryId: string) {
+        return state.workbook?.sheets.find((sheet) => sheet.yearMonth === yearMonth)?.entries.find((entry) => entry.id === entryId)
+    }
 
     function setState(next: WorkbookState) {
         state = next
@@ -217,7 +278,9 @@ export function createWorkbookStore(api: FinanceApi = financeApi) {
         },
 
         async createSheet(yearMonth: string, copyFrom: 'NONE' | 'PREVIOUS') {
-            const sheet = await api.createSheet({ copyFrom, yearMonth })
+            const sheet = await withOperationId(`create:${yearMonth}:${copyFrom}`, (operationId) =>
+                api.createSheet({ copyFrom, operationId, yearMonth }),
+            )
 
             upsertSheet(sheet)
 
@@ -227,7 +290,9 @@ export function createWorkbookStore(api: FinanceApi = financeApi) {
         async copyPreviousSheet(yearMonth: string) {
             queue.flushAll()
 
-            const sheet = await api.copyPreviousSheet(yearMonth)
+            const sheet = await withOperationId(`copy:${yearMonth}`, (operationId) =>
+                api.copyPreviousSheet(yearMonth, operationId),
+            )
 
             upsertSheet(sheet)
 
@@ -263,20 +328,26 @@ export function createWorkbookStore(api: FinanceApi = financeApi) {
             }
 
             updateSheet(yearMonth, (current) => ({ ...current, entries: [...current.entries, entry] }))
-            void queue.run(`entry:${id}`, () =>
-                api.createEntry(yearMonth, {
-                    accountId: entry.accountId,
-                    amount: entry.amount,
-                    category: entry.category,
-                    concept: entry.concept,
-                    debtId: entry.debtId,
-                    dueDay: entry.dueDay,
-                    id,
-                    isPaid: entry.isPaid,
-                    note: entry.note,
-                    sortOrder,
-                }),
-            )
+            // El trabajo lee la fila al ejecutarse: un reintento envía su estado actual (con las
+            // ediciones posteriores). Si el servidor ya la tenía con otro contenido, se concilia
+            // con un PATCH del estado local.
+            void queue.run(`entry:${id}`, async () => {
+                const current = findEntry(yearMonth, id)
+
+                if (!current) {
+                    return
+                }
+
+                try {
+                    await api.createEntry(yearMonth, { ...entryPayload(current), id })
+                } catch (error) {
+                    if (!isIdempotencyConflict(error)) {
+                        throw error
+                    }
+
+                    await api.updateEntry(id, entryPayload(current))
+                }
+            })
 
             return id
         },
@@ -292,7 +363,7 @@ export function createWorkbookStore(api: FinanceApi = financeApi) {
                 entries: sheet.entries.filter((entry) => entry.id !== id),
             }))
             queue.cancel(`entry:${id}`)
-            void queue.run(`entry:${id}`, () => api.deleteEntry(id))
+            void queue.run(`entry:${id}`, () => deleteIgnoringMissing(() => api.deleteEntry(id)))
         },
 
         addSpend(yearMonth: string, entryId: string, draft: NewSpendDraft) {
@@ -304,7 +375,23 @@ export function createWorkbookStore(api: FinanceApi = financeApi) {
             }
 
             updateEntryIn(yearMonth, entryId, (entry) => ({ ...entry, spends: sortSpends([...entry.spends, spend]) }))
-            void queue.run(`entry:${entryId}`, () => api.createSpend(entryId, spend))
+            void queue.run(`entry:${entryId}`, async () => {
+                const current = findEntry(yearMonth, entryId)?.spends.find((item) => item.id === spend.id)
+
+                if (!current) {
+                    return
+                }
+
+                try {
+                    await api.createSpend(entryId, current)
+                } catch (error) {
+                    if (!isIdempotencyConflict(error)) {
+                        throw error
+                    }
+
+                    await api.updateSpend(current.id, { amount: current.amount, note: current.note, spentOn: current.spentOn })
+                }
+            })
 
             return spend.id
         },
@@ -326,7 +413,7 @@ export function createWorkbookStore(api: FinanceApi = financeApi) {
                 ...entry,
                 spends: entry.spends.filter((spend) => spend.id !== spendId),
             }))
-            void queue.run(`entry:${entryId}`, () => api.deleteSpend(spendId))
+            void queue.run(`entry:${entryId}`, () => deleteIgnoringMissing(() => api.deleteSpend(spendId)))
         },
 
         async createDebt(draft: DebtInput & { name: string }) {

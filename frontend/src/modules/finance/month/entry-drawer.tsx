@@ -32,12 +32,14 @@ const DAY_OPTIONS = Array.from({ length: 31 }, (_, index) => index + 1)
 
 function EntryFields({
     accounts,
+    categoryLocked = false,
     debts,
     idPrefix,
     onChange,
     value,
 }: {
     accounts: readonly MoneyAccount[]
+    categoryLocked?: boolean
     debts: readonly Debt[]
     idPrefix: string
     onChange: (patch: Partial<EntryDraft>) => void
@@ -83,8 +85,13 @@ function EntryFields({
                     onValueChange={(amount) => onChange({ amount })}
                 />
             </Field>
-            <fieldset>
+            <fieldset disabled={categoryLocked} aria-describedby={categoryLocked ? `${idPrefix}-category-lock` : undefined}>
                 <legend className="mb-1.5 text-[13px] font-medium text-ft-ink-2">Categoría</legend>
+                {categoryLocked ? (
+                    <p id={`${idPrefix}-category-lock`} className="mb-2 text-[13px] text-ft-ink-2">
+                        Este bolsillo tiene gastos registrados. Elimínalos para cambiar la categoría; así no se pierden de los totales.
+                    </p>
+                ) : null}
                 <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
                     {CATEGORY_ORDER.map((category) => (
                         <label
@@ -94,6 +101,7 @@ function EntryFields({
                                 value.category === category
                                     ? cn('border-transparent', CATEGORY_STYLES[category].pill)
                                     : 'border-ft-line text-ft-ink-2 hover:bg-ft-hover',
+                                categoryLocked && value.category !== category && 'cursor-not-allowed opacity-50 hover:bg-transparent',
                             )}
                         >
                             <input
@@ -231,6 +239,7 @@ function EditEntryContent({
             <EntryFields
                 key={entry.id}
                 accounts={accounts}
+                categoryLocked={entry.category === 'POCKET' && entry.spends.length > 0}
                 debts={debts}
                 idPrefix={`entry-${entry.id}`}
                 value={entry}

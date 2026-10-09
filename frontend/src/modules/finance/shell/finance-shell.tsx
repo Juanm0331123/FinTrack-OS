@@ -6,7 +6,8 @@ import { useCallback, useEffect, type ReactNode } from 'react'
 
 import { logoutSession } from '@/modules/auth/auth.api'
 import { useResolvedAuthSession } from '@/modules/auth/auth-session'
-import { clearAuthSession, clearPendingVerification } from '@/modules/auth/auth.storage'
+import { clearPendingVerification } from '@/modules/auth/auth.storage'
+import { getBrowserSession } from '@/modules/auth/browser-session'
 import { APP_ROUTES } from '@/shared/config/routes'
 import { WorkbookProvider, useWorkbookActions, useWorkbookState } from '../store/workbook-context'
 import { FtButton } from '../ui/button'
@@ -57,7 +58,7 @@ function WorkbookGate({ children }: { children: ReactNode }) {
 
 export function FinanceShell({ children }: { children: ReactNode }) {
     const router = useRouter()
-    const { isLoading, session, status } = useResolvedAuthSession()
+    const { isLoading, retryAfterSeconds, session, status } = useResolvedAuthSession()
     const accessToken = session?.accessToken
 
     useEffect(() => {
@@ -72,11 +73,31 @@ export function FinanceShell({ children }: { children: ReactNode }) {
         } catch {
             // The local session is cleared below even if the server session already expired.
         } finally {
-            clearAuthSession()
+            getBrowserSession().clear()
             clearPendingVerification()
             router.replace(APP_ROUTES.home)
         }
     }, [accessToken, router])
+
+    // Un fallo temporal (sin red, 429 o 5xx) no cierra la sesión: se ofrece reintentar.
+    if (status === 'unavailable' && !session) {
+        return (
+            <main className="finance-theme flex min-h-dvh items-center justify-center px-4">
+                <Panel className="flex max-w-md flex-col items-start gap-3 p-6">
+                    <h1 className="text-lg font-semibold text-ft-ink">No pudimos verificar tu sesión</h1>
+                    <p className="text-sm text-ft-ink-2">
+                        {retryAfterSeconds
+                            ? `El servidor pidió esperar unos ${retryAfterSeconds} segundos antes de reintentar.`
+                            : 'Puede ser un problema de conexión. Tu sesión sigue abierta.'}
+                    </p>
+                    <FtButton variant="primary" onClick={() => void getBrowserSession().resolve().catch(() => null)}>
+                        <RotateCw aria-hidden="true" />
+                        Reintentar
+                    </FtButton>
+                </Panel>
+            </main>
+        )
+    }
 
     if (isLoading || !session) {
         return <ShellSkeleton />

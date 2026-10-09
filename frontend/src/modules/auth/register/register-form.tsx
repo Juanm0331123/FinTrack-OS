@@ -15,11 +15,12 @@ import { EmailVerificationForm } from '../email-verification-form'
 import {
     clearPendingVerification,
     loadPendingVerification,
-    saveAuthSession,
     savePendingVerification,
 } from '../auth.storage'
-import type { PendingVerificationState } from '../auth.types'
+import type { AuthenticatedResponse, PendingVerificationState } from '../auth.types'
+import { getBrowserSession } from '../browser-session'
 import { AuthSocialButtons } from '../auth-social-buttons'
+import { createSingleFlight } from '../single-flight'
 import {
     registerSchema,
     type RegisterFormValues,
@@ -32,6 +33,7 @@ export function RegisterForm() {
     const [serverErrorMessage, setServerErrorMessage] = useState<string | null>(null)
     const [showConfirmPassword, setShowConfirmPassword] = useState(false)
     const [showPassword, setShowPassword] = useState(false)
+    const [submission] = useState(createSingleFlight)
     const {
         formState: { errors, isSubmitting },
         handleSubmit,
@@ -59,17 +61,17 @@ export function RegisterForm() {
         setPendingVerification(null)
     }
 
-    function handleAuthenticated(session: {
-        accessToken: string
-        accessTokenExpiresInSeconds: number
-        user: Parameters<typeof saveAuthSession>[0]['user']
-    }) {
+    function handleAuthenticated(session: AuthenticatedResponse) {
         clearPendingVerification()
-        saveAuthSession(session)
+        getBrowserSession().setSession(session)
         router.replace(APP_ROUTES.dashboard)
     }
 
-    async function onSubmit(values: RegisterFormValues) {
+    function onSubmit(values: RegisterFormValues) {
+        return submission.run(() => submit(values))
+    }
+
+    async function submit(values: RegisterFormValues) {
         setServerErrorMessage(null)
 
         try {

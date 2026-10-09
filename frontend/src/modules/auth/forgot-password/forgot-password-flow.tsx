@@ -28,7 +28,7 @@ import {
     resetPassword,
     verifyPasswordResetCode,
 } from '../auth.api'
-import { maskEmailAddress } from '../auth.storage'
+import { maskEmailAddress, takePasswordResetHandoff } from '../auth.storage'
 import { OneTimeCodeInput } from '../one-time-code-input'
 import {
     forgotPasswordRequestSchema,
@@ -124,11 +124,16 @@ function StepRail({ step }: { step: StepId }) {
 }
 
 export function ForgotPasswordFlow() {
+    const [handoff] = useState(() => takePasswordResetHandoff())
     const [code, setCode] = useState('')
     const [requestState, setRequestState] =
-        useState<PasswordResetRequestState | null>(null)
+        useState<PasswordResetRequestState | null>(() => handoff)
     const [requestError, setRequestError] = useState<string | null>(null)
-    const [requestInfo, setRequestInfo] = useState<string | null>(null)
+    const [requestInfo, setRequestInfo] = useState<string | null>(() =>
+        handoff
+            ? 'Por seguridad debes crear una contraseña nueva. Te enviamos un código de recuperación a tu correo.'
+            : null,
+    )
     const [resetError, setResetError] = useState<string | null>(null)
     const [resetInfo, setResetInfo] = useState<string | null>(null)
     const [resetState, setResetState] =

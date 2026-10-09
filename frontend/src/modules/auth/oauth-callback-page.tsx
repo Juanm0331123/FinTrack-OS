@@ -3,20 +3,13 @@
 import { LoaderCircle, TriangleAlert } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useEffect, useSyncExternalStore } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 
 import { APP_ROUTES } from '@/shared/config/routes'
 import { Button } from '@/shared/ui/button'
-import {
-    clearPendingVerification,
-    saveAuthSession,
-    savePendingVerification,
-} from './auth.storage'
-import type {
-    AuthUser,
-    PendingVerificationState,
-    PendingVerificationSource,
-} from './auth.types'
+import { clearPendingVerification, savePendingVerification } from './auth.storage'
+import type { PendingVerificationState, PendingVerificationSource } from './auth.types'
+import { getBrowserSession } from './browser-session'
 
 type OAuthCallbackResult =
     | {
@@ -24,9 +17,6 @@ type OAuthCallbackResult =
       }
     | {
           kind: 'success'
-          accessToken: string
-          accessTokenExpiresInSeconds: number
-          user: AuthUser
       }
     | {
           kind: 'pending_verification'
@@ -70,33 +60,10 @@ function parseOAuthCallbackResult(hash: string): OAuthCallbackResult {
         }
     }
 
+    // El backend ya fijó la cookie de refresh; el access token se pide con /auth/refresh y nunca
+    // viaja en la URL.
     if (resultStatus === 'success') {
-        const accessToken = hashParams.get('accessToken')
-        const accessTokenExpiresInSeconds = Number(
-            hashParams.get('accessTokenExpiresInSeconds'),
-        )
-        const userPayload = hashParams.get('user')
-
-        if (!accessToken || !userPayload || Number.isNaN(accessTokenExpiresInSeconds)) {
-            return {
-                kind: 'error',
-                message: 'No pudimos completar el acceso con OAuth.',
-            }
-        }
-
-        try {
-            return {
-                kind: 'success',
-                accessToken,
-                accessTokenExpiresInSeconds,
-                user: JSON.parse(userPayload) as AuthUser,
-            }
-        } catch {
-            return {
-                kind: 'error',
-                message: 'No pudimos completar el acceso con OAuth.',
-            }
-        }
+        return { kind: 'success' }
     }
 
     if (resultStatus === 'pending_verification') {
@@ -139,25 +106,49 @@ export function OAuthCallbackPage() {
         getClientHashSnapshot,
         getServerHashSnapshot,
     )
-    const result = parseOAuthCallbackResult(hash)
+    const parsed = parseOAuthCallbackResult(hash)
+    const [sessionError, setSessionError] = useState<string | null>(null)
+    const result: OAuthCallbackResult = sessionError ? { kind: 'error', message: sessionError } : parsed
+    const pendingVerification = parsed.kind === 'pending_verification' ? parsed.pendingVerification : null
 
     useEffect(() => {
-        if (result.kind === 'success') {
-            clearPendingVerification()
-            saveAuthSession({
-                accessToken: result.accessToken,
-                accessTokenExpiresInSeconds: result.accessTokenExpiresInSeconds,
-                user: result.user,
-            })
-            router.replace(APP_ROUTES.dashboard)
+        if (parsed.kind !== 'success') {
             return
         }
 
-        if (result.kind === 'pending_verification') {
-            savePendingVerification(result.pendingVerification)
+        let cancelled = false
+
+        clearPendingVerification()
+        getBrowserSession()
+            .ensureAccessToken({ forceRefresh: true })
+            .then((token) => {
+                if (cancelled) {
+                    return
+                }
+
+                if (token) {
+                    router.replace(APP_ROUTES.dashboard)
+                } else {
+                    setSessionError('No pudimos abrir tu sesión. Intenta iniciar sesión de nuevo.')
+                }
+            })
+            .catch(() => {
+                if (!cancelled) {
+                    setSessionError('No pudimos abrir tu sesión en este momento. Intenta de nuevo en unos segundos.')
+                }
+            })
+
+        return () => {
+            cancelled = true
+        }
+    }, [parsed.kind, router])
+
+    useEffect(() => {
+        if (pendingVerification) {
+            savePendingVerification(pendingVerification)
             router.replace(APP_ROUTES.login)
         }
-    }, [result, router])
+    }, [pendingVerification, router])
 
     if (
         result.kind === 'loading' ||

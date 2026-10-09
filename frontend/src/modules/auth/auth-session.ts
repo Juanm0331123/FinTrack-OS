@@ -1,142 +1,44 @@
 'use client'
 
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useSyncExternalStore } from 'react'
 
-import { refreshSession } from './auth.api'
-import {
-    clearAuthSession,
-    getAuthSessionSnapshot,
-    isAuthSessionActive,
-    loadAuthSession,
-    parseAuthSessionSnapshot,
-    saveAuthSession,
-    subscribeAuthSessionStore,
-} from './auth.storage'
-import type { AuthSession } from './auth.types'
+import { getBrowserSession } from './browser-session'
+import type { SessionSnapshot } from './session-manager'
 
-type ResolvedAuthSessionState =
-    | {
-          session: null
-          status: 'idle' | 'loading' | 'unauthenticated'
-      }
-    | {
-          session: AuthSession
-          status: 'authenticated'
-      }
+const SERVER_SNAPSHOT: SessionSnapshot = { session: null, status: 'unknown' }
+
+function subscribe(listener: () => void) {
+    return getBrowserSession().subscribe(listener)
+}
+
+function getSnapshot() {
+    return getBrowserSession().getSnapshot()
+}
 
 export async function resolveAuthSession() {
-    const storedSession = loadAuthSession()
-
-    if (isAuthSessionActive(storedSession)) {
-        return storedSession
-    }
-
     try {
-        const refreshedSession = await refreshSession()
-        saveAuthSession(refreshedSession)
-
-        return loadAuthSession()
+        return await getBrowserSession().resolve()
     } catch {
-        if (storedSession) {
-            clearAuthSession()
-        }
-
         return null
     }
 }
 
 export function useResolvedAuthSession() {
-    const sessionSnapshot = useSyncExternalStore(
-        subscribeAuthSessionStore,
-        getAuthSessionSnapshot,
-        () => '',
-    )
-    const parsedSession = parseAuthSessionSnapshot(sessionSnapshot)
-    const activeSession = isAuthSessionActive(parsedSession) ? parsedSession : null
-    const hasFailedRefreshRef = useRef(false)
-    const [state, setState] = useState<ResolvedAuthSessionState>(() =>
-        activeSession
-            ? {
-                  session: activeSession,
-                  status: 'authenticated',
-              }
-            : {
-                  session: null,
-                  status: 'idle',
-              },
-    )
+    const snapshot = useSyncExternalStore(subscribe, getSnapshot, () => SERVER_SNAPSHOT)
 
     useEffect(() => {
-        if (activeSession) {
-            hasFailedRefreshRef.current = false
-            return
+        if (snapshot.status === 'unknown') {
+            void resolveAuthSession()
         }
+    }, [snapshot.status])
 
-        if (hasFailedRefreshRef.current) {
-            return
-        }
-
-        let cancelled = false
-
-        setState((currentState) =>
-            currentState.status === 'loading'
-                ? currentState
-                : {
-                      session: null,
-                      status: 'loading',
-                  },
-        )
-
-        void resolveAuthSession().then((session) => {
-            if (cancelled) {
-                return
-            }
-
-            if (session && isAuthSessionActive(session)) {
-                hasFailedRefreshRef.current = false
-                setState({
-                    session,
-                    status: 'authenticated',
-                })
-                return
-            }
-
-            hasFailedRefreshRef.current = true
-            setState({
-                session: null,
-                status: 'unauthenticated',
-            })
-        })
-
-        return () => {
-            cancelled = true
-        }
-    }, [activeSession, sessionSnapshot])
-
-    if (activeSession) {
-        return {
-            isAuthenticated: true,
-            isLoading: false,
-            session: activeSession,
-            status: 'authenticated' as const,
-        }
-    }
-
-    if (state.status === 'authenticated') {
-        return {
-            isAuthenticated: true,
-            isLoading: false,
-            session: state.session,
-            status: state.status,
-        }
-    }
-
-    const isLoading = state.status === 'idle' || state.status === 'loading'
+    const authenticated = snapshot.status === 'authenticated' && snapshot.session !== null
 
     return {
-        isAuthenticated: false,
-        isLoading,
-        session: state.session,
-        status: state.status,
+        isAuthenticated: authenticated,
+        isLoading: snapshot.status === 'unknown',
+        retryAfterSeconds: snapshot.retryAfterSeconds,
+        session: snapshot.session,
+        status: snapshot.status,
     }
 }

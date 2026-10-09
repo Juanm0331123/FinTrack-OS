@@ -16,11 +16,13 @@ import { EmailVerificationForm } from '../email-verification-form'
 import {
     clearPendingVerification,
     loadPendingVerification,
-    saveAuthSession,
+    savePasswordResetHandoff,
     savePendingVerification,
 } from '../auth.storage'
-import type { PendingVerificationState } from '../auth.types'
+import type { AuthenticatedResponse, PendingVerificationState } from '../auth.types'
+import { getBrowserSession } from '../browser-session'
 import { AuthSocialButtons } from '../auth-social-buttons'
+import { createSingleFlight } from '../single-flight'
 import { loginSchema, type LoginFormValues } from './login.schema'
 
 function getFallbackPendingVerificationExpiry() {
@@ -33,6 +35,7 @@ export function LoginForm() {
         useState<PendingVerificationState | null>(() => loadPendingVerification())
     const [serverErrorMessage, setServerErrorMessage] = useState<string | null>(null)
     const [showPassword, setShowPassword] = useState(false)
+    const [submission] = useState(createSingleFlight)
     const {
         formState: { errors, isSubmitting },
         handleSubmit,
@@ -57,17 +60,17 @@ export function LoginForm() {
         setPendingVerification(null)
     }
 
-    function handleAuthenticated(session: {
-        accessToken: string
-        accessTokenExpiresInSeconds: number
-        user: Parameters<typeof saveAuthSession>[0]['user']
-    }) {
+    function handleAuthenticated(session: AuthenticatedResponse) {
         clearPendingVerification()
-        saveAuthSession(session)
+        getBrowserSession().setSession(session)
         router.replace(APP_ROUTES.dashboard)
     }
 
-    async function onSubmit(values: LoginFormValues) {
+    function onSubmit(values: LoginFormValues) {
+        return submission.run(() => submit(values))
+    }
+
+    async function submit(values: LoginFormValues) {
         setServerErrorMessage(null)
 
         try {
@@ -94,6 +97,18 @@ export function LoginForm() {
                 }
 
                 handlePendingVerificationChange(nextPendingVerification)
+                return
+            }
+
+            if (error instanceof AuthApiError && error.code === 'PASSWORD_RESET_REQUIRED') {
+                savePasswordResetHandoff({
+                    email: typeof error.details?.email === 'string' ? error.details.email : values.email.trim().toLowerCase(),
+                    expiresAt:
+                        typeof error.details?.expiresAt === 'string'
+                            ? error.details.expiresAt
+                            : getFallbackPendingVerificationExpiry(),
+                })
+                router.push(APP_ROUTES.forgotPassword)
                 return
             }
 

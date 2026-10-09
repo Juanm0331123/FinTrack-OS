@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { FinanceApi } from '../api/finance-api'
+import { FinanceApiError, type FinanceApi } from '../api/finance-api'
 import { accounts, debt, sampleSheet, settings } from '../domain/test-fixtures'
 import type { Workbook } from '../domain/types'
 import { createWorkbookStore } from './workbook-store'
@@ -176,5 +176,84 @@ describe('createWorkbookStore', () => {
         fail = false
         await store.actions.reload()
         expect(store.getState().status).toBe('ready')
+    })
+    it('retries a failed month copy with the same operation id and uses a new id for a new copy', async () => {
+        const operationIds: string[] = []
+        let failNext = true
+        const api = fakeApi({
+            copyPreviousSheet: vi.fn(async (_yearMonth: string, operationId: string) => {
+                operationIds.push(operationId)
+
+                if (failNext) {
+                    failNext = false
+                    throw new FinanceApiError(0, 'Sin conexión')
+                }
+
+                return sampleSheet()
+            }) as unknown as FinanceApi['copyPreviousSheet'],
+        })
+        const store = createWorkbookStore(api)
+
+        await store.actions.load()
+        await expect(store.actions.copyPreviousSheet('2026-03')).rejects.toThrow('Sin conexión')
+        await store.actions.copyPreviousSheet('2026-03')
+        await store.actions.copyPreviousSheet('2026-03')
+
+        expect(operationIds[0]).toBe(operationIds[1])
+        expect(operationIds[2]).not.toBe(operationIds[1])
+    })
+
+    it('does not reuse an operation id after a definitive rejection', async () => {
+        const operationIds: string[] = []
+        const api = fakeApi({
+            createSheet: vi.fn(async (input: { operationId: string }) => {
+                operationIds.push(input.operationId)
+
+                if (operationIds.length === 1) {
+                    throw new FinanceApiError(409, 'Ese mes ya tiene una hoja.', 'SHEET_EXISTS')
+                }
+
+                return sampleSheet()
+            }) as unknown as FinanceApi['createSheet'],
+        })
+        const store = createWorkbookStore(api)
+
+        await store.actions.load()
+        await expect(store.actions.createSheet('2026-04', 'NONE')).rejects.toThrow()
+        await store.actions.createSheet('2026-04', 'NONE')
+
+        expect(operationIds[0]).not.toBe(operationIds[1])
+    })
+
+    it('retries a failed row creation with the row as it is now and reconciles an id conflict with a patch', async () => {
+        let createAttempts = 0
+        const api = fakeApi({
+            createEntry: vi.fn(async () => {
+                createAttempts += 1
+
+                if (createAttempts === 1) {
+                    throw new FinanceApiError(0, 'Sin conexión')
+                }
+
+                throw new FinanceApiError(409, 'Ese identificador ya se usó.', 'IDEMPOTENCY_CONFLICT')
+            }) as unknown as FinanceApi['createEntry'],
+        })
+        const store = createWorkbookStore(api)
+
+        await store.actions.load()
+
+        const id = store.actions.addEntry('2026-03', { amount: 1_000, category: 'FIXED', concept: 'Gimnasio' })!
+
+        await vi.runAllTimersAsync()
+        store.actions.updateEntry('2026-03', id, { amount: 2_000 })
+        await vi.advanceTimersByTimeAsync(600)
+        store.actions.retrySaves()
+        await vi.runAllTimersAsync()
+
+        const secondCreate = (api.createEntry as ReturnType<typeof vi.fn>).mock.calls[1][1]
+
+        expect(secondCreate).toMatchObject({ amount: 2_000, concept: 'Gimnasio', id })
+        expect(api.updateEntry).toHaveBeenLastCalledWith(id, expect.objectContaining({ amount: 2_000, concept: 'Gimnasio' }))
+        expect(store.getState().save.error).toBeNull()
     })
 })
