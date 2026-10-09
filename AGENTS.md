@@ -27,7 +27,7 @@ Prohibido:
 Usar `pnpm` (hay lockfile en cada boundary).
 
 - Frontend: `pnpm dev`, `pnpm build`, `pnpm start`, `pnpm lint`, `pnpm typecheck`, `pnpm test`.
-- Backend: `pnpm dev`, `pnpm start`, `pnpm typecheck`, `pnpm test`, `pnpm test:integration`, `pnpm test:migrations`, `pnpm prisma:validate`, `pnpm prisma:generate`, `pnpm prisma:migrate:dev`, `pnpm prisma:migrate:deploy`, `pnpm db:check-migration`, `pnpm db:cleanup-auth`. Las suites de integración y migraciones exigen `TEST_DATABASE_URL` hacia un PostgreSQL aislado (`backend/compose.test.yaml`); nunca usan `DATABASE_URL` del `.env`.
+- Backend: `pnpm dev`, `pnpm start`, `pnpm typecheck`, `pnpm test`, `pnpm test:integration`, `pnpm test:migrations`, `pnpm prisma:validate`, `pnpm prisma:generate`, `pnpm prisma:migrate:dev`, `pnpm prisma:migrate:deploy`, `pnpm db:check-migration`, `pnpm db:cleanup-auth`. Las suites de integración y migraciones exigen `TEST_DATABASE_URL` hacia un PostgreSQL aislado (`backend/test/compose.yaml`); nunca usan `DATABASE_URL` del `.env`.
 
 ## Reglas de trabajo
 

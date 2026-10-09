@@ -180,7 +180,7 @@ Secretos de GitHub Actions: `GCP_PROJECT_ID`, `GCP_WORKLOAD_IDENTITY_PROVIDER`, 
 
 - Producción solo recibe `prisma migrate deploy`, desde el flujo manual y antes del deploy del backend.
 - Antes de la migración de la remediación, ejecutar en modo lectura `pnpm db:check-migration` contra producción: reporta ownership inconsistente (la migración se detiene si existe) y nombres de cuenta duplicados por mayúsculas (la migración los renombra con un sufijo ` (n)`, sin borrar nada).
-- Nunca se ejecuta `prisma migrate dev` contra producción. El desarrollo local usa una rama `dev` de Neon o el PostgreSQL de `backend/compose.test.yaml`.
+- Nunca se ejecuta `prisma migrate dev` contra producción. El desarrollo local usa una rama `dev` de Neon o el PostgreSQL de `backend/test/compose.yaml`.
 - Al desplegar la remediación, las sesiones existentes dejan de servir (los tokens anteriores no tienen los claims ahora obligatorios): cada usuario inicia sesión una vez más.
 
 ## Backups

@@ -13,7 +13,7 @@ Requisitos: Node 24.16, pnpm 11.27.1, Docker. Nada de esto usa `.local/`, secret
 ```bash
 # PostgreSQL aislado (postgres:18, puerto 55433 solo en loopback)
 cd backend
-docker compose -f compose.test.yaml up -d
+docker compose -f test/compose.yaml up -d
 export TEST_DATABASE_URL=postgresql://fintrack_test:fintrack_test_only@127.0.0.1:55433/fintrack_test
 
 pnpm install --frozen-lockfile
@@ -215,7 +215,7 @@ Requieren recursos que no existen todavía (Neon de producción/staging, proyect
 
 - Rama: `fix/backend-qa-remediation`, creada desde `e9208dc`. No integrada en `main`, no subida al remoto y no desplegada.
 - Commits: `git log --oneline e9208dc..fix/backend-qa-remediation`.
-- Archivos afectados: `git diff --stat e9208dc..fix/backend-qa-remediation`. Principales: `backend/src/**`, `backend/prisma/**`, `backend/scripts/**`, `backend/test/**`, `backend/Dockerfile`, `backend/compose.test.yaml`, `frontend/src/modules/auth/**`, `frontend/src/modules/finance/{api,store,month,settings,shell}/**`, `frontend/src/proxy.ts`, `frontend/src/shared/lib/edge-proxy*.ts`, `.github/workflows/*`, `docs/despliegue.md`, este documento, `AGENTS.md` y `backend/AGENTS.md`.
+- Archivos afectados: `git diff --stat e9208dc..fix/backend-qa-remediation`. Principales: `backend/src/**`, `backend/prisma/**`, `backend/scripts/**`, `backend/test/**`, `backend/Dockerfile`, `backend/test/compose.yaml`, `frontend/src/modules/auth/**`, `frontend/src/modules/finance/{api,store,month,settings,shell}/**`, `frontend/src/proxy.ts`, `frontend/src/shared/lib/edge-proxy*.ts`, `.github/workflows/*`, `docs/despliegue.md`, este documento, `AGENTS.md` y `backend/AGENTS.md`.
 - Working tree al entregar: limpio salvo archivos ignorados (`.local/`, `.tmp/`, `.env`).
 
 ## Recomendación
