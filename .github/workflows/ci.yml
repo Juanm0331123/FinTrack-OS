@@ -94,6 +94,92 @@ jobs:
       - name: Auditoría de dependencias (bloquea avisos altos o críticos)
         run: pnpm audit --prod --audit-level high
 
+  frontend-browser:
+    name: Frontend integrado (Chrome, API y PostgreSQL)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    needs: [backend, frontend]
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_DB: fintrack_browser_test
+          POSTGRES_PASSWORD: fintrack_test_only
+          POSTGRES_USER: fintrack_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U fintrack_test -d fintrack_browser_test"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    env:
+      TEST_DATABASE_URL: postgresql://fintrack_test:fintrack_test_only@127.0.0.1:5432/fintrack_browser_test
+      DOTENV_CONFIG_PATH: test/support/.env.none
+      NEXT_PUBLIC_BACKEND_URL: ''
+      BACKEND_ORIGIN: http://127.0.0.1:4420
+      QA_API_PORT: '4420'
+      QA_CONTROL_PORT: '4421'
+      QA_FRONTEND_ORIGIN: http://127.0.0.1:3300
+      QA_BASE: http://127.0.0.1:3300
+      QA_CONTROL: http://127.0.0.1:4421
+      QA_ACCESS_TTL: 40s
+      QA_ACCESS_TTL_SECONDS: '40'
+      QA_CDP_PORT: '9334'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: npm install --global pnpm@${{ env.PNPM_VERSION }}
+      - name: Clave de borde exclusiva del entorno de prueba y Chrome del runner
+        run: |
+          node -e "require('fs').appendFileSync(process.env.GITHUB_ENV, 'EDGE_PROXY_SECRET=' + require('crypto').randomBytes(32).toString('hex') + '\n')"
+          chrome_path=$(command -v google-chrome)
+          test -x "$chrome_path"
+          printf 'QA_CHROME_PATH=%s\n' "$chrome_path" >> "$GITHUB_ENV"
+      - run: pnpm --dir backend install --frozen-lockfile
+      - name: Generar Prisma para la base aislada
+        run: pnpm --dir backend prisma:generate
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+          DIRECT_URL: ${{ env.TEST_DATABASE_URL }}
+      - run: pnpm --dir frontend install --frozen-lockfile
+      - run: pnpm --dir frontend qa:runner
+      - run: pnpm --dir frontend build
+      - name: Recorridos contra la build de producción
+        shell: bash
+        run: |
+          mkdir -p .local/frontend-ci
+          (cd backend && exec node test/support/frontend-qa-api.ts) > .local/frontend-ci/api.log 2>&1 &
+          qa_api_pid=$!
+          (cd frontend && exec node node_modules/next/dist/bin/next start -p 3300 -H 127.0.0.1) > .local/frontend-ci/frontend.log 2>&1 &
+          qa_frontend_pid=$!
+          trap 'kill "$qa_api_pid" "$qa_frontend_pid" 2>/dev/null || true' EXIT
+          node --input-type=module - <<'JS'
+          const urls = ['http://127.0.0.1:4421/status', 'http://127.0.0.1:3300/login']
+          for (const url of urls) {
+              let ready = false
+              for (let attempt = 0; attempt < 120; attempt += 1) {
+                  try { ready = (await fetch(url)).ok } catch {}
+                  if (ready) break
+                  await new Promise((resolve) => setTimeout(resolve, 500))
+              }
+              if (!ready) throw new Error(`No inició el servicio de QA: ${url}`)
+          }
+          JS
+          node frontend/qa/browser/run.mjs --out .local/frontend-ci/browser
+      - name: Evidencia de QA (solo datos sintéticos)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-browser-qa
+          path: |
+            .local/frontend-ci/*.log
+            .local/frontend-ci/browser/results.json
+            .local/frontend-ci/browser/*.png
+          if-no-files-found: ignore
+
   docker-smoke:
     name: Imagen Docker (migraciones, TLS verify-full, salud, SIGTERM)
     runs-on: ubuntu-latest

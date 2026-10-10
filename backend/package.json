@@ -9,6 +9,7 @@
         "db:import-workbook": "node --env-file-if-exists=.env scripts/import-workbook.ts",
         "dev": "node --watch --env-file-if-exists=.env src/server.ts",
         "prisma:format": "prisma format",
+        "qa:frontend-api": "node test/support/frontend-qa-api.ts",
         "prisma:generate": "prisma generate",
         "prisma:migrate:deploy": "prisma migrate deploy",
         "prisma:migrate:dev": "prisma migrate dev",
