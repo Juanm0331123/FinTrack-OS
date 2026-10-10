@@ -357,20 +357,24 @@ export class AuthService {
         context: SessionContext,
     ): Promise<AuthenticatedSessionResult | PendingEmailVerificationResult> {
         const user = await this.authRepository.findUserByEmailForAuth(input.email)
-        const passwordMatches = await bcrypt.compare(input.password, user?.passwordHash ?? DUMMY_PASSWORD_HASH)
+        const hashMatches = await bcrypt.compare(input.password, user?.passwordHash ?? DUMMY_PASSWORD_HASH)
+        // bcrypt termina la clave con un NUL: «S + NUL» coincide con S. Ninguna contraseña válida
+        // contiene NUL (newPasswordSchema lo rechaza), así que una entrada con NUL nunca autentica.
+        const passwordMatches = hashMatches && !input.password.includes('\u0000')
 
         if (!user || !passwordMatches) {
             auditAuthEvent('login', 'invalid_credentials', { emailFingerprint: emailFingerprint(input.email) })
             throw invalidCredentials()
         }
 
-        // bcrypt ignora lo que pasa de 72 bytes: toda entrada de 72 bytes o más coincide con
-        // cualquier contraseña que comparta esos 72 bytes. Una entrada más larga nunca pudo fijarse
-        // con la regla actual, y una de 72 bytes exactos contra un hash heredado (versión 1) puede
-        // ser el prefijo de una contraseña más larga. En ambos casos se exige una contraseña nueva.
+        // bcrypt usa los primeros 72 bytes de «contraseña + NUL». Una entrada de más de 72 bytes nunca
+        // pudo fijarse con la regla actual. Contra un hash heredado (versión 1), una entrada de 72
+        // bytes puede ser el prefijo de una contraseña más larga, y una de 71 bytes coincide con una
+        // contraseña cuyo byte 72 era NUL. En esos casos se exige una contraseña nueva. La versión 2
+        // (72 bytes como máximo y sin NUL) no tiene esa ambigüedad.
         const passwordBytes = utf8ByteLength(input.password)
         const ambiguousLegacyHash =
-            passwordBytes === BCRYPT_MAX_PASSWORD_BYTES && user.passwordHashVersion < CURRENT_PASSWORD_HASH_VERSION
+            passwordBytes >= BCRYPT_MAX_PASSWORD_BYTES - 1 && user.passwordHashVersion < CURRENT_PASSWORD_HASH_VERSION
 
         if (passwordBytes > BCRYPT_MAX_PASSWORD_BYTES || ambiguousLegacyHash) {
             const expiresAt = this.futureDate(env.PASSWORD_RESET_TTL)
@@ -515,8 +519,18 @@ export class AuthService {
     async changePassword(actor: AuthenticatedActor, input: ChangePasswordInput) {
         const user = await this.requireCurrentPassword(actor.userId, input.currentPassword)
         const passwordHash = await bcrypt.hash(input.newPassword, PASSWORD_HASH_ROUNDS)
+        const changed = await this.authRepository.changePassword({
+            currentSessionId: actor.sessionId,
+            passwordHash,
+            securityStamp: user.securityStamp,
+            userId: user.id,
+        })
 
-        await this.authRepository.changePassword({ currentSessionId: actor.sessionId, passwordHash, userId: user.id })
+        if (!changed) {
+            auditAuthEvent('password_change', 'credentials_changed', { userId: user.id })
+            throw credentialsChanged()
+        }
+
         auditAuthEvent('password_change', 'completed', { userId: user.id })
 
         return { otherSessionsClosed: true as const, passwordChanged: true as const }
@@ -651,7 +665,13 @@ export class AuthService {
             }
 
             await this.authRepository.updateOAuthAccountMetadata(existingAccount.id, profile)
-            user = existingAccount.user
+            user =
+                existingAccount.user.status === UserStatus.PENDING_VERIFICATION
+                    ? await this.authRepository.resetPendingCredentialsForOAuth(
+                          existingAccount.user.id,
+                          await bcrypt.hash(createOpaqueToken(), PASSWORD_HASH_ROUNDS),
+                      )
+                    : existingAccount.user
         } else {
             const existingUser = await this.authRepository.findUserByEmailForAuth(profile.email)
             const unusablePasswordHash = await bcrypt.hash(createOpaqueToken(), PASSWORD_HASH_ROUNDS)
@@ -693,12 +713,14 @@ export class AuthService {
         return this.startSession(user, context)
     }
 
-    // Un reenvío mantiene la exigencia de contraseña del código vigente, salvo que este se emitiera
-    // tras OAuth y las credenciales no hayan cambiado desde entonces.
+    // Un reenvío conserva el requisito de las credenciales vigentes: el último código emitido con
+    // el mismo sello (aunque se haya revocado por intentos fallidos) dice si vienen de un registro
+    // con contraseña o de OAuth. Sin ese dato se exige contraseña; el usuario de OAuth puede repetir
+    // el inicio con su proveedor.
     private async resendRequiresPassword(user: AuthCredentialsUser) {
-        const latest = await this.authRepository.findLatestOpenCodeToken(user.id, AuthTokenType.EMAIL_VERIFICATION)
+        const latest = await this.authRepository.findLatestCodeTokenForStamp(user.id, AuthTokenType.EMAIL_VERIFICATION, user.securityStamp)
 
-        return !(latest && !latest.requiresPassword && latest.securityStamp === user.securityStamp)
+        return latest?.requiresPassword ?? true
     }
 
     private async refreshPendingRegistration(

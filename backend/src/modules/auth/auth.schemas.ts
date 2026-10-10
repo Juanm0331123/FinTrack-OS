@@ -24,6 +24,8 @@ export const newPasswordSchema = z
         (value) => utf8ByteLength(value) <= BCRYPT_MAX_PASSWORD_BYTES,
         'La contraseña es demasiado larga: usa máximo 72 bytes (las tildes y los emojis ocupan más de uno).',
     )
+    // bcrypt termina la clave con un carácter nulo: una contraseña con NUL sería equivalente a otra.
+    .refine((value) => !value.includes('\u0000'), 'La contraseña no puede contener caracteres nulos.')
 
 // En el login se acepta la longitud que permitía la versión anterior para que las cuentas
 // existentes puedan autenticarse; el servicio exige actualizar las que superan 72 bytes.

@@ -72,8 +72,8 @@ async function register(email: string, password: string) {
     return api.client().post('/api/auth/register', { email, firstName: 'Persona', password })
 }
 
-async function oauthPending(email: string): Promise<TestClient> {
-    providers.google = { email, email_verified: true, name: 'Titular Real', sub: randomUUID() }
+async function oauthPending(email: string, sub: string = randomUUID()): Promise<TestClient> {
+    providers.google = { email, email_verified: true, name: 'Titular Real', sub }
 
     const client = api.client()
     const start = await client.get('/api/auth/oauth/google/start?intent=login')
@@ -322,5 +322,120 @@ describe('legacy hashes that may hide a longer password (RAUTH-03)', () => {
         const user = await legacyUser('Clave-corta-10')
 
         assert.equal((await api.client().post('/api/auth/login', { email: user.email, password: 'Clave-corta-10' })).status, 200)
+    })
+})
+
+// Segunda revisión independiente (RAUTH-01-R2, AUTH-R2-02, RAUTH-03-R2, AUTH-R2-04).
+describe('credential provenance after the second review', () => {
+    it('does not let a repeated OAuth login activate a password set by a re-registration (RAUTH-01-R2)', async () => {
+        const email = trackEmail()
+        const sub = randomUUID()
+
+        await oauthPending(email, sub)
+        assert.equal((await register(email, 'Clave-intrusa-11')).status, 201)
+
+        // El titular vuelve a entrar con el mismo proveedor y recibe un código nuevo.
+        const owner = await oauthPending(email, sub)
+        const verified = await owner.post('/api/auth/verify-email-code', { code: lastCodeSentTo(email), email })
+        const intruder = await api.client().post('/api/auth/login', { email, password: 'Clave-intrusa-11' })
+
+        assert.equal(verified.status, 200, 'the owner activates the account with the provider')
+        assert.equal(intruder.status, 401, 'the re-registration password never works')
+    })
+
+    it('does not let a password change that checked the old password overwrite a finished recovery (AUTH-R2-02)', async () => {
+        const user = await createUser()
+
+        createdUsers.push(user.id)
+        await login(api.client(), user)
+
+        const session = await prisma.authSession.findFirstOrThrow({ select: { id: true }, where: { revokedAt: null, userId: user.id } })
+        const waiting = barrier()
+        const resume = barrier()
+
+        class PausingRepository extends AuthRepository {
+            override async changePassword(...args: Parameters<Repository['changePassword']>) {
+                waiting.release()
+                await resume.reached
+
+                return super.changePassword(...args)
+            }
+        }
+
+        const staleChange = new AuthService(new PausingRepository())
+            .changePassword({ sessionId: session.id, userId: user.id }, { currentPassword: user.password, newPassword: 'Clave-obsoleta-12' })
+            .then(
+                () => 'completed',
+                (error: { code?: string }) => error.code,
+            )
+
+        await waiting.reached
+        await api.client().post('/api/auth/forgot-password/request', { email: user.email })
+
+        const code = await api.client().post('/api/auth/forgot-password/verify-code', { code: lastCodeSentTo(user.email), email: user.email })
+        const reset = await api.client().post('/api/auth/forgot-password/reset', {
+            email: user.email,
+            password: 'Clave-recuperada-13',
+            resetToken: code.body.data.resetToken,
+        })
+
+        assert.equal(reset.status, 200)
+        resume.release()
+
+        assert.equal(await staleChange, 'CREDENTIALS_CHANGED')
+        assert.equal((await api.client().post('/api/auth/login', { email: user.email, password: 'Clave-recuperada-13' })).status, 200)
+        assert.equal((await api.client().post('/api/auth/login', { email: user.email, password: 'Clave-obsoleta-12' })).status, 401)
+    })
+
+    it('does not accept the 71-byte prefix of a legacy password whose 72nd byte is NUL (RAUTH-03-R2)', async () => {
+        const prefix = 'x'.repeat(71)
+        const user = await prisma.user.create({
+            data: {
+                email: testEmail('legacy-nul'),
+                firstName: 'Heredada',
+                passwordHash: await bcrypt.hash(`${prefix}\u0000cola-ignorada`, 4),
+                passwordHashVersion: 1,
+                status: 'ACTIVE',
+            },
+            select: { email: true, id: true },
+        })
+
+        createdUsers.push(user.id)
+
+        const response = await api.client().post('/api/auth/login', { email: user.email, password: prefix })
+
+        assert.equal(response.status, 403)
+        assert.equal(response.body.code, 'PASSWORD_RESET_REQUIRED')
+    })
+
+    it('never authenticates an input that contains NUL and never stores a new password with NUL (RAUTH-03-R2)', async () => {
+        const stored = 'y'.repeat(71)
+        const user = await createUser({ password: stored })
+
+        createdUsers.push(user.id)
+
+        // bcrypt añade un NUL final: «71 bytes + NUL» y «71 bytes» producen el mismo hash.
+        const withNul = await api.client().post('/api/auth/login', { email: user.email, password: `${stored}\u0000` })
+        const registration = await register(trackEmail(), 'Clave-con-nulo\u0000-14')
+
+        assert.equal(withNul.status, 401)
+        assert.equal(registration.status, 422)
+    })
+
+    it('resends a code an OAuth-only account can use without a password after the previous one was revoked (AUTH-R2-04)', async () => {
+        const email = trackEmail()
+        const owner = await oauthPending(email)
+        const code = lastCodeSentTo(email)
+        const wrong = code === '000000' ? '111111' : '000000'
+
+        for (let attempt = 0; attempt < 5; attempt += 1) {
+            assert.equal((await owner.post('/api/auth/verify-email-code', { code: wrong, email })).status, 401)
+        }
+
+        assert.equal((await owner.post('/api/auth/resend-email-code', { email })).status, 200)
+
+        const verified = await owner.post('/api/auth/verify-email-code', { code: lastCodeSentTo(email), email })
+
+        assert.equal(verified.status, 200)
     })
 })

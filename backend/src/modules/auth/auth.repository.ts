@@ -217,6 +217,16 @@ export class AuthRepository {
         })
     }
 
+    // Último código emitido para las credenciales vigentes (mismo sello), aunque ya esté usado,
+    // vencido o revocado: indica de dónde vienen esas credenciales (registro con contraseña u OAuth).
+    findLatestCodeTokenForStamp(userId: string, type: AuthTokenType, securityStamp: string) {
+        return prisma.authToken.findFirst({
+            orderBy: { createdAt: 'desc' },
+            select: { requiresPassword: true },
+            where: { securityStamp, tokenSalt: { not: null }, type, userId },
+        })
+    }
+
     findLatestOpenResetSession(userId: string) {
         return prisma.authToken.findFirst({
             orderBy: { createdAt: 'desc' },
@@ -323,9 +333,21 @@ export class AuthRepository {
         })
     }
 
-    changePassword(input: { currentSessionId: string; passwordHash: string; userId: string }) {
+    // Escribe solo si nada cambió desde que se comprobó la contraseña actual: mismo sello, cuenta
+    // activa y sesión actual abierta. Un cambio que validó la contraseña anterior no puede pisar
+    // una recuperación, un logout-all ni otro cambio que terminaron entretanto.
+    changePassword(input: { currentSessionId: string; passwordHash: string; securityStamp: string; userId: string }) {
         return withTransaction(async (transaction) => {
             const now = new Date()
+            const user = await lockUser(transaction, input.userId)
+            const session = await transaction.authSession.findFirst({
+                select: { id: true },
+                where: { id: input.currentSessionId, revokedAt: null, userId: input.userId },
+            })
+
+            if (!stampMatches(user, input.securityStamp) || user.status !== UserStatus.ACTIVE || !session) {
+                return false
+            }
 
             await transaction.user.update({
                 data: {
@@ -342,6 +364,8 @@ export class AuthRepository {
                 SessionRevokeReason.PASSWORD_CHANGE,
                 now,
             )
+
+            return true
         })
     }
 
@@ -616,6 +640,32 @@ export class AuthRepository {
             }
 
             return transaction.user.findUniqueOrThrow({ select: stampedUserSelect, where: { id: input.userId } })
+        })
+    }
+
+    // OAuth demuestra que quien entra controla el correo. Si la cuenta sigue pendiente, ninguna
+    // contraseña existente está autorizada (pudo fijarla un re-registro ajeno): se reemplaza por una
+    // inutilizable, se rota el sello y se invalidan códigos y sesiones anteriores.
+    resetPendingCredentialsForOAuth(userId: string, unusablePasswordHash: string) {
+        return withTransaction(async (transaction) => {
+            const now = new Date()
+            const user = await lockUser(transaction, userId)
+
+            if (user?.status === UserStatus.PENDING_VERIFICATION) {
+                await transaction.user.update({
+                    data: {
+                        passwordHash: unusablePasswordHash,
+                        passwordHashVersion: CURRENT_PASSWORD_HASH_VERSION,
+                        securityStamp: randomUUID(),
+                    },
+                    where: { id: userId },
+                })
+                await revokeOpenTokens(transaction, userId, AuthTokenType.EMAIL_VERIFICATION, now)
+                await revokeOpenTokens(transaction, userId, AuthTokenType.PASSWORD_RESET, now)
+                await revokeSessions(transaction, { userId }, SessionRevokeReason.PASSWORD_RESET, now)
+            }
+
+            return transaction.user.findUniqueOrThrow({ select: stampedUserSelect, where: { id: userId } })
         })
     }
 
