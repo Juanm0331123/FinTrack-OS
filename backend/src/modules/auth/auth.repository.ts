@@ -221,7 +221,7 @@ export class AuthRepository {
     // vencido o revocado: indica de dónde vienen esas credenciales (registro con contraseña u OAuth).
     findLatestCodeTokenForStamp(userId: string, type: AuthTokenType, securityStamp: string) {
         return prisma.authToken.findFirst({
-            orderBy: { createdAt: 'desc' },
+            orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
             select: { requiresPassword: true },
             where: { securityStamp, tokenSalt: { not: null }, type, userId },
         })
