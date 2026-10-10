@@ -7,7 +7,7 @@ Especializa el `AGENTS.md` raíz para `frontend/` sin contradecirlo.
 - Stack: Next.js 16 (App Router) + React 19 + TypeScript estricto + Tailwind CSS v4 + componentes shadcn (Radix) en `src/shared/ui` + iconos `lucide-react`.
 - Organización por feature: `src/app` solo declara rutas, layouts y metadata e importa páginas de `src/modules/<feature>`; la lógica de cada feature vive en su módulo; lo transversal va en `src/shared` (`ui`, `lib`, `config`).
 - El frontend consume solo la API pública del backend (`NEXT_PUBLIC_BACKEND_URL`). Su validación es orientativa: el backend decide autorización y validez de los datos.
-- La app post-login replica el libro de Excel mensual. Las fórmulas viven como funciones puras en `src/modules/finance/domain/` sin dependencias de React, y se prueban con `pnpm test` contra los valores del Excel de referencia.
+- La app post-login replica el libro de Excel mensual y aplica el contrato financiero aprobado en `PRODUCT.md` para topes, precisión y mínimos manuales. Las fórmulas viven como funciones puras en `src/modules/finance/domain/` sin dependencias de React; `pnpm test` compara fixtures sintéticos del Excel para las reglas compartidas y fixtures del contrato para las diferencias explícitas documentadas en `docs/qa-excel-paridad.md`.
 - Las ediciones de la hoja del mes son optimistas: la UI recalcula al instante y persiste en segundo plano con escrituras agrupadas, sin bloquear la edición.
 
 ## Dirección de producto
@@ -58,5 +58,9 @@ Aplicar esta lista cuando se solicite QA completo o preparación para desplegar;
 5. Revisar anchos de 375, 768 y 1440px: números legibles, contenido accesible y scroll intencional. Verificar teclado, foco visible y su retorno al cerrar dialogs/drawers, nombres accesibles, contraste AA, estados distinguibles sin color, objetivos táctiles de 44px y `prefers-reduced-motion`.
 6. Comprobar textos y formatos `es-CO`, montos y fechas con zona `America/Bogota`, incluidos cambios de día, mes y año. Vigilar excepciones de JavaScript, errores de hidratación y solicitudes HTTP fallidas durante los recorridos; distinguir los fallos provocados de los inesperados.
 7. Comparar capturas con `DESIGN.md` y con baselines revisadas cuando existan. Sin baseline, documentar la inspección visual y la cobertura faltante; una captura nueva no demuestra ausencia de regresión. Usar locators por rol/nombre o label y esperas por estados observables; reintentos no ocultan un fallo reproducible.
+
+El arnés de navegador del repositorio es automatización propia, no Playwright: `qa/browser/run.mjs` maneja el Chrome instalado por Chrome DevTools Protocol (sin dependencias) contra `pnpm start`, y habla por HTTP con la API real de `backend` (`pnpm qa:frontend-api`, PostgreSQL aislado de `backend/test/compose.yaml`, correo y OAuth falsos). El procedimiento completo está en `docs/qa-frontend-remediacion.md`; sus salidas van a `.local/` (ignorado).
+
+`pnpm qa:runner` prueba el contrato del ejecutor con Chrome y fixtures HTTP locales: errores/bloqueos deben terminar con exit distinto de cero, una página ajena no puede aprobar y `results.json` solo contiene los escenarios de la corrida actual. `QA_CHROME_PATH` permite indicar el Chrome instalado. El job `frontend-browser` de `.github/workflows/ci.yml` ejecuta este contrato y el recorrido integrado contra una build de producción y PostgreSQL aislado. `docs/qa-frontend-cierre.md` registra las correcciones posteriores a la revisión independiente y sus límites; la correspondencia con el Excel está en `docs/qa-excel-paridad.md`.
 
 Entregar el reporte con estados, evidencia y reproducción definidos en el `AGENTS.md` raíz. Las capturas, trazas y logs deben excluir credenciales, tokens y datos personales reales.
