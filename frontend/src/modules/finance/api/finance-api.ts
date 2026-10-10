@@ -1,6 +1,7 @@
 import { getBrowserSession } from '@/modules/auth/browser-session'
 import { SessionChangedError, SessionUnavailableError, type SessionManager } from '@/modules/auth/session-manager'
 import { publicEnv } from '@/shared/config/env'
+import { combineSignals } from '@/shared/lib/abort-signals'
 import type {
     Debt,
     EntryCategory,
@@ -145,10 +146,9 @@ export function createFinanceApi(deps: FinanceApiDeps) {
         }
 
         let response: Response
+        const combined = combineSignals([owner, AbortSignal.timeout(REQUEST_TIMEOUT_MS), ...(options.signal ? [options.signal] : [])])
 
         try {
-            const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS)
-
             response = await send(`${publicEnv.backendUrl}/api/finance${path}`, {
                 body: options.body === undefined ? undefined : JSON.stringify(options.body),
                 credentials: 'include',
@@ -157,7 +157,7 @@ export function createFinanceApi(deps: FinanceApiDeps) {
                     ...(options.body === undefined ? {} : { 'Content-Type': 'application/json' }),
                 },
                 method: options.method ?? 'GET',
-                signal: AbortSignal.any([owner, timeout, ...(options.signal ? [options.signal] : [])]),
+                signal: combined.signal,
             })
         } catch (error) {
             if (error instanceof DOMException && error.name === 'AbortError') {
@@ -165,6 +165,8 @@ export function createFinanceApi(deps: FinanceApiDeps) {
             }
 
             throw new FinanceApiError(0, 'No pudimos conectar con el servidor. Revisa tu conexión.')
+        } finally {
+            combined.dispose()
         }
 
         if (owner.aborted) {

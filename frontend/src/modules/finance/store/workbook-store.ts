@@ -18,10 +18,11 @@ import type {
     Workbook,
 } from '../domain/types'
 import { createId } from './create-id'
-import { createSaveQueue } from './save-queue'
+import { createSaveQueue, SaveRejectedError } from './save-queue'
 
 export type SaveState = {
     error: string | null
+    failed: number
     pending: number
 }
 
@@ -39,7 +40,7 @@ export type NewSpendDraft = Omit<PocketSpend, 'id'>
 export type WorkbookStore = ReturnType<typeof createWorkbookStore>
 
 function sortSheets(sheets: MonthSheet[]) {
-    return sheets.toSorted((left, right) => left.yearMonth.localeCompare(right.yearMonth))
+    return [...sheets].sort((left, right) => left.yearMonth.localeCompare(right.yearMonth))
 }
 
 function errorMessage(error: unknown, fallback: string) {
@@ -73,8 +74,26 @@ async function deleteIgnoringMissing(run: () => Promise<unknown>) {
     }
 }
 
+// Un rechazo definitivo de una creación (cuota, validación, mes inexistente): la fila optimista se
+// retira y el motivo se informa sin ofrecer un reintento que fallaría igual.
+function rejectedCreation(error: unknown) {
+    return new SaveRejectedError(errorMessage(error, 'No pudimos guardar el registro.'))
+}
+
 function isIdempotencyConflict(error: unknown) {
     return error instanceof FinanceApiError && error.code === 'IDEMPOTENCY_CONFLICT'
+}
+
+// Valores canónicos de una respuesta (p. ej. tasas normalizadas a la escala de su columna), solo
+// para los campos que ninguna edición posterior ha superado.
+function canonicalFields<T>(result: T | null, fields: string[]): Partial<T> {
+    if (result === null || typeof result !== 'object') {
+        return {}
+    }
+
+    const source = result as Record<string, unknown>
+
+    return Object.fromEntries(fields.filter((field) => field in source).map((field) => [field, source[field]])) as Partial<T>
 }
 
 function entryPayload(entry: MonthEntry) {
@@ -91,10 +110,29 @@ function entryPayload(entry: MonthEntry) {
     }
 }
 
+// Fusiona una hoja recibida del servidor con la local: los campos y filas escritos localmente
+// después de pedirla (touched) conservan su versión local; el resto adopta la del servidor.
+function mergeSheetSnapshot(server: MonthSheet, local: MonthSheet, touched: Map<string, Set<string>>): MonthSheet {
+    const sheetFields = touched.get(`sheet:${local.yearMonth}`) ?? new Set<string>()
+    const localFields = Object.fromEntries(
+        [...sheetFields].filter((field) => field in local).map((field) => [field, local[field as keyof MonthSheet]]),
+    )
+    const localById = new Map(local.entries.map((entry) => [entry.id, entry]))
+    const isTouched = (id: string) => touched.has(`entry:${id}`)
+        || localById.get(id)?.spends.some((spend) => touched.has(`spend:${spend.id}`))
+    const serverIds = new Set(server.entries.map((entry) => entry.id))
+    const entries = server.entries
+        .filter((entry) => !isTouched(entry.id) || localById.has(entry.id))
+        .map((entry) => (isTouched(entry.id) ? localById.get(entry.id)! : entry))
+        .concat(local.entries.filter((entry) => !serverIds.has(entry.id) && isTouched(entry.id)))
+
+    return { ...server, ...localFields, entries }
+}
+
 export function createWorkbookStore(api: FinanceApi) {
     let state: WorkbookState = {
         error: null,
-        save: { error: null, pending: 0 },
+        save: { error: null, failed: 0, pending: 0 },
         status: 'loading',
         workbook: null,
     }
@@ -170,7 +208,7 @@ export function createWorkbookStore(api: FinanceApi) {
 
     const queue = createSaveQueue({
         onStatus: (save) => {
-            if (save.error !== state.save.error || save.pending !== state.save.pending) {
+            if (save.error !== state.save.error || save.failed !== state.save.failed || save.pending !== state.save.pending) {
                 setState({ ...state, save })
             }
         },
@@ -215,8 +253,9 @@ export function createWorkbookStore(api: FinanceApi) {
         },
 
         // Envía ya los cambios pendientes y espera a que terminen (con tope), p. ej. antes de
-        // cerrar sesión, para que se guarden con la identidad de su dueño.
-        async settle(timeoutMs: number) {
+        // cerrar sesión, para que se guarden con la identidad de su dueño. saved=false significa que
+        // algo falló o no terminó a tiempo: quien sale debe ofrecer reintentar o descartar.
+        async settle(timeoutMs: number): Promise<{ saved: boolean }> {
             queue.flushAll()
 
             let timer: ReturnType<typeof setTimeout> | undefined
@@ -228,14 +267,28 @@ export function createWorkbookStore(api: FinanceApi) {
                 }),
             ])
             clearTimeout(timer)
+
+            return { saved: !queue.hasUnsaved() }
         },
 
         hasUnsavedChanges() {
             return queue.hasUnsaved()
         },
 
+        // Descarte explícito: olvida los fallos y vuelve a leer el libro del servidor.
+        async discardFailedSaves() {
+            queue.discardFailed()
+            await queue.idle()
+
+            return actions.reload()
+        },
+
         retrySaves() {
             queue.retryFailed()
+        },
+
+        dismissSaveError() {
+            queue.dismissError()
         },
 
         updateSettings(patch: Partial<FinanceSettings>) {
@@ -243,7 +296,12 @@ export function createWorkbookStore(api: FinanceApi) {
                 ...workbook,
                 settings: { ...workbook.settings, ...patch },
             }))
-            queue.patch('settings', patch, (merged) => api.updateSettings(merged))
+            queue.patch('settings', patch, (merged) => api.updateSettings(merged), (saved, fields) =>
+                updateWorkbook((workbook) => ({
+                    ...workbook,
+                    settings: { ...workbook.settings, ...canonicalFields(saved, fields) },
+                })),
+            )
         },
 
         async createAccount(name: string) {
@@ -252,16 +310,18 @@ export function createWorkbookStore(api: FinanceApi) {
             )
             // Restaurar conserva el id y los movimientos. Si se pierde la respuesta, el estado
             // local sigue archivado y el siguiente intento repite el mismo PATCH idempotente.
+            // Una creación sin respuesta puede haberse aplicado: el reintento con el mismo nombre usa
+            // el mismo id y el servidor la reconoce, en vez de responder «ya existe».
             const account = archived
                 ? await api.updateAccount(archived.id, { archived: false })
-                : await api.createAccount({ id: createId(), name: name.trim() })
+                : await withOperationId(`account:${accountNameKey(name)}`, (id) => api.createAccount({ id, name: name.trim() }))
 
             updateWorkbook((workbook) => ({
                 ...workbook,
                 accounts: [
                     ...workbook.accounts.filter((item) => item.id !== account.id),
                     account,
-                ].toSorted((left, right) => left.sortOrder - right.sortOrder),
+                ].sort((left, right) => left.sortOrder - right.sortOrder),
             }))
 
             return account
@@ -274,13 +334,20 @@ export function createWorkbookStore(api: FinanceApi) {
                     account.id === id ? { ...account, ...patch } : account,
                 ),
             }))
-            queue.patch(`account:${id}`, patch, (merged) => api.updateAccount(id, merged))
+            queue.patch(`account:${id}`, patch, (merged) => api.updateAccount(id, merged), (saved, fields) =>
+                updateWorkbook((workbook) => ({
+                    ...workbook,
+                    accounts: workbook.accounts.map((account) =>
+                        account.id === id ? { ...account, ...canonicalFields(saved, fields) } : account,
+                    ),
+                })),
+            )
         },
 
         moveAccount(id: string, direction: -1 | 1) {
             const active = (state.workbook?.accounts ?? [])
                 .filter((account) => !account.archived)
-                .toSorted((left, right) => left.sortOrder - right.sortOrder)
+                .sort((left, right) => left.sortOrder - right.sortOrder)
             const index = active.findIndex((account) => account.id === id)
             const target = active[index + direction]
 
@@ -288,7 +355,9 @@ export function createWorkbookStore(api: FinanceApi) {
                 return
             }
 
-            const reordered = active.toSpliced(index, 1).toSpliced(index + direction, 0, active[index])
+            const reordered = active.filter((_, position) => position !== index)
+
+            reordered.splice(index + direction, 0, active[index])
 
             reordered.forEach((account, position) => {
                 if (account.sortOrder !== position) {
@@ -323,21 +392,38 @@ export function createWorkbookStore(api: FinanceApi) {
             return sheet
         },
 
+        // La copia se ejecuta sobre lo ya guardado: primero se envían y esperan los guardados en
+        // vuelo (así el servidor ve el salario vigente y respeta un destino distinto de cero). Con
+        // fallos sin resolver no se copia. Lo que se edite mientras la copia viaja se conserva al
+        // fusionar la respuesta y se guarda después.
         async copyPreviousSheet(yearMonth: string) {
             queue.flushAll()
 
-            const sheet = await withOperationId(`copy:${yearMonth}`, (operationId) =>
+            const startedAt = queue.revision()
+
+            await queue.idle()
+
+            if (queue.hasFailed()) {
+                throw new Error('Hay cambios sin guardar. Reintenta o descártalos antes de copiar el mes.')
+            }
+
+            const copied = await withOperationId(`copy:${yearMonth}`, (operationId) =>
                 api.copyPreviousSheet(yearMonth, operationId),
             )
 
-            upsertSheet(sheet)
+            const touched = queue.touchedSince(startedAt)
+            const local = state.workbook?.sheets.find((sheet) => sheet.yearMonth === yearMonth)
 
-            return sheet
+            upsertSheet(local ? mergeSheetSnapshot(copied, local, touched) : copied)
+
+            return copied
         },
 
         updateSheet(yearMonth: string, patch: SheetFieldsInput) {
             updateSheet(yearMonth, (sheet) => ({ ...sheet, ...patch }))
-            queue.patch(`sheet:${yearMonth}`, patch, (merged) => api.updateSheet(yearMonth, merged))
+            queue.patch(`sheet:${yearMonth}`, patch, (merged) => api.updateSheet(yearMonth, merged), (saved, fields) =>
+                updateSheet(yearMonth, (sheet) => ({ ...sheet, ...canonicalFields(saved, fields) })),
+            )
         },
 
         addEntry(yearMonth: string, draft: NewEntryDraft) {
@@ -377,11 +463,21 @@ export function createWorkbookStore(api: FinanceApi) {
                 try {
                     await api.createEntry(yearMonth, { ...entryPayload(current), id })
                 } catch (error) {
-                    if (!isIdempotencyConflict(error)) {
+                    if (isIdempotencyConflict(error)) {
+                        await api.updateEntry(id, entryPayload(current))
+                        return
+                    }
+
+                    if (isRetryableFailure(error)) {
                         throw error
                     }
 
-                    await api.updateEntry(id, entryPayload(current))
+                    queue.cancel(`entry:${id}`)
+                    updateSheet(yearMonth, (sheet) => ({
+                        ...sheet,
+                        entries: sheet.entries.filter((entry) => entry.id !== id),
+                    }))
+                    throw rejectedCreation(error)
                 }
             })
 
@@ -390,7 +486,10 @@ export function createWorkbookStore(api: FinanceApi) {
 
         updateEntry(yearMonth: string, id: string, patch: EntryInput) {
             updateEntryIn(yearMonth, id, (entry) => ({ ...entry, ...patch }))
-            queue.patch(`entry:${id}`, patch, (merged) => api.updateEntry(id, merged))
+            // Si la fila se retiró (creación rechazada o borrada) el parche ya no tiene destino.
+            queue.patch(`entry:${id}`, patch, (merged) => (findEntry(yearMonth, id) ? api.updateEntry(id, merged) : Promise.resolve(null)), (saved, fields) =>
+                updateEntryIn(yearMonth, id, (entry) => ({ ...entry, ...canonicalFields(saved, fields) })),
+            )
         },
 
         deleteEntry(yearMonth: string, id: string) {
@@ -421,11 +520,20 @@ export function createWorkbookStore(api: FinanceApi) {
                 try {
                     await api.createSpend(entryId, current)
                 } catch (error) {
-                    if (!isIdempotencyConflict(error)) {
+                    if (isIdempotencyConflict(error)) {
+                        await api.updateSpend(current.id, { amount: current.amount, note: current.note, spentOn: current.spentOn })
+                        return
+                    }
+
+                    if (isRetryableFailure(error)) {
                         throw error
                     }
 
-                    await api.updateSpend(current.id, { amount: current.amount, note: current.note, spentOn: current.spentOn })
+                    updateEntryIn(yearMonth, entryId, (entry) => ({
+                        ...entry,
+                        spends: entry.spends.filter((item) => item.id !== spend.id),
+                    }))
+                    throw rejectedCreation(error)
                 }
             })
 
@@ -441,10 +549,24 @@ export function createWorkbookStore(api: FinanceApi) {
                     entry.spends.map((spend) => (spend.id === spendId ? { ...spend, ...cleaned } : spend)),
                 ),
             }))
-            void queue.run(`entry:${entryId}`, () => api.updateSpend(spendId, cleaned))
+            queue.patch(
+                `spend:${spendId}`,
+                cleaned,
+                (merged) => (findEntry(yearMonth, entryId)?.spends.some((spend) => spend.id === spendId)
+                    ? api.updateSpend(spendId, merged)
+                    : Promise.resolve(null)),
+                (saved, fields) => updateEntryIn(yearMonth, entryId, (entry) => ({
+                    ...entry,
+                    spends: sortSpends(entry.spends.map((spend) => spend.id === spendId
+                        ? { ...spend, ...canonicalFields(saved, fields) }
+                        : spend)),
+                })),
+                `entry:${entryId}`,
+            )
         },
 
         deleteSpend(yearMonth: string, entryId: string, spendId: string) {
+            queue.cancel(`spend:${spendId}`)
             updateEntryIn(yearMonth, entryId, (entry) => ({
                 ...entry,
                 spends: entry.spends.filter((spend) => spend.id !== spendId),
@@ -452,10 +574,24 @@ export function createWorkbookStore(api: FinanceApi) {
             void queue.run(`entry:${entryId}`, () => deleteIgnoringMissing(() => api.deleteSpend(spendId)))
         },
 
-        async createDebt(draft: DebtInput & { name: string }) {
+        // clientId identifica la acción del usuario (un formulario de deuda nueva): repetirla tras una
+        // respuesta perdida reutiliza el mismo id y el servidor la reconoce como reintento. Si el
+        // contenido cambió, el servidor responde conflicto de idempotencia y la misma deuda se
+        // actualiza con el contenido vigente, en lugar de crear otra.
+        async createDebt(draft: DebtInput & { name: string }, clientId: string) {
             const sortOrder =
                 (state.workbook?.debts ?? []).reduce((max, debt) => Math.max(max, debt.sortOrder), -1) + 1
-            const debt = await api.createDebt({ ...draft, id: createId(), sortOrder })
+            let debt: Debt
+
+            try {
+                debt = await api.createDebt({ ...draft, id: clientId, sortOrder })
+            } catch (error) {
+                if (!isIdempotencyConflict(error)) {
+                    throw error
+                }
+
+                debt = await api.updateDebt(clientId, { ...draft, sortOrder })
+            }
 
             updateWorkbook((workbook) => ({
                 ...workbook,
@@ -470,7 +606,12 @@ export function createWorkbookStore(api: FinanceApi) {
                 ...workbook,
                 debts: workbook.debts.map((debt) => (debt.id === id ? ({ ...debt, ...patch } as Debt) : debt)),
             }))
-            queue.patch(`debt:${id}`, patch, (merged) => api.updateDebt(id, merged))
+            queue.patch(`debt:${id}`, patch, (merged) => api.updateDebt(id, merged), (saved, fields) =>
+                updateWorkbook((workbook) => ({
+                    ...workbook,
+                    debts: workbook.debts.map((debt) => (debt.id === id ? { ...debt, ...canonicalFields(saved, fields) } : debt)),
+                })),
+            )
         },
 
         deleteDebt(id: string) {

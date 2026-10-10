@@ -66,12 +66,12 @@ describe('createSaveQueue', () => {
         queue.patch('settings', { cushionAmount: 1 }, async () => undefined)
 
         expect(queue.hasUnsaved()).toBe(true)
-        expect(statuses.at(-1)).toEqual({ error: null, pending: 1 })
+        expect(statuses.at(-1)).toEqual({ error: null, failed: 0, pending: 1 })
 
         await vi.advanceTimersByTimeAsync(500)
 
         expect(queue.hasUnsaved()).toBe(false)
-        expect(statuses.at(-1)).toEqual({ error: null, pending: 0 })
+        expect(statuses.at(-1)).toEqual({ error: null, failed: 0, pending: 0 })
     })
 
     it('keeps failed jobs and retries them on demand', async () => {
@@ -87,13 +87,14 @@ describe('createSaveQueue', () => {
         })
         await vi.runAllTimersAsync()
 
-        expect(statuses.at(-1)).toEqual({ error: 'Sin conexión', pending: 0 })
+        expect(statuses.at(-1)).toEqual({ error: 'Sin conexión', failed: 1, pending: 0 })
+        expect(queue.hasUnsaved()).toBe(true)
 
         queue.retryFailed()
         await vi.runAllTimersAsync()
 
         expect(attempts).toBe(2)
-        expect(statuses.at(-1)).toEqual({ error: null, pending: 0 })
+        expect(statuses.at(-1)).toEqual({ error: null, failed: 0, pending: 0 })
     })
 
     it('drops a pending patch when the key is cancelled', async () => {
