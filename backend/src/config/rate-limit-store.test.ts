@@ -149,6 +149,32 @@ describe('ResilientRateLimitStore keeps the provenance of each increment (ROPS-0
         assert.equal(await fallbackHits('ip'), 0)
         store.shutdown()
     })
+
+    it('undoes every same-key fallback increment without context after the primary recovers (R3OPS-01)', async () => {
+        const { fallbackHits, primary, store } = setup()
+
+        try {
+            for (let index = 0; index < 7; index += 1) {
+                await store.increment('ip')
+            }
+
+            primary.setDown(true)
+            await store.increment('ip')
+            await store.increment('ip')
+            primary.setDown(false)
+            await store.decrement('ip')
+            await store.decrement('ip')
+
+            assert.deepEqual(
+                { primary: await primary.hits('ip'), fallback: await fallbackHits('ip') },
+                { primary: 7, fallback: 0 },
+                'both increments leave the fallback without subtracting an unrelated primary attempt',
+            )
+        } finally {
+            store.shutdown()
+            primary.store.shutdown()
+        }
+    })
 })
 
 describe('request context at response time', () => {

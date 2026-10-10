@@ -127,8 +127,10 @@ export class ResilientRateLimitStore implements Store {
         }
 
         if (source === 'fallback') {
+            const pending = this.pendingInFallback(key)
+
             this.fallbackPending.delete(key)
-            this.fallbackPending.set(key, [...this.pendingInFallback(key), this.now() + this.windowMs])
+            this.fallbackPending.set(key, [...pending, this.now() + this.windowMs])
 
             // Tope de memoria: se descartan las claves más antiguas (el decremento sin recibo cae en
             // el primario, que es el lado más restrictivo).
