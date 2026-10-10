@@ -50,6 +50,11 @@ const idempotencyConflict = () =>
 
 const limitReached = (message: string) => new ConflictError(message, 'LIMIT_REACHED')
 
+// Un id ocupado que ya no se puede leer (otro dueño o borrado entretanto) no es un reintento.
+function throwIdempotencyConflict(): never {
+    throw idempotencyConflict()
+}
+
 function sameValue(stored: unknown, requested: unknown) {
     if (requested === undefined) {
         return true
@@ -113,27 +118,20 @@ export class FinanceService {
             }
         }
 
-        const existingByName = await this.repository.findAccountByName(userId, input.name)
-
-        if (existingByName) {
-            if (existingByName.archivedAt) {
-                return {
-                    replayed: false,
-                    value: toAccountDto(await this.repository.updateAccount(userId, existingByName.id, { archivedAt: null })),
-                }
-            }
-
-            throw new ConflictError('Ya tienes una cuenta con ese nombre.', 'ACCOUNT_NAME_TAKEN')
-        }
-
         try {
             const result = await this.repository.createAccount({ id: input.id, name: input.name, userId }, FINANCE_LIMITS.accounts)
 
-            if (result.limitReached) {
-                throw limitReached(`Puedes tener hasta ${FINANCE_LIMITS.accounts} cuentas.`)
+            switch (result.status) {
+                case 'created':
+                case 'revived':
+                    return { replayed: false, value: toAccountDto(result.account) }
+                case 'id-taken':
+                    return (await this.replayAccount(userId, input)) ?? throwIdempotencyConflict()
+                case 'name-taken':
+                    throw new ConflictError('Ya tienes una cuenta con ese nombre.', 'ACCOUNT_NAME_TAKEN')
+                case 'limit-reached':
+                    throw limitReached(`Puedes tener hasta ${FINANCE_LIMITS.accounts} cuentas.`)
             }
-
-            return { replayed: false, value: toAccountDto(result.account) }
         } catch (error) {
             if (!isUniqueViolation(error)) {
                 throw error
@@ -283,15 +281,16 @@ export class FinanceService {
                 userId,
             }, FINANCE_LIMITS.entriesPerSheet)
 
-            if (result.status === 'missing-sheet') {
-                throw new NotFoundError('Ese mes todavía no tiene hoja.')
+            switch (result.status) {
+                case 'created':
+                    return { replayed: false, value: toEntryDto(result.entry) }
+                case 'id-taken':
+                    return (await this.replayEntry(userId, sheet.id, input)) ?? throwIdempotencyConflict()
+                case 'missing-sheet':
+                    throw new NotFoundError('Ese mes todavía no tiene hoja.')
+                case 'limit-reached':
+                    throw limitReached(`Un mes puede tener hasta ${FINANCE_LIMITS.entriesPerSheet} filas.`)
             }
-
-            if (result.status === 'limit-reached') {
-                throw limitReached(`Un mes puede tener hasta ${FINANCE_LIMITS.entriesPerSheet} filas.`)
-            }
-
-            return { replayed: false, value: toEntryDto(result.entry) }
         } catch (error) {
             // Dos reintentos simultáneos con el mismo id: el segundo resuelve como reintento.
             if (input.id && isUniqueViolation(error)) {
@@ -372,17 +371,18 @@ export class FinanceService {
                 spentOn: toDateOnly(input.spentOn),
             }, FINANCE_LIMITS.spendsPerEntry)
 
-            if (result.status === 'not-pocket') {
-                throw new RequestValidationError('Revisa los datos enviados.', [
-                    { field: 'entryId', message: 'Solo los bolsillos registran gastos.' },
-                ])
+            switch (result.status) {
+                case 'created':
+                    return { replayed: false, value: toSpendDto(result.spend) }
+                case 'id-taken':
+                    return (await this.replaySpend(userId, entryId, input)) ?? throwIdempotencyConflict()
+                case 'not-pocket':
+                    throw new RequestValidationError('Revisa los datos enviados.', [
+                        { field: 'entryId', message: 'Solo los bolsillos registran gastos.' },
+                    ])
+                case 'limit-reached':
+                    throw limitReached(`Un bolsillo puede tener hasta ${FINANCE_LIMITS.spendsPerEntry} gastos.`)
             }
-
-            if (result.status === 'limit-reached') {
-                throw limitReached(`Un bolsillo puede tener hasta ${FINANCE_LIMITS.spendsPerEntry} gastos.`)
-            }
-
-            return { replayed: false, value: toSpendDto(result.spend) }
         } catch (error) {
             if (input.id && isUniqueViolation(error)) {
                 const replay = await this.replaySpend(userId, entryId, input)
@@ -428,34 +428,27 @@ export class FinanceService {
 
     async createDebt(userId: string, input: CreateDebtInput): Promise<Created<ReturnType<typeof toDebtDto>>> {
         if (input.id) {
-            const existing = await this.repository.findDebtForReplay(input.id)
+            const replay = await this.replayDebt(userId, input)
 
-            if (existing) {
-                if (existing.userId !== userId || !matchesStored(existing, input)) {
-                    throw idempotencyConflict()
-                }
-
-                return { replayed: true, value: toDebtDto(existing) }
+            if (replay) {
+                return replay
             }
         }
 
         try {
             const result = await this.repository.createDebt({ ...input, userId }, FINANCE_LIMITS.debts)
 
-            if (result.limitReached) {
-                throw limitReached(`Puedes tener hasta ${FINANCE_LIMITS.debts} deudas.`)
+            switch (result.status) {
+                case 'created':
+                    return { replayed: false, value: toDebtDto(result.debt) }
+                case 'id-taken':
+                    return (await this.replayDebt(userId, input)) ?? throwIdempotencyConflict()
+                case 'limit-reached':
+                    throw limitReached(`Puedes tener hasta ${FINANCE_LIMITS.debts} deudas.`)
             }
-
-            return { replayed: false, value: toDebtDto(result.debt) }
         } catch (error) {
             if (input.id && isUniqueViolation(error)) {
-                const existing = await this.repository.findDebtForReplay(input.id)
-
-                if (existing && existing.userId === userId && matchesStored(existing, input)) {
-                    return { replayed: true, value: toDebtDto(existing) }
-                }
-
-                throw idempotencyConflict()
+                return (await this.replayDebt(userId, input)) ?? throwIdempotencyConflict()
             }
 
             throw error
@@ -473,6 +466,20 @@ export class FinanceService {
         await this.repository.deleteDebt(userId, id)
 
         return { deleted: true as const, id }
+    }
+
+    private async replayDebt(userId: string, input: CreateDebtInput) {
+        const existing = await this.repository.findDebtForReplay(input.id!)
+
+        if (!existing) {
+            return null
+        }
+
+        if (existing.userId !== userId || !matchesStored(existing, input)) {
+            throw idempotencyConflict()
+        }
+
+        return { replayed: true, value: toDebtDto(existing) }
     }
 
     // Una cuenta con ese id: mismo dueño y nombre es un reintento; otro dueño o nombre, conflicto.

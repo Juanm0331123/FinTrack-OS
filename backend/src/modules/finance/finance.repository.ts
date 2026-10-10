@@ -165,25 +165,38 @@ export class FinanceRepository {
         return prisma.moneyAccount.findFirst({ select: accountSelect, where: { id, userId } })
     }
 
-    findAccountByName(userId: string, name: string) {
-        return prisma.moneyAccount.findUnique({
-            select: accountSelect,
-            where: { userId_nameKey: { nameKey: accountNameKey(name), userId } },
-        })
-    }
-
     findAccountOwner(id: string) {
         return prisma.moneyAccount.findUnique({ select: { name: true, userId: true }, where: { id } })
     }
 
-    // Cuota y orden se deciden bajo el bloqueo del usuario: creaciones simultáneas no superan el
-    // límite ni repiten posición.
+    // Id, nombre, cuota y orden se deciden bajo el bloqueo del usuario y en este orden: un id ya
+    // usado se resuelve como posible reintento antes de mirar el nombre o la cuota, así que un
+    // reintento idéntico nunca choca con su propia creación ni consume cupo.
     createAccount(data: { id?: string; name: string; userId: string }, limit: number) {
         return withTransaction(async (transaction) => {
             await lockUserFinance(transaction, data.userId)
 
+            if (data.id && (await transaction.moneyAccount.findUnique({ select: { id: true }, where: { id: data.id } }))) {
+                return { status: 'id-taken' as const }
+            }
+
+            const sameName = await transaction.moneyAccount.findUnique({
+                select: { archivedAt: true, id: true },
+                where: { userId_nameKey: { nameKey: accountNameKey(data.name), userId: data.userId } },
+            })
+
+            if (sameName) {
+                if (!sameName.archivedAt) {
+                    return { status: 'name-taken' as const }
+                }
+
+                const account = await transaction.moneyAccount.update({ data: { archivedAt: null }, select: accountSelect, where: { id: sameName.id } })
+
+                return { account, status: 'revived' as const }
+            }
+
             if ((await transaction.moneyAccount.count({ where: { userId: data.userId } })) >= limit) {
-                return { limitReached: true as const }
+                return { status: 'limit-reached' as const }
             }
 
             const last = await transaction.moneyAccount.aggregate({ _max: { sortOrder: true }, where: { userId: data.userId } })
@@ -192,7 +205,7 @@ export class FinanceRepository {
                 select: accountSelect,
             })
 
-            return { account, limitReached: false as const }
+            return { account, status: 'created' as const }
         })
     }
 
@@ -474,6 +487,11 @@ export class FinanceRepository {
                 return { status: 'missing-sheet' as const }
             }
 
+            // Un id ya usado es un posible reintento: se resuelve antes de la cuota.
+            if (data.id && (await transaction.monthEntry.findUnique({ select: { id: true }, where: { id: data.id } }))) {
+                return { status: 'id-taken' as const }
+            }
+
             if ((await transaction.monthEntry.count({ where: { sheetId: data.sheetId } })) >= limit) {
                 return { status: 'limit-reached' as const }
             }
@@ -533,6 +551,10 @@ export class FinanceRepository {
             const locked = await transaction.$queryRaw<Array<{ category: string }>>`SELECT "category" FROM "month_entries"
                 WHERE "id" = ${entryId}::uuid AND "user_id" = ${userId}::uuid FOR UPDATE`
 
+            if (data.id && (await transaction.pocketSpend.findUnique({ select: { id: true }, where: { id: data.id } }))) {
+                return { status: 'id-taken' as const }
+            }
+
             if (locked[0]?.category !== 'POCKET') {
                 return { status: 'not-pocket' as const }
             }
@@ -572,8 +594,12 @@ export class FinanceRepository {
         return withTransaction(async (transaction) => {
             await lockUserFinance(transaction, data.userId)
 
+            if (data.id && (await transaction.debt.findUnique({ select: { id: true }, where: { id: data.id } }))) {
+                return { status: 'id-taken' as const }
+            }
+
             if ((await transaction.debt.count({ where: { userId: data.userId } })) >= limit) {
-                return { limitReached: true as const }
+                return { status: 'limit-reached' as const }
             }
 
             const last = await transaction.debt.aggregate({ _max: { sortOrder: true }, where: { userId: data.userId } })
@@ -582,7 +608,7 @@ export class FinanceRepository {
                 select: debtSelect,
             })
 
-            return { debt, limitReached: false as const }
+            return { debt, status: 'created' as const }
         })
     }
 

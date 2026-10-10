@@ -17,7 +17,8 @@ import {
 // decisiones tomadas sobre el estado actual, contra la API y PostgreSQL reales. Los volúmenes
 // cercanos a las cuotas se siembran directamente en la base de prueba para no tardar minutos.
 const { applyWorkbookImport, planWorkbookImport, WorkbookImportError } = await import('../../src/modules/finance/workbook-import.ts')
-const { FINANCE_LIMITS } = await import('../../src/modules/finance/finance.service.ts')
+const { FINANCE_LIMITS, FinanceService } = await import('../../src/modules/finance/finance.service.ts')
+const { FinanceRepository } = await import('../../src/modules/finance/finance.repository.ts')
 
 let api: TestApi
 const createdUsers: string[] = []
@@ -407,3 +408,156 @@ describe('concurrent retries of an account creation replay it (RDATA-08)', () =>
         assert.ok(responses.every((response) => response.body.data.id === body.id))
     })
 })
+
+// Segunda revisión independiente (RDATA-08-R2, RDATA-REPLAY-QUOTA-R2): un reintento idéntico se
+// reconoce dentro de la misma transacción bloqueada que decide nombre y cuota.
+async function waitForLockWaiters(client: pg.Client, count: number) {
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+        const { rows } = await client.query<{ waiting: number }>(
+            `SELECT count(*)::int AS waiting FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`,
+        )
+
+        if (rows[0].waiting >= count) {
+            return
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 25))
+    }
+
+    throw new Error(`fewer than ${count} requests waited for the lock`)
+}
+
+// Retiene un bloqueo real (consulta dada) hasta que las tres peticiones esperan; luego lo libera.
+async function burstBehindLock(lockSql: string, params: unknown[], send: () => Promise<{ status: number; body: any }>) {
+    const holder = new pg.Client({ connectionString: process.env.DATABASE_URL })
+
+    await holder.connect()
+
+    try {
+        await holder.query('BEGIN')
+        await holder.query(lockSql, params)
+
+        const pending = Promise.all([send(), send(), send()])
+
+        await waitForLockWaiters(holder, 3)
+        await holder.query('COMMIT')
+
+        return await pending
+    } finally {
+        await holder.end()
+    }
+}
+
+const userLock = `SELECT 1 FROM pg_advisory_xact_lock(hashtextextended('finance:' || $1, 0))`
+
+describe('identical retries at the last quota slot replay instead of failing (RDATA-REPLAY-QUOTA-R2)', () => {
+    it('replays an account, a debt, a row and a spend created in the last slot', async () => {
+        const session = await owner()
+
+        await as(session).get('/workbook')
+        await prisma.moneyAccount.createMany({
+            data: Array.from({ length: FINANCE_LIMITS.accounts - 2 }, (_, index) => ({
+                name: `Cuenta ${index}`,
+                nameKey: `cuenta ${index}`,
+                sortOrder: index + 1,
+                userId: session.userId,
+            })),
+        })
+        await prisma.debt.createMany({
+            data: Array.from({ length: FINANCE_LIMITS.debts - 1 }, (_, index) => ({ name: `Deuda ${index}`, sortOrder: index, userId: session.userId })),
+        })
+
+        const sheetId = await seedEntries(session.userId, '2027-08', FINANCE_LIMITS.entriesPerSheet - 1)
+        const pocketSheet = await seedEntries(session.userId, '2027-09', 1, 'POCKET')
+        const pocket = await prisma.monthEntry.findFirstOrThrow({ select: { id: true }, where: { sheetId: pocketSheet } })
+
+        await prisma.pocketSpend.createMany({
+            data: Array.from({ length: FINANCE_LIMITS.spendsPerEntry - 1 }, () => ({
+                amount: 10,
+                entryId: pocket.id,
+                spentOn: new Date('2027-09-10T00:00:00.000Z'),
+                userId: session.userId,
+            })),
+        })
+
+        const account = { id: randomUUID(), name: 'Último cupo' }
+        const debt = { id: randomUUID(), name: 'Última deuda' }
+        const row = { concept: 'Última fila', id: randomUUID() }
+        const spend = { amount: 10, id: randomUUID(), spentOn: '2027-09-11' }
+        const results = {
+            accounts: await burstBehindLock(userLock, [session.userId], () => as(session).post('/accounts', account)),
+            debts: await burstBehindLock(userLock, [session.userId], () => as(session).post('/debts', debt)),
+            rows: await burstBehindLock('SELECT 1 FROM "month_sheets" WHERE "id" = $1 FOR UPDATE', [sheetId], () =>
+                as(session).post('/sheets/2027-08/entries', row),
+            ),
+            spends: await burstBehindLock('SELECT 1 FROM "month_entries" WHERE "id" = $1 FOR UPDATE', [pocket.id], () =>
+                as(session).post(`/entries/${pocket.id}/spends`, spend),
+            ),
+        }
+
+        for (const [kind, responses] of Object.entries(results)) {
+            assert.deepEqual(statuses(responses), [200, 200, 201], kind)
+        }
+
+        assert.ok(results.accounts.every((response) => response.body.data.id === account.id))
+        assert.equal(await prisma.moneyAccount.count({ where: { userId: session.userId } }), FINANCE_LIMITS.accounts)
+        assert.equal(await prisma.debt.count({ where: { userId: session.userId } }), FINANCE_LIMITS.debts)
+        assert.equal(await prisma.monthEntry.count({ where: { sheetId } }), FINANCE_LIMITS.entriesPerSheet)
+        assert.equal(await prisma.pocketSpend.count({ where: { entryId: pocket.id } }), FINANCE_LIMITS.spendsPerEntry)
+    })
+})
+
+describe('an account retry that read before the first creation committed (RDATA-08-R2)', () => {
+    it('replays instead of reporting the name as taken', async () => {
+        const session = await owner()
+        const body = { id: randomUUID(), name: 'Cuenta intercalada' }
+        const afterIdRead = barrierPair()
+
+        class PausingRepository extends FinanceRepository {
+            // Suspende la petición justo después de la lectura real por id (sin datos inventados).
+            override findAccountOwner(id: string) {
+                return super.findAccountOwner(id).then(async (owner) => {
+                    afterIdRead.reached()
+                    await afterIdRead.resume
+
+                    return owner
+                }) as ReturnType<InstanceType<typeof FinanceRepository>['findAccountOwner']>
+            }
+        }
+
+        const retry = new FinanceService(new PausingRepository()).createAccount(session.userId, body)
+
+        await afterIdRead.waiting
+
+        const first = await as(session).post('/accounts', body)
+
+        afterIdRead.release()
+
+        const replay = await retry
+
+        assert.equal(first.status, 201)
+        assert.equal(replay.replayed, true)
+        assert.equal(replay.value.id, body.id)
+    })
+
+    it('still rejects the same id reused for another name', async () => {
+        const session = await owner()
+        const id = randomUUID()
+
+        assert.equal((await as(session).post('/accounts', { id, name: 'Original' })).status, 201)
+
+        const reused = await as(session).post('/accounts', { id, name: 'Otro nombre' })
+
+        assert.equal(reused.status, 409)
+        assert.equal(reused.body.code, 'IDEMPOTENCY_CONFLICT')
+    })
+})
+
+function barrierPair() {
+    let reached: () => void = () => undefined
+    let release: () => void = () => undefined
+    const waiting = new Promise<void>((resolve) => (reached = resolve))
+    const resume = new Promise<void>((resolve) => (release = resolve))
+
+    return { reached: () => reached(), release: () => release(), resume, waiting }
+}
