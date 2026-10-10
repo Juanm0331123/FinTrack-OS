@@ -9,13 +9,20 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 export const CHROME_PATH = process.env.QA_CHROME_PATH ?? 'C:/Program Files/Google/Chrome/Application/chrome.exe'
 
-export async function launchChrome({ port, profileDir }) {
+export async function launchChrome({ port, profileDir, command = [CHROME_PATH] }) {
+    const timeoutMs = Number(process.env.QA_CHROME_STARTUP_TIMEOUT_MS ?? 30_000)
+
+    if (!Number.isFinite(timeoutMs) || timeoutMs < 100 || timeoutMs > 120_000) {
+        throw new Error('QA_CHROME_STARTUP_TIMEOUT_MS debe estar entre 100 y 120000 ms.')
+    }
+
     profileDir = resolve(profileDir)
     await mkdir(profileDir, { recursive: true })
 
     const child = spawn(
-        CHROME_PATH,
+        command[0],
         [
+            ...command.slice(1),
             '--headless=new',
             `--remote-debugging-port=${port}`,
             `--user-data-dir=${profileDir}`,
@@ -26,14 +33,36 @@ export async function launchChrome({ port, profileDir }) {
             '--lang=es-CO',
             'about:blank',
         ],
-        { stdio: 'ignore' },
+        { stdio: ['ignore', 'ignore', 'pipe'] },
     )
     let launchError
+    let stderr = ''
 
     child.on('error', (error) => { launchError = error })
+    child.stderr.on('data', (data) => { stderr = (stderr + data.toString()).slice(-16_384) })
+
+    function diagnostic(message) {
+        let detail = stderr
+
+        for (const [name, value] of Object.entries(process.env)) {
+            if (/secret|password|token|(?:^|_)key(?:_|$)/i.test(name) && value?.length >= 4) {
+                detail = detail.split(value).join('[redactado]')
+                message = message.split(value).join('[redactado]')
+            }
+        }
+
+        detail = detail
+            .replace(/postgres(?:ql)?:\/\/[^\s@]+@/gi, 'postgresql://[redactado]@')
+            .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, '[token redactado]')
+            .replace(/([?&][\w.-]+)=[^&\s]+/g, '$1=[redactado]')
+            .slice(-4_096)
+            .trim()
+
+        return new Error(`${message}${detail ? `\nChrome stderr (acotado y redactado): ${detail}` : ''}`)
+    }
 
     async function close() {
-        if (child.exitCode !== null || child.signalCode !== null) {
+        if (!child.pid || child.exitCode !== null || child.signalCode !== null) {
             return
         }
 
@@ -51,22 +80,34 @@ export async function launchChrome({ port, profileDir }) {
         })
     }
 
-    for (let attempt = 0; attempt < 100; attempt += 1) {
+    const deadline = Date.now() + timeoutMs
+
+    while (Date.now() < deadline) {
         if (launchError) {
-            throw new Error(`Chrome no pudo iniciar: ${launchError.message}`)
+            await close()
+            throw diagnostic(`Chrome no pudo iniciar: ${launchError.message}`)
+        }
+
+        if (child.exitCode !== null || child.signalCode !== null) {
+            throw diagnostic(`Chrome terminó antes de estar listo (código ${child.exitCode ?? 'sin código'}, señal ${child.signalCode ?? 'ninguna'}).`)
         }
 
         try {
-            const meta = await (await fetch(`http://127.0.0.1:${port}/json/version`)).json()
+            const meta = await (await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(Math.max(1, Math.min(1_000, deadline - Date.now()))) })).json()
 
-            return { browserWs: meta.webSocketDebuggerUrl, pid: child.pid, port, close }
+            if (typeof meta.webSocketDebuggerUrl === 'string' && meta.webSocketDebuggerUrl.startsWith('ws://')) {
+                return { browserWs: meta.webSocketDebuggerUrl, pid: child.pid, port, close }
+            }
         } catch {
-            await sleep(100)
+            // La conexión rechazada durante el arranque es esperable; el deadline limita también
+            // cada fetch, en vez de contar intentos que pueden tardar un tiempo impredecible.
         }
+
+        await sleep(Math.max(0, Math.min(100, deadline - Date.now())))
     }
 
     await close()
-    throw new Error('Chrome no abrió el puerto de depuración.')
+    throw diagnostic(`Chrome no abrió el puerto de depuración antes del timeout (${timeoutMs} ms).`)
 }
 
 function connect(url) {

@@ -134,7 +134,7 @@ jobs:
       - run: npm install --global pnpm@${{ env.PNPM_VERSION }}
       - name: Clave de borde exclusiva del entorno de prueba y Chrome del runner
         run: |
-          node -e "require('fs').appendFileSync(process.env.GITHUB_ENV, 'EDGE_PROXY_SECRET=' + require('crypto').randomBytes(32).toString('hex') + '\n')"
+          node -e "const key = require('crypto').randomBytes(32).toString('hex'); console.log('::add-mask::' + key); require('fs').appendFileSync(process.env.GITHUB_ENV, 'EDGE_PROXY_SECRET=' + key + '\n')"
           chrome_path=$(command -v google-chrome)
           test -x "$chrome_path"
           printf 'QA_CHROME_PATH=%s\n' "$chrome_path" >> "$GITHUB_ENV"

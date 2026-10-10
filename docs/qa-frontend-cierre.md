@@ -4,7 +4,9 @@ Fecha: 10 de octubre de 2026, America/Bogota. Estado: **FR-01…04 corregidos y 
 
 ## Alcance y versión
 
-Esta ronda corrige los cuatro hallazgos de [la revisión independiente](qa-frontend-revision-independiente.md), conserva la remediación anterior y agrega regresiones permanentes. Rama preparada para versionar: `fix/frontend-qa-final`, creada desde `156323368ff0231d414ea75ffa0d49a088c3ba17`. Las correcciones están en el working tree: el SHA de HEAD por sí solo no identifica el código evaluado. El versionamiento y las comprobaciones de CI se registrarán cuando se ejecuten; no se realizó despliegue.
+Esta ronda corrige los cuatro hallazgos de [la revisión independiente](qa-frontend-revision-independiente.md), conserva la remediación anterior y agrega regresiones permanentes. La remediación quedó versionada por unidades lógicas en `fix/frontend-qa-final`, creada desde `156323368ff0231d414ea75ffa0d49a088c3ba17`; los nueve commits iniciales culminan en `750b9ce03075f5772872f6093b2bf336c71658f3`. La corrección posterior del arranque de Chrome y este registro se incorporan en un commit nuevo, sin amend ni force push. No se realizó despliegue.
+
+El estado y SHA comprobado de cada corrida se consultan en la [CI de la rama](https://github.com/Juanm0331123/FinTrack-OS/actions?query=branch%3Afix%2Ffrontend-qa-final) y la [CI de main](https://github.com/Juanm0331123/FinTrack-OS/actions?query=branch%3Amain). Solo se integra la rama después de una corrida completa verde y se comprueba de nuevo el commit de integración en main. Estos enlaces conservan la trazabilidad sin atribuir al propio documento un SHA o una corrida futuros.
 
 Se aplicaron las skills del proyecto para TDD, React/Next.js y QA de formularios, persistencia y navegador. Se conservan Vitest y el arnés CDP propio, sin incorporar runners ni dependencias nuevas. El entorno integrado usa build de producción Next.js, proxy, API Express/Prisma y PostgreSQL 18 aislado; todos los datos, usuarios, correo y OAuth son de prueba. No se usó Neon.
 
@@ -39,7 +41,9 @@ Los casos `FR-02-entry-form`, `FR-02-debt-form` y `FR-02-spend-form` introducen 
 
 `qa/browser/runner.test.mjs` comprueba el comando público con escenarios fallidos, aplicación inaccesible, heading ajeno, escenario bloqueado, selección aprobada, salida relativa, selecciones vacías/desconocidas y redirecciones. Una redirección interna de autenticación está permitida; una externa es rechazada. No se reutilizan resultados anteriores como evidencia recién ejecutada.
 
-El nuevo job `frontend-browser` de `.github/workflows/ci.yml` prepara PostgreSQL aislado, API, proxy y Chrome, ejecuta la build y guarda evidencia. La configuración se parseó localmente; **el job todavía no se ejecutó en GitHub**. La [imagen oficial Ubuntu 24.04 del runner](https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2404-Readme.md) documenta Chrome entre sus herramientas disponibles. Un archivo de CI válido no equivale a una corrida verde.
+El nuevo job `frontend-browser` de `.github/workflows/ci.yml` prepara PostgreSQL aislado, API, proxy y Chrome, ejecuta la build y guarda evidencia. La [imagen oficial Ubuntu 24.04 del runner](https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2404-Readme.md) documenta Chrome entre sus herramientas disponibles. Un archivo de CI válido no equivale a una corrida verde.
+
+La [primera corrida, 38072803429](https://github.com/Juanm0331123/FinTrack-OS/actions/runs/38072803429), aprobó backend, frontend e imagen Docker, pero bloqueó correctamente la integración al fallar el primer arranque de Chrome en `qa:runner`; siete casos posteriores aprobaron. Ese resultado no se contó como CI verde ni se integró en main. Se sustituyó el límite de cien intentos por un deadline real de 30 segundos, configurable mediante `QA_CHROME_STARTUP_TIMEOUT_MS`, con fetch acotado, diagnóstico de salida temprana y stderr limitado y redactado. Dos regresiones adicionales comprobaron un Chrome real retrasado 11 segundos y un proceso que termina con código 7. No se afirma que el arranque lento fuera la causa exacta de aquel fallo: el log inicial no la establecía. El secreto de borde exclusivo de prueba se enmascara antes de escribirlo al entorno de GitHub.
 
 ## Validaciones de esta ronda
 
@@ -51,19 +55,19 @@ El nuevo job `frontend-browser` de `.github/workflows/ci.yml` prepara PostgreSQL
 | Frontend `pnpm test` | 205/205 aprobadas tras el ajuste final: 187 anteriores, 7 nuevas de gastos, 8 de fórmulas compartidas y 3 del contrato aprobado |
 | Dominio financiero, selección tras aprobar contrato | 44/44 aprobadas: incluye cuota base con tope incompatible, presupuesto suficiente/insuficiente y precisión intermedia |
 | Frontend `pnpm build` | Aprobado |
-| Frontend `pnpm qa:runner` | 8/8 aprobadas en la reejecución final; exit 0 |
+| Frontend `pnpm qa:runner` | 10/10 aprobadas después de corregir el arranque y diagnóstico; incluye las ocho anteriores, Chrome retrasado y salida temprana |
 | Frontend `pnpm audit --prod` | 0 avisos; exit 0 |
-| Navegador, selección completa local anterior | 39/39 aprobados contra API y PostgreSQL reales aislados antes del ajuste final de cuota base; la repetición sobre el commit final corresponde al job integrado de CI |
+| Navegador, selección completa local anterior | 39/39 aprobados contra API y PostgreSQL reales aislados antes del ajuste final de cuota base; las corridas posteriores del commit versionado y sus capturas se conservan en el artefacto `frontend-browser-qa` de CI |
 | Backend `pnpm typecheck`, Prisma generate/validate y migrate status | Aprobados; seis migraciones al día en PostgreSQL aislado |
 | Backend unitarias / migraciones | 112/112 y 7/7 aprobadas |
 | Backend integración | 146 aprobadas de 147; SIGTERM real omitido en Windows, debe ejecutarse en CI Linux |
 | Backend auditoría completa | 0 avisos |
 | `git diff --check` | Aprobado |
-| CI GitHub | No ejecutada en esta ronda |
+| CI GitHub, primera corrida sobre 750b9ce | Backend 112/112 unitarias, 7/7 migraciones y 147/147 integración sin omisiones; frontend 205/205, lint/typecheck/build/audit de producción; smoke Docker aprobado. QA integrado falló en el arranque inicial de Chrome, corregido posteriormente. El estado del SHA más reciente está en los enlaces de CI anteriores |
 
 La primera ejecución después del fix aprobó 38/39: el nuevo caso de bolsillo tenía un locator ambiguo que elegía «Registrar gasto» detrás del drawer en lugar de «Registrar». Se corrigió el locator por rol y nombre exacto, se aprobó el caso y se repitió **la selección completa**, con 39/39. Este fallo del escenario no se ocultó mediante reintentos automáticos ni se contó como aprobación de la primera corrida.
 
-No se ejecutó Playwright, Lighthouse, Safari ni Firefox en esta ronda. El backend se volvió a validar antes del versionamiento con un PostgreSQL 18 propio y aislado, retirado después de comprobar su label. No se ejecutó localmente el smoke Docker en esta revalidación: se comprobará en CI Linux, junto con SIGTERM.
+No se ejecutó Playwright, Lighthouse, Safari ni Firefox en esta ronda. El backend se volvió a validar antes del versionamiento con un PostgreSQL 18 propio y aislado, retirado después de comprobar su label. El smoke Docker y SIGTERM se comprobaron en CI Linux: migraciones, TLS verify-full, liveness/readiness, usuario no root, ausencia de .env en la imagen y cierre por SIGTERM aprobados.
 
 ## Excel: fuente encontrada y diferencias explícitas
 
@@ -80,7 +84,7 @@ Se observó fallar antes del fix la regresión de mínima con tope cero sin redi
 
 | Pendiente | Motivo / comprobación necesaria |
 | --- | --- |
-| Versionar y ejecutar CI | El working tree aún no es un commit desplegable; el nuevo job integrado debe correr sobre el código que se publique |
+| CI del commit que se despliegue | Verificar SHA y los cuatro jobs verdes en los enlaces anteriores; una aprobación de una revisión anterior no cubre cambios posteriores de diseño o producto |
 | Staging Vercel → Cloud Run | Verificar la cadena real, dominio, HTTPS/TLS, cookies, proxy, límites y arranques en frío según `docs/despliegue.md` |
 | Neon y operación | Probar su certificado con `verify-full`, configuración de timeouts, migraciones/preflight y backup/restauración antes de usar datos reales |
 | Correo y OAuth reales | Probar entrega, callback, errores y revocación contra los proveedores configurados |
