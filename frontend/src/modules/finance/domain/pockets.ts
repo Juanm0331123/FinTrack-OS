@@ -160,7 +160,7 @@ export function defaultSpendDate(yearMonth: string, todayIso: string) {
 }
 
 export function sortSpends(spends: readonly PocketSpend[]) {
-    return spends.toSorted((left, right) => left.spentOn.localeCompare(right.spentOn))
+    return [...spends].sort((left, right) => left.spentOn.localeCompare(right.spentOn))
 }
 
 export function spendsByDay(entries: readonly MonthEntry[]) {

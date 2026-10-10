@@ -34,8 +34,8 @@ export function computeSummaryRows(
 ): SummaryRow[] {
     let accumulatedSavings = 0
 
-    return sheets
-        .toSorted((left, right) => left.yearMonth.localeCompare(right.yearMonth))
+    return [...sheets]
+        .sort((left, right) => left.yearMonth.localeCompare(right.yearMonth))
         .map((sheet) => {
             const summary = computeMonthSheet(sheet, settings, accounts)
 

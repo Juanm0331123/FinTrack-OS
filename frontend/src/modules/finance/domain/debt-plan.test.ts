@@ -256,3 +256,121 @@ describe('debt strategies', () => {
         expect(loan?.action).toBe('KILL_FIRST')
     })
 })
+
+// F-DATA-04: el tope y el saldo liquidable acotan la recomendación. null = sin tope; 0 es un tope
+// real. Un tope menor que la cuota mínima es una restricción inviable: se recomienda la mínima
+// (pagar menos sería mora) y la fila lo declara.
+describe('computeDebtPlan caps and payable balance', () => {
+    function single(overrides: Parameters<typeof debt>[0], redirectOverpayments = true) {
+        return computeDebtPlan({
+            available: 1_500,
+            cushion: 1_000,
+            debts: [debt({ monthlyRate: 0.02, ...overrides })],
+            entries: [],
+            redirectOverpayments,
+        }).rows[0]
+    }
+
+    it('recommends the minimum and flags a cap below it as infeasible', () => {
+        const row = single({ id: 'a', minimumPayment: 200, name: 'Tope bajo', paymentCap: 100, totalBalance: 1_000 })
+
+        expect(row.recommended).toBe(200)
+        expect(row.extra).toBe(0)
+        expect(row.capBelowMinimum).toBe(true)
+    })
+
+    it('treats an explicit zero cap as a cap, not as unlimited', () => {
+        const row = single({ id: 'b', minimumPayment: 200, name: 'Tope cero', paymentCap: 0, totalBalance: 1_000 })
+
+        expect(row.recommended).toBe(200)
+        expect(row.capBelowMinimum).toBe(true)
+        expect(single({ id: 'c', name: 'Tope cero sin mínima', paymentCap: 0, totalBalance: 1_000 }).recommended).toBe(0)
+    })
+
+    it('keeps a zero-capped minimum as base with no extra when current payments are not redirected', () => {
+        const result = computeDebtPlan({
+            available: 1_500,
+            cushion: 1_000,
+            debts: [
+                debt({ id: 'zero-cap', minimumPayment: 200, monthlyRate: 0.03, name: 'Tope cero', paymentCap: 0, totalBalance: 1_000 }),
+                debt({ id: 'uncapped', monthlyRate: 0.01, name: 'Sin tope', paymentCap: null, sortOrder: 1, totalBalance: 1_000 }),
+            ],
+            entries: [],
+            redirectOverpayments: false,
+        })
+
+        expect(result.rows.map((row) => [row.debt.id, row.base, row.extra, row.recommended, row.capBelowMinimum])).toEqual([
+            ['zero-cap', 200, 0, 200, true],
+            ['uncapped', 0, 300, 300, false],
+        ])
+        expect(result.pool).toBe(300)
+        expect(result.availableAfterRecommended).toBe(1_000)
+    })
+
+    it('reports the real cushion shortfall when an incompatible cap requires an unfunded minimum', () => {
+        const result = computeDebtPlan({
+            available: 1_100,
+            cushion: 1_000,
+            debts: [
+                debt({ id: 'low-cap', minimumPayment: 200, monthlyRate: 0.03, name: 'Tope bajo', paymentCap: 100, totalBalance: 1_000 }),
+                debt({ id: 'uncapped', monthlyRate: 0.01, name: 'Sin tope', paymentCap: null, sortOrder: 1, totalBalance: 1_000 }),
+            ],
+            entries: [entry('Pago parcial', 50, 'DEBT', { debtId: 'low-cap' })],
+            redirectOverpayments: false,
+        })
+
+        expect(result.rows.map((row) => [row.base, row.extra, row.recommended])).toEqual([
+            [200, 0, 200],
+            [0, 0, 0],
+        ])
+        expect(result.pool).toBe(0)
+        expect(result.unassigned).toBe(0)
+        expect(result.availableAfterRecommended).toBe(950)
+        expect(result.availableAfterRecommended).toBeLessThan(result.cushion)
+    })
+
+    it('never recommends more than the payable balance, even with a higher cap or minimum', () => {
+        expect(single({ id: 'd', name: 'Saldo chico', paymentCap: 2_000, totalBalance: 100 }).recommended).toBe(100)
+        expect(single({ id: 'e', minimumPayment: 500, name: 'Mínima mayor al saldo', totalBalance: 100 }).recommended).toBe(100)
+        expect(single({ id: 'f', name: 'Sin tope', totalBalance: 300 }).recommended).toBe(300)
+    })
+
+    it('passes what one debt cannot absorb to the next priority', () => {
+        const result = computeDebtPlan({
+            available: 1_500,
+            cushion: 1_000,
+            debts: [
+                debt({ id: 'g', monthlyRate: 0.03, name: 'Cara y pequeña', sortOrder: 0, totalBalance: 100 }),
+                debt({ id: 'h', monthlyRate: 0.01, name: 'Barata', sortOrder: 1, totalBalance: 5_000 }),
+            ],
+            entries: [],
+            redirectOverpayments: true,
+        })
+
+        expect(result.rows.map((row) => [row.debt.name, row.recommended])).toEqual([
+            ['Cara y pequeña', 100],
+            ['Barata', 400],
+        ])
+        expect(result.unassigned).toBe(0)
+    })
+})
+
+// F-DATA-12: la parte compartida nunca supera el saldo total; mi saldo y las barras no salen de 0..100 %.
+describe('shared portion bounded by the total balance', () => {
+    it('never produces a negative personal balance', () => {
+        const overShared = debt({ id: 'i', name: 'Compartida de más', sharedAmount: 200, totalBalance: 100 })
+
+        expect(sharedPortionOf(overShared)).toBe(100)
+
+        const [row] = computeDebtPlan({
+            available: 0,
+            cushion: 0,
+            debts: [overShared],
+            entries: [],
+            redirectOverpayments: false,
+        }).rows
+
+        expect(row.myBalance).toBe(0)
+        expect(row.sharedPortion).toBe(100)
+    })
+})

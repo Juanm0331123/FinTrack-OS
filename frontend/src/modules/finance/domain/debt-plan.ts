@@ -42,6 +42,8 @@ export type DebtPlanRow = {
     action: DebtAction
     base: number
     cap: number | null
+    // El tope es menor que la cuota mínima: se recomienda la mínima (pagar menos sería mora).
+    capBelowMinimum: boolean
     capacity: number
     capacityBefore: number
     currentPayment: number
@@ -112,10 +114,18 @@ export function paymentPeriods(rate: number, payment: number, presentValue: numb
     return Math.ceil(Math.log(payment / remainder) / Math.log(1 + rate) - 1e-9)
 }
 
+// La parte de la otra persona nunca supera el saldo total (un valor fijo mayor quedó así tras
+// bajar el saldo, o lo guardó una versión anterior): mi saldo no puede ser negativo.
 export function sharedPortionOf(debt: Debt) {
-    return debt.sharedPercent !== null
-        ? roundMoney((debt.totalBalance * debt.sharedPercent) / 100)
-        : debt.sharedAmount
+    const portion = debt.sharedPercent !== null ? roundMoney((debt.totalBalance * debt.sharedPercent) / 100) : debt.sharedAmount
+
+    return Math.min(Math.max(0, portion), Math.max(0, debt.totalBalance))
+}
+
+// Validación cruzada del formulario y del API: con valor fijo, la parte de la otra persona no
+// puede superar el saldo total (con porcentaje ya está acotada a 100 %).
+export function sharedAmountExceedsBalance(debt: Pick<Debt, 'sharedAmount' | 'sharedPercent' | 'totalBalance'>) {
+    return debt.sharedPercent === null && debt.sharedAmount > debt.totalBalance
 }
 
 export function myMinimumOf(debt: Debt) {
@@ -125,7 +135,7 @@ export function myMinimumOf(debt: Debt) {
 export function computeDebtPlan(input: DebtPlanInput): DebtPlan {
     const active = input.debts
         .filter((debt) => debt.status === 'ACTIVE')
-        .toSorted((left, right) => left.sortOrder - right.sortOrder)
+        .sort((left, right) => left.sortOrder - right.sortOrder)
     const paymentsByDebt = new Map<string, number>()
 
     for (const entry of input.entries) {
@@ -156,7 +166,7 @@ export function computeDebtPlan(input: DebtPlanInput): DebtPlan {
 
     const priorityOrder = measured
         .map((row) => ({ cost: row.monthlyCost, index: row.index, myBalance: row.myBalance, myMinimum: row.myMinimum }))
-        .toSorted(PRIORITY_COMPARATORS[strategy])
+        .sort(PRIORITY_COMPARATORS[strategy])
     const priorities = new Map(priorityOrder.map((item, rank) => [item.index, rank + 1]))
 
     const base = measured.map(({ index, ...row }) => ({
@@ -167,21 +177,41 @@ export function computeDebtPlan(input: DebtPlanInput): DebtPlan {
     const excess = roundMoney(Math.max(0, input.available - input.cushion))
     const currentTotal = roundMoney(base.reduce((sum, row) => sum + row.currentPayment, 0))
     const myMinimumTotal = roundMoney(base.reduce((sum, row) => sum + row.myMinimum, 0))
-    const pool = roundMoney(
-        excess + (input.redirectOverpayments ? currentTotal - myMinimumTotal : 0),
-    )
 
+    // Techo de cada deuda: nunca más que mi saldo ni que mi tope (null = sin tope; 0 es un tope).
+    // La cuota mínima, acotada al saldo, es obligatoria: si el tope queda por debajo, gana la mínima
+    // y la fila lo declara como restricción inviable.
     const withCapacity = base.map((row) => {
-        const cap = row.debt.paymentCap !== null && row.debt.paymentCap > 0 ? row.debt.paymentCap : null
-        const basePayment = input.redirectOverpayments ? row.myMinimum : row.currentPayment
+        const cap = row.debt.paymentCap
+        const required = Math.min(row.myMinimum, row.myBalance)
+        const capBelowMinimum = cap !== null && cap < required
+        const ceiling = Math.max(required, Math.min(cap ?? Number.POSITIVE_INFINITY, row.myBalance))
+        const basePayment = roundMoney(
+            capBelowMinimum
+                ? required
+                : Math.min(input.redirectOverpayments ? row.myMinimum : row.currentPayment, ceiling),
+        )
 
         return {
             ...row,
             base: basePayment,
             cap,
-            capacity: roundMoney(Math.max(0, (cap ?? row.myBalance) - basePayment)),
+            capBelowMinimum,
+            capacity: roundMoney(Math.max(0, ceiling - basePayment)),
         }
     })
+
+    // Un tope incompatible conserva la mínima como base, también sin redirección. Si esa base
+    // supera el pago actual, reservar la diferencia evita repartir dos veces el mismo excedente.
+    const minimumShortfall = withCapacity.reduce(
+        (sum, row) => sum + (row.capBelowMinimum ? Math.max(0, row.base - row.currentPayment) : 0),
+        0,
+    )
+    const pool = roundMoney(
+        input.redirectOverpayments
+            ? excess + currentTotal - myMinimumTotal
+            : Math.max(0, excess - minimumShortfall),
+    )
 
     const rows = withCapacity
         .map((row) => {
@@ -198,7 +228,7 @@ export function computeDebtPlan(input: DebtPlanInput): DebtPlan {
                     ? row.priority === 1
                         ? 'KILL_FIRST'
                         : 'EXTRA'
-                    : row.cap !== null && recommended >= row.cap
+                    : row.cap !== null && !row.capBelowMinimum && recommended >= row.cap
                       ? 'AT_CAP'
                       : 'BASE_ONLY'
 
@@ -212,7 +242,7 @@ export function computeDebtPlan(input: DebtPlanInput): DebtPlan {
                 totalMonthly,
             }
         })
-        .toSorted((left, right) => left.priority - right.priority)
+        .sort((left, right) => left.priority - right.priority)
 
     const extraTotal = roundMoney(rows.reduce((sum, row) => sum + row.extra, 0))
     const recommendedTotal = roundMoney(rows.reduce((sum, row) => sum + row.recommended, 0))
