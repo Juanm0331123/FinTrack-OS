@@ -11,7 +11,6 @@ import {
     CardContent,
     CardDescription,
     CardHeader,
-    CardTitle,
 } from '@/shared/ui/card'
 
 type AuthShellProps = {
@@ -44,7 +43,7 @@ export function AuthShell({
             <div className="relative mx-auto flex min-h-dvh w-full max-w-6xl items-center justify-center px-5 py-8 sm:px-8 lg:px-10">
                 <section className="w-full max-w-xl">
                     <div className="mb-4 flex items-center justify-between gap-3">
-                        <Button asChild variant="ghost" className="h-10 px-2 text-sm">
+                        <Button asChild variant="ghost" className="h-11 px-2 text-sm">
                             <Link href={APP_ROUTES.home}>
                                 <ArrowLeft className="size-4" aria-hidden="true" />
                                 Volver al inicio
@@ -74,9 +73,13 @@ export function AuthShell({
                                 </div>
                             </div>
                             <div>
-                                <CardTitle className="text-balance text-3xl font-semibold leading-tight tracking-[-0.02em] sm:text-4xl">
+                                {/* Encabezado de la página (F-UI-07): mismo estilo que CardTitle, semántica h1. */}
+                                <h1
+                                    data-slot="card-title"
+                                    className="font-heading text-balance text-3xl font-semibold leading-tight tracking-[-0.02em] sm:text-4xl"
+                                >
                                     {title}
-                                </CardTitle>
+                                </h1>
                                 <CardDescription className="mt-3 max-w-lg text-sm leading-6 text-muted-foreground sm:text-[0.95rem]">
                                     {description}
                                 </CardDescription>

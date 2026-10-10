@@ -3,12 +3,13 @@
 import { KeyRound, Mail } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 
-import { changePassword, confirmEmailChange, requestEmailChange } from '@/modules/auth/auth.api'
 import { getBrowserSession } from '@/modules/auth/browser-session'
+import { useFlowGuard } from '@/modules/auth/flow-guard'
 import { fitsPasswordBytes, PASSWORD_TOO_LONG_MESSAGE } from '@/modules/auth/password-rules'
 import { FtButton } from '../ui/button'
 import { Field, inputClassName } from '../ui/fields'
 import { Panel, PanelHeader } from '../ui/panel'
+import { createAccountSecurity } from './account-security'
 
 type Feedback = { kind: 'error' | 'success'; text: string } | null
 
@@ -16,15 +17,7 @@ function errorText(error: unknown) {
     return error instanceof Error && error.message ? error.message : 'No pudimos guardar el cambio. Intenta de nuevo.'
 }
 
-async function requireToken() {
-    const token = await getBrowserSession().ensureAccessToken()
-
-    if (!token) {
-        throw new Error('Tu sesión expiró. Vuelve a iniciar sesión.')
-    }
-
-    return token
-}
+type AccountSecurity = ReturnType<typeof createAccountSecurity>
 
 function FeedbackMessage({ feedback }: { feedback: Feedback }) {
     if (!feedback) {
@@ -41,12 +34,13 @@ function FeedbackMessage({ feedback }: { feedback: Feedback }) {
     )
 }
 
-function PasswordForm() {
+function PasswordForm({ security }: { security: AccountSecurity }) {
     const [currentPassword, setCurrentPassword] = useState('')
     const [newPassword, setNewPassword] = useState('')
     const [confirmation, setConfirmation] = useState('')
     const [busy, setBusy] = useState(false)
     const [feedback, setFeedback] = useState<Feedback>(null)
+    const guard = useFlowGuard()
 
     async function submit(event: FormEvent) {
         event.preventDefault()
@@ -69,16 +63,27 @@ function PasswordForm() {
         setBusy(true)
         setFeedback(null)
 
+        const run = guard.begin()
+
         try {
-            await changePassword(await requireToken(), { currentPassword, newPassword })
+            await security.changePassword({ currentPassword, newPassword }, run.signal)
+
+            if (!run.isCurrent()) {
+                return
+            }
+
             setCurrentPassword('')
             setNewPassword('')
             setConfirmation('')
             setFeedback({ kind: 'success', text: 'Contraseña actualizada. Cerramos tus sesiones en otros dispositivos.' })
         } catch (error) {
-            setFeedback({ kind: 'error', text: errorText(error) })
+            if (run.isCurrent()) {
+                setFeedback({ kind: 'error', text: errorText(error) })
+            }
         } finally {
-            setBusy(false)
+            if (run.isCurrent()) {
+                setBusy(false)
+            }
         }
     }
 
@@ -131,29 +136,40 @@ function PasswordForm() {
     )
 }
 
-function EmailForm({ currentEmail }: { currentEmail: string }) {
+function EmailForm({ currentEmail, security }: { currentEmail: string; security: AccountSecurity }) {
     const [currentPassword, setCurrentPassword] = useState('')
     const [newEmail, setNewEmail] = useState('')
     const [code, setCode] = useState('')
     const [pendingEmail, setPendingEmail] = useState<string | null>(null)
     const [busy, setBusy] = useState(false)
     const [feedback, setFeedback] = useState<Feedback>(null)
+    const guard = useFlowGuard()
 
     async function request(event: FormEvent) {
         event.preventDefault()
         setBusy(true)
         setFeedback(null)
 
+        const run = guard.begin()
+
         try {
-            const response = await requestEmailChange(await requireToken(), { currentPassword, newEmail: newEmail.trim() })
+            const response = await security.requestEmailChange({ currentPassword, newEmail: newEmail.trim() }, run.signal)
+
+            if (!run.isCurrent()) {
+                return
+            }
 
             setPendingEmail(response.email)
             setCurrentPassword('')
             setFeedback({ kind: 'success', text: `Enviamos un código de 6 dígitos a ${response.email}.` })
         } catch (error) {
-            setFeedback({ kind: 'error', text: errorText(error) })
+            if (run.isCurrent()) {
+                setFeedback({ kind: 'error', text: errorText(error) })
+            }
         } finally {
-            setBusy(false)
+            if (run.isCurrent()) {
+                setBusy(false)
+            }
         }
     }
 
@@ -162,17 +178,27 @@ function EmailForm({ currentEmail }: { currentEmail: string }) {
         setBusy(true)
         setFeedback(null)
 
+        const run = guard.begin()
+
         try {
-            await confirmEmailChange(await requireToken(), { code: code.trim() })
-            await getBrowserSession().ensureAccessToken({ forceRefresh: true })
+            await security.confirmEmailChange({ code: code.trim() }, run.signal)
+
+            if (!run.isCurrent()) {
+                return
+            }
+
             setPendingEmail(null)
             setNewEmail('')
             setCode('')
             setFeedback({ kind: 'success', text: 'Correo actualizado. Cerramos tus sesiones en otros dispositivos.' })
         } catch (error) {
-            setFeedback({ kind: 'error', text: errorText(error) })
+            if (run.isCurrent()) {
+                setFeedback({ kind: 'error', text: errorText(error) })
+            }
         } finally {
-            setBusy(false)
+            if (run.isCurrent()) {
+                setBusy(false)
+            }
         }
     }
 
@@ -200,7 +226,15 @@ function EmailForm({ currentEmail }: { currentEmail: string }) {
                     <FtButton type="submit" variant="secondary" disabled={busy || code.length !== 6}>
                         Confirmar correo
                     </FtButton>
-                    <FtButton type="button" variant="ghost" onClick={() => setPendingEmail(null)}>
+                    <FtButton
+                        type="button"
+                        variant="ghost"
+                        onClick={() => {
+                            guard.invalidate()
+                            setBusy(false)
+                            setPendingEmail(null)
+                        }}
+                    >
                         Cancelar
                     </FtButton>
                 </div>
@@ -247,14 +281,16 @@ function EmailForm({ currentEmail }: { currentEmail: string }) {
     )
 }
 
-export function AccountSecurityPanel({ currentEmail }: { currentEmail: string }) {
+export function AccountSecurityPanel({ currentEmail, userId }: { currentEmail: string; userId: string }) {
+    const [security] = useState(() => createAccountSecurity({ session: getBrowserSession(), userId }))
+
     return (
         <Panel aria-labelledby="security-settings">
             <PanelHeader id="security-settings" title="Seguridad de la cuenta" aside="Pide tu contraseña actual" />
             <div className="flex flex-col gap-6 px-4 pb-5 sm:px-[18px]">
-                <PasswordForm />
+                <PasswordForm security={security} />
                 <div className="border-t border-ft-line-soft pt-5">
-                    <EmailForm currentEmail={currentEmail} />
+                    <EmailForm currentEmail={currentEmail} security={security} />
                 </div>
                 <p className="text-[12.5px] leading-5 text-ft-ink-3">
                     Si entras con Google o GitHub y nunca creaste una contraseña, usa “Olvidé mi contraseña” en la

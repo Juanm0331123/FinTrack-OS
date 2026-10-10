@@ -20,7 +20,9 @@ import type {
     AuthenticatedResponse,
     PendingVerificationState,
 } from './auth.types'
+import { useFlowGuard } from './flow-guard'
 import { OneTimeCodeInput } from './one-time-code-input'
+import { isCompleteCode } from './one-time-code'
 
 const CODE_LENGTH = 6
 
@@ -80,6 +82,9 @@ export function EmailVerificationForm({
     const [isResending, setIsResending] = useState(false)
     const [isSubmitting, setIsSubmitting] = useState(false)
     const [now, setNow] = useState(() => Date.now())
+    // «Usar otro correo» o desmontar invalida la verificación en vuelo: una respuesta tardía no
+    // adopta la sesión ni redirige.
+    const guard = useFlowGuard()
 
     const needsPassword = requiresPassword(pendingVerification.source)
     const askForPassword = needsPassword && !password
@@ -111,7 +116,7 @@ export function EmailVerificationForm({
             return
         }
 
-        if (code.length !== CODE_LENGTH) {
+        if (!isCompleteCode(code, CODE_LENGTH)) {
             setErrorMessage('Ingresa los 6 dígitos del código para continuar.')
             return
         }
@@ -125,15 +130,23 @@ export function EmailVerificationForm({
         setErrorMessage(null)
         setInfoMessage(null)
 
+        const run = guard.begin()
+
         try {
             const session = await verifyEmailCode({
                 code,
                 email: pendingVerification.email,
                 ...(needsPassword ? { password: password || typedPassword } : {}),
-            })
+            }, { signal: run.signal })
 
-            onVerified(session)
+            if (run.isCurrent()) {
+                onVerified(session)
+            }
         } catch (error) {
+            if (!run.isCurrent()) {
+                return
+            }
+
             if (error instanceof AuthApiError) {
                 if (error.code === 'EMAIL_VERIFICATION_EXPIRED') {
                     setErrorMessage(
@@ -164,10 +177,16 @@ export function EmailVerificationForm({
         setErrorMessage(null)
         setInfoMessage(null)
 
+        const run = guard.begin()
+
         try {
             const response = await resendEmailCode({
                 email: pendingVerification.email,
-            })
+            }, { signal: run.signal })
+
+            if (!run.isCurrent()) {
+                return
+            }
 
             const nextPendingVerification: PendingVerificationState = {
                 email: response.email,
@@ -180,6 +199,10 @@ export function EmailVerificationForm({
             onPendingVerificationChange(nextPendingVerification)
             setInfoMessage('Enviamos un código nuevo a tu correo.')
         } catch (error) {
+            if (!run.isCurrent()) {
+                return
+            }
+
             if (error instanceof AuthApiError) {
                 setErrorMessage(error.message)
                 return
@@ -312,7 +335,10 @@ export function EmailVerificationForm({
                         type="button"
                         variant="ghost"
                         className="w-full"
-                        onClick={onCancelPendingVerification}
+                        onClick={() => {
+                            guard.invalidate()
+                            onCancelPendingVerification()
+                        }}
                     >
                         Usar otro correo
                     </Button>

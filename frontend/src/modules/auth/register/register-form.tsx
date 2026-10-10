@@ -20,6 +20,7 @@ import {
 import type { AuthenticatedResponse, PendingVerificationState } from '../auth.types'
 import { getBrowserSession } from '../browser-session'
 import { AuthSocialButtons } from '../auth-social-buttons'
+import { useFlowGuard } from '../flow-guard'
 import { createSingleFlight } from '../single-flight'
 import {
     registerSchema,
@@ -36,6 +37,8 @@ export function RegisterForm() {
     const [showConfirmPassword, setShowConfirmPassword] = useState(false)
     const [showPassword, setShowPassword] = useState(false)
     const [submission] = useState(createSingleFlight)
+    // Al desmontar (p. ej. navegar a otra página) una respuesta tardía no adopta sesión ni cambia de paso.
+    const guard = useFlowGuard()
     const {
         formState: { errors, isSubmitting },
         handleSubmit,
@@ -78,13 +81,19 @@ export function RegisterForm() {
     async function submit(values: RegisterFormValues) {
         setServerErrorMessage(null)
 
+        const run = guard.begin()
+
         try {
             const response = await registerWithEmail({
                 email: values.email,
                 firstName: values.firstName,
                 lastName: values.lastName || undefined,
                 password: values.password,
-            })
+            }, { signal: run.signal })
+
+            if (!run.isCurrent()) {
+                return
+            }
 
             setVerificationPassword(values.password)
             handlePendingVerificationChange({
@@ -94,6 +103,10 @@ export function RegisterForm() {
                 verificationCode: response.verificationCode,
             })
         } catch (error) {
+            if (!run.isCurrent()) {
+                return
+            }
+
             setServerErrorMessage(
                 error instanceof AuthApiError || error instanceof Error
                     ? error.message

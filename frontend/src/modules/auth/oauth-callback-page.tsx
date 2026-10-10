@@ -8,24 +8,8 @@ import { useEffect, useState, useSyncExternalStore } from 'react'
 import { APP_ROUTES } from '@/shared/config/routes'
 import { Button } from '@/shared/ui/button'
 import { clearPendingVerification, savePendingVerification } from './auth.storage'
-import type { PendingVerificationState, PendingVerificationSource } from './auth.types'
 import { getBrowserSession } from './browser-session'
-
-type OAuthCallbackResult =
-    | {
-          kind: 'loading'
-      }
-    | {
-          kind: 'success'
-      }
-    | {
-          kind: 'pending_verification'
-          pendingVerification: PendingVerificationState
-      }
-    | {
-          kind: 'error'
-          message: string
-      }
+import { parseOAuthCallbackResult, type OAuthCallbackResult } from './oauth-callback-result'
 
 function subscribeToHashChange(onStoreChange: () => void) {
     window.addEventListener('hashchange', onStoreChange)
@@ -43,60 +27,8 @@ function getServerHashSnapshot() {
     return ''
 }
 
-function parseOAuthCallbackResult(hash: string): OAuthCallbackResult {
-    if (!hash) {
-        return {
-            kind: 'loading',
-        }
-    }
-
-    const hashParams = new URLSearchParams(hash.replace(/^#/, ''))
-    const resultStatus = hashParams.get('status')
-
-    if (!resultStatus) {
-        return {
-            kind: 'error',
-            message: 'No pudimos completar el acceso con el proveedor externo.',
-        }
-    }
-
-    // El backend ya fijó la cookie de refresh; el access token se pide con /auth/refresh y nunca
-    // viaja en la URL.
-    if (resultStatus === 'success') {
-        return { kind: 'success' }
-    }
-
-    if (resultStatus === 'pending_verification') {
-        const email = hashParams.get('email')
-        const expiresAt = hashParams.get('expiresAt')
-        const provider = hashParams.get('provider')
-
-        if (!email || !expiresAt || (provider !== 'google' && provider !== 'github')) {
-            return {
-                kind: 'error',
-                message: 'No pudimos continuar con la verificación del correo.',
-            }
-        }
-
-        return {
-            kind: 'pending_verification',
-            pendingVerification: {
-                email,
-                expiresAt,
-                source: provider as PendingVerificationSource,
-                ...(hashParams.get('verificationCode')
-                    ? { verificationCode: hashParams.get('verificationCode') ?? undefined }
-                    : {}),
-            },
-        }
-    }
-
-    return {
-        kind: 'error',
-        message:
-            hashParams.get('message') ??
-            'No pudimos completar el acceso con el proveedor externo.',
-    }
+function subscribeToNothing() {
+    return () => undefined
 }
 
 export function OAuthCallbackPage() {
@@ -106,7 +38,8 @@ export function OAuthCallbackPage() {
         getClientHashSnapshot,
         getServerHashSnapshot,
     )
-    const parsed = parseOAuthCallbackResult(hash)
+    const hydrated = useSyncExternalStore(subscribeToNothing, () => true, () => false)
+    const parsed = parseOAuthCallbackResult(hash, { hydrated })
     const [sessionError, setSessionError] = useState<string | null>(null)
     const result: OAuthCallbackResult = sessionError ? { kind: 'error', message: sessionError } : parsed
     const pendingVerification = parsed.kind === 'pending_verification' ? parsed.pendingVerification : null

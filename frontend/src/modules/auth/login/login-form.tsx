@@ -22,6 +22,7 @@ import {
 import type { AuthenticatedResponse, PendingVerificationState } from '../auth.types'
 import { getBrowserSession } from '../browser-session'
 import { AuthSocialButtons } from '../auth-social-buttons'
+import { useFlowGuard } from '../flow-guard'
 import { createSingleFlight } from '../single-flight'
 import { loginSchema, type LoginFormValues } from './login.schema'
 
@@ -38,6 +39,8 @@ export function LoginForm() {
     const [verificationPassword, setVerificationPassword] = useState<string | null>(null)
     const [showPassword, setShowPassword] = useState(false)
     const [submission] = useState(createSingleFlight)
+    // Al desmontar (p. ej. navegar a otra página) una respuesta tardía no adopta sesión ni cambia de paso.
+    const guard = useFlowGuard()
     const {
         formState: { errors, isSubmitting },
         handleSubmit,
@@ -77,10 +80,19 @@ export function LoginForm() {
     async function submit(values: LoginFormValues) {
         setServerErrorMessage(null)
 
+        const run = guard.begin()
+
         try {
-            const session = await loginWithEmail(values)
-            handleAuthenticated(session)
+            const session = await loginWithEmail(values, { signal: run.signal })
+
+            if (run.isCurrent()) {
+                handleAuthenticated(session)
+            }
         } catch (error) {
+            if (!run.isCurrent()) {
+                return
+            }
+
             if (
                 error instanceof AuthApiError &&
                 error.code === 'EMAIL_VERIFICATION_REQUIRED'
