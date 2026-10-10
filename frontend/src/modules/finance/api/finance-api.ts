@@ -130,8 +130,10 @@ export function createFinanceApi(deps: FinanceApiDeps) {
         }
     }
 
-    async function request<T>(path: string, options: RequestOptions = {}, canRetry = true): Promise<T> {
-        const owner = lifetime.signal
+    // El dueño (lifetime) se fija al iniciar la operación y se conserva en el reintento: si se
+    // detuvo mientras esperábamos el token o la respuesta, la operación termina con AbortError y no
+    // se envía nada más.
+    async function request<T>(path: string, options: RequestOptions = {}, canRetry = true, owner = lifetime.signal): Promise<T> {
         const token = await accessToken(!canRetry)
 
         if (owner.aborted) {
@@ -165,8 +167,12 @@ export function createFinanceApi(deps: FinanceApiDeps) {
             throw new FinanceApiError(0, 'No pudimos conectar con el servidor. Revisa tu conexión.')
         }
 
+        if (owner.aborted) {
+            throw abortError()
+        }
+
         if (response.status === 401 && canRetry) {
-            return request<T>(path, options, false)
+            return request<T>(path, options, false, owner)
         }
 
         const payload = (await response.json().catch(() => null)) as

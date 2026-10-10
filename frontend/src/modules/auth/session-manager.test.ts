@@ -333,4 +333,22 @@ describe('createSessionManager', () => {
             expect(session.getSnapshot().status).toBe('unauthenticated')
         })
     })
+
+    it('keeps checking the identity after a temporary refresh failure (RCLIENT-R2-02)', async () => {
+        let now = 0
+        const refresh = vi
+            .fn<() => Promise<AuthenticatedResponse>>()
+            .mockRejectedValueOnce(apiError(429, 'AUTH_RATE_LIMITED', { retryAfterSeconds: 5 }))
+            .mockResolvedValueOnce(response('de-otra-cuenta', 900, userB()))
+        const session = manager({ now: () => now, refresh })
+
+        session.setSession(response('token-a', 60))
+        now = 59_000
+
+        await expect(session.ensureAccessToken()).rejects.toBeInstanceOf(SessionUnavailableError)
+        expect(session.getSnapshot()).toMatchObject({ status: 'unavailable' })
+
+        expect(await session.ensureAccessToken()).toBeNull()
+        expect(session.getSnapshot()).toMatchObject({ session: null, status: 'unauthenticated' })
+    })
 })

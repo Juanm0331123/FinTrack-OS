@@ -215,3 +215,51 @@ describe('the workbook never carries one account’s data or pending saves into 
         expect(server.calls.at(-1)).toMatchObject({ body: { cushionAmount: 99 }, identity: 'A', path: '/api/finance/settings' })
     })
 })
+
+describe('a stopped owner never sends again (RCLIENT-R2-01)', () => {
+    it('does not retry a request whose owner stopped while its 401 was arriving', async () => {
+        const session = sessionFor('A')
+        let api: ReturnType<typeof createFinanceApi> | null = null
+        const server = fakeServer(() => {
+            // El dueño se detiene justo cuando llega la respuesta 401.
+            api!.abortPending()
+
+            return json(401, { code: 'SESSION_EXPIRED', message: 'expirada', success: false })
+        })
+
+        api = createFinanceApi({ fetch: server.fetch, session, userId: 'A' })
+
+        await expect(api.updateSettings({ cushionAmount: 765_432 })).rejects.toMatchObject({ name: 'AbortError' })
+        expect(server.calls).toHaveLength(1)
+    })
+
+    it('does not send a second PATCH when the store stops during a 401 response', async () => {
+        vi.useFakeTimers()
+
+        try {
+            const session = sessionFor('A')
+            let stop: () => void = () => undefined
+            const server = fakeServer((call) => {
+                if (call.path.endsWith('/workbook')) {
+                    return json(200, { data: { accounts, debts: [], settings, sheets: [] }, success: true })
+                }
+
+                stop()
+
+                return json(401, { code: 'SESSION_EXPIRED', message: 'expirada', success: false })
+            })
+            const store = createWorkbookStore(createFinanceApi({ fetch: server.fetch, session, userId: 'A' }))
+
+            stop = () => store.stop()
+            store.start()
+            await vi.waitFor(() => expect(store.getState().status).toBe('ready'))
+            store.actions.updateSettings({ cushionAmount: 765_432 })
+            await vi.advanceTimersByTimeAsync(5_000)
+
+            expect(server.calls.filter((call) => call.path.endsWith('/settings'))).toHaveLength(1)
+            expect(store.actions.hasUnsavedChanges()).toBe(false)
+        } finally {
+            vi.useRealTimers()
+        }
+    })
+})

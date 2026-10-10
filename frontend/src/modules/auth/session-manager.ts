@@ -150,7 +150,9 @@ export function createSessionManager(deps: SessionManagerDeps) {
 
     async function refreshWithRetry(startedIn: number, signal: AbortSignal): Promise<AuthSession | null> {
         let lastError: unknown
-        const startedAs = currentSession()?.user.id ?? null
+        // La identidad de partida se conserva aunque la sesión esté «no disponible» tras un fallo
+        // temporal: la sesión retenida sigue siendo la de esa cuenta.
+        const startedAs = snapshot.session?.user.id ?? null
         const isStale = () => startedIn !== generation
 
         for (let attempt = 0; attempt < MAX_REFRESH_ATTEMPTS; attempt += 1) {
