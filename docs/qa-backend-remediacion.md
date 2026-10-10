@@ -4,7 +4,7 @@ Entrega para revisión independiente del agente auditor original. Este documento
 
 - Baseline auditado: `main` / `origin/main` `e9208dc67062aaad1aa215f50b289bb93ddb82c3` (informe `.local/backend-qa/backend-qa-report.json`, 45 entradas: 12 altas, 28 medias, 5 bajas).
 - Rama de entrega: `fix/backend-qa-remediation` (sin integrar en `main`, sin desplegar). Commits y archivos: ver [Identificación de la entrega](#identificación-de-la-entrega).
-- Fecha: 2026-10-09. Segunda ronda (19 incidencias de la revisión independiente sobre `72c8d60`): ver [Segunda ronda](#segunda-ronda-revisión-independiente-19-incidencias).
+- Fecha: 2026-10-09. Segunda ronda (19 incidencias de la revisión independiente sobre `72c8d60`): ver [Segunda ronda](#segunda-ronda-revisión-independiente-19-incidencias). Tercera ronda (9 incidencias de la revisión de `5a4c66f`): ver [Tercera ronda](#tercera-ronda-9-incidencias-de-la-revisión-de-5a4c66f).
 
 ## Cómo reproducir
 
@@ -182,6 +182,51 @@ Validaciones de esta ronda (Windows 11, Node 24.16.0, `postgres:18` en Docker; r
 | CI en GitHub Actions sobre la rama | ver [Identificación de la entrega](#identificación-de-la-entrega) |
 | Recorrido en navegador de esta ronda | **no ejecutado**: los cambios de sesión y libro se cubren con Vitest; queda para la revisión del auditor |
 
+## Tercera ronda: 9 incidencias de la revisión de `5a4c66f`
+
+El auditor revisó `5a4c66f` y no dio el aval: confirmó 9 incidencias pendientes (2 altas, 6 medias, 1 baja). Esta ronda parte de `5a4c66f` con el mismo procedimiento. Cada caso tiene primero una regresión permanente, que se ejecutó y falló con el síntoma reportado, y después la corrección de la causa raíz. **CV** significa corregido y verificado localmente por quien implementó; la aceptación corresponde al auditor.
+
+| ID | Sev. | Causa raíz | Solución | Regresión (fallo observado antes del fix) | Resultado real | Estado |
+|---|---|---|---|---|---|---|
+| RAUTH-01-R2 | Alta | Con una identidad OAuth ya vinculada, repetir OAuth sobre la cuenta pendiente emitía un código sin contraseña para el sello vigente, que activaba la contraseña puesta por un re-registro. | Un inicio OAuth sobre una cuenta pendiente reemplaza su contraseña por una inutilizable, rota el sello e invalida códigos y sesiones (`resetPendingCredentialsForOAuth`), igual que al vincular por primera vez. | `auth-credential-races` «credential provenance…»: OAuth → re-registro → mismo OAuth. Antes: la contraseña del re-registro iniciaba sesión con 200. | El titular activa la cuenta (200) y la contraseña del re-registro devuelve 401 | CV |
+| AUTH-R2-02 | Alta | `changePassword` escribía sin volver a mirar el estado después de validar la contraseña actual. | El repositorio bloquea al usuario y solo escribe si siguen vigentes el sello observado, la cuenta activa y la sesión actual abierta. Si no, 401 `CREDENTIALS_CHANGED`. | Misma suite, con barrera antes de la escritura y recuperación por API en medio. Antes: el cambio obsoleto terminaba, su contraseña daba 200 y la recuperada 401. | El cambio obsoleto devuelve `CREDENTIALS_CHANGED`, la recuperada da 200 y la obsoleta 401 | CV |
+| RAUTH-03-R2 | Media | bcrypt usa los primeros 72 bytes de «clave + NUL». Contra un hash heredado, «71 bytes» coincide con una contraseña cuyo byte 72 era NUL. | Contra hashes versión 1, las entradas de 71 y 72 bytes exigen recuperar la contraseña. Ninguna entrada con NUL autentica, y las contraseñas nuevas rechazan NUL (422). | Misma suite (2 casos). Antes: 71 bytes daban 200 y «71 bytes + NUL» daba 200. | 403 `PASSWORD_RESET_REQUIRED`, 401 y 422 | CV |
+| AUTH-R2-04 | Media | Tras revocar por intentos fallidos el código de una cuenta solo-OAuth, el reenvío pedía contraseña porque solo miraba códigos abiertos. | El requisito sale del último código emitido con el sello vigente, aunque esté revocado. Sin ese dato se exige contraseña, y el usuario puede repetir OAuth. | Misma suite: cinco códigos errados y reenvío. Antes: el código correcto sin contraseña daba 401. | 200 | CV |
+| RDATA-08-R2 | Media | El nombre se comprobaba fuera de la transacción: un reintento que leyó el id antes de que confirmara la primera creación veía después el nombre ocupado. | La comprobación de id, nombre y reactivación de cuenta archivada pasa a la transacción con el bloqueo del usuario, en ese orden. | `finance-consistency` «an account retry that read…», con barrera tras la lectura real por id. Antes: 409 `ACCOUNT_NAME_TAKEN`. | Reintento 200 con el mismo id; el mismo id con otro nombre sigue dando 409 `IDEMPOTENCY_CONFLICT` | CV |
+| RDATA-REPLAY-QUOTA-R2 | Media | Tras tomar el bloqueo se evaluaba la cuota antes de reconocer que el id ya existía. | Tras el bloqueo (usuario, hoja o fila del bolsillo), un id existente se resuelve como reintento antes de la cuota, con la misma validación de dueño, destino y contenido. No consume cupo. | `finance-consistency` «identical retries at the last quota slot…»: un titular real de PostgreSQL retiene el bloqueo hasta ver 3 esperas, en cuentas, deudas, filas y gastos. Antes: 201/409/409. | 201/200/200 en los cuatro tipos; totales 50/100/300/500 | CV |
+| RCLIENT-R2-01 | Media | El reintento tras un 401 capturaba el nuevo ciclo de vida de la API, así que enviaba otro PATCH después de `store.stop()`. | El dueño se fija al iniciar la operación, se pasa al reintento y se comprueba al recibir la respuesta: AbortError y nada más se envía. | `finance-api.test.ts` «a stopped owner never sends again» (API y store). Antes: 2 PATCH. | 1 PATCH y AbortError | CV |
+| RCLIENT-R2-02 | Baja | Tras un 429 la sesión retenida quedaba «no disponible» y la identidad de partida se perdía. | La identidad se toma de la sesión retenida aunque no esté disponible. Una cookie de otra cuenta cierra la sesión. | `session-manager.test.ts`: 429 y luego otra cuenta. Antes: adoptaba la cuenta B. | Sesión cerrada | CV |
+| R2OPS-01 | Media | Los recibos globales del respaldo solo se limpiaban si volvía la misma clave. | Los incrementos con contexto guardan su procedencia solo en el WeakMap de la petición. Los recibos sin contexto vencen con la ventana, se barren una vez por ventana para todas las claves, tienen un tope de 10.000 claves y se vacían en `shutdown`. | `rate-limit-store.test.ts` (3): 1.000 peticiones fallidas sin decremento, 100 ventanas y recuperación con otras claves. Antes: 1.000 recibos retenidos. | 0 recibos | CV |
+
+Cambios de contrato:
+
+- `POST /api/auth/password` puede responder 401 `CREDENTIALS_CHANGED`.
+- Las contraseñas nuevas (registro, recuperación, cambio) no admiten el carácter NUL (422).
+- El login con hash heredado y una entrada de 71 o 72 bytes responde 403 `PASSWORD_RESET_REQUIRED`.
+- Un inicio con OAuth sobre una cuenta pendiente invalida la contraseña que tuviera.
+
+Sin migraciones nuevas. La versión de hash 2 pasa a significar «72 bytes como máximo y sin NUL». Como esas migraciones no se han desplegado en ningún entorno, no hay hashes versión 2 previos a la regla.
+
+Validaciones de esta ronda (Windows 11, Node 24.16.0, `postgres:18` en Docker):
+
+| Comprobación | Resultado |
+|---|---|
+| Backend `pnpm typecheck` | aprobado |
+| Backend `pnpm test` | aprobado: 111/111 |
+| Backend `pnpm test:migrations` | aprobado: 7/7 |
+| Backend `pnpm test:integration` | 142 pruebas: 141 aprobadas, 1 omitida (SIGTERM en Windows; se ejecuta en CI Linux) |
+| `pnpm prisma:validate` | aprobado |
+| `bash scripts/docker-smoke.sh` (Git Bash, `MSYS_NO_PATHCONV=1`) | aprobado: `SMOKE OK` |
+| `pnpm audit` backend y `pnpm audit --prod` frontend | 0 avisos |
+| Frontend `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm build` | aprobado: 128/128 |
+| CI en GitHub Actions | ver la entrega al auditor (SHA y corrida) |
+| Navegador | **no ejecutado** |
+
+Riesgos residuales nuevos:
+
+- Si la limpieza de tokens (`db:cleanup-auth`) borra el último código de una cuenta solo-OAuth pendiente, el reenvío vuelve a exigir contraseña. El usuario debe repetir el inicio con su proveedor.
+- Las cuentas con hash heredado y contraseña de exactamente 71 o 72 bytes deberán restablecerla.
+
 ## Informe técnico
 
 ### Resumen del diff y decisiones
@@ -284,11 +329,11 @@ Requieren recursos que no existen todavía (Neon de producción/staging, proyect
 ## Identificación de la entrega
 
 - Rama: `fix/backend-qa-remediation`, creada desde `e9208dc`, subida al remoto. No integrada en `main` y no desplegada.
-- Primera ronda: `e9208dc..f74e338`; corrección del smoke por el auditor: `72c8d60`; segunda ronda: `72c8d60..HEAD` (`git log --oneline 72c8d60..fix/backend-qa-remediation`).
+- Primera ronda: `e9208dc..f74e338`; corrección del smoke por el auditor: `72c8d60`; segunda ronda: `72c8d60..5a4c66f`; tercera ronda: `5a4c66f..HEAD` (`git log --oneline 5a4c66f..fix/backend-qa-remediation`).
 - Archivos afectados: `git diff --stat e9208dc..fix/backend-qa-remediation`. Principales: `backend/src/**`, `backend/prisma/**`, `backend/scripts/**`, `backend/test/**`, `backend/Dockerfile`, `backend/test/compose.yaml`, `frontend/src/modules/auth/**`, `frontend/src/modules/finance/{api,store,month,settings,shell}/**`, `frontend/src/proxy.ts`, `frontend/src/shared/lib/edge-proxy*.ts`, `.github/workflows/*`, `docs/despliegue.md`, este documento, `AGENTS.md` y `backend/AGENTS.md`.
 - CI: el resultado de GitHub Actions para el commit final se informa en la entrega al auditor (no se escribe aquí para no fijar un estado que este mismo commit cambia).
 - Working tree al entregar: limpio salvo archivos ignorados (`.local/`, `.tmp/`, `.env`).
 
 ## Recomendación
 
-**LISTO PARA NUEVA REVISIÓN INDEPENDIENTE.** Las 19 incidencias de la segunda ronda tienen regresión permanente con fallo observado antes de la corrección, corrección de causa raíz y verificación local con API y PostgreSQL reales (o Vitest en el cliente). Esto no es un aval: el auditor decide si se cierran. **No** está listo para producción: siguen pendientes el entorno de staging y las verificaciones externas listadas (OPS-06, OPS-08, OPS-10, DATA-13, DATA-04 contra el Excel) y el recorrido en navegador de los cambios de sesión de esta ronda. Esta recomendación no autoriza integrar en `main` ni desplegar.
+**LISTO PARA NUEVA REVISIÓN INDEPENDIENTE.** Las 9 incidencias de la tercera ronda y las 19 de la segunda tienen regresión permanente con fallo observado antes de la corrección, corrección de causa raíz y verificación local con API y PostgreSQL reales (o Vitest en el cliente). Esto no es un aval: el auditor decide si se cierran. **No** está listo para producción: siguen pendientes el entorno de staging y las verificaciones externas listadas (OPS-06, OPS-08, OPS-10, DATA-13, DATA-04 contra el Excel) y el recorrido en navegador de los cambios de sesión de esta ronda. Esta recomendación no autoriza integrar en `main` ni desplegar.
