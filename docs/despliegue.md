@@ -189,7 +189,7 @@ El plan gratuito de Neon solo permite restaurar hasta 6 horas atrás. Por eso ha
 
 - `pg_dump` (imagen `postgres:18`, igual a la versión mayor de Neon) → gzip → **cifrado AES-256** con `gpg --symmetric` → `gs://<bucket>`. El volcado nunca se publica como artifact ni sin cifrar (el repositorio es público).
 - Hoy solo se ejecuta manualmente; la programación semanal está comentada y se activa tras el aval.
-- Tras el backup, el job `cleanup-auth` aplica la retención de sesiones, tokens y contadores (`backend/scripts/cleanup-auth.ts`, `AUTH_RETENTION_DAYS=30`).
+- Tras el backup, el job `cleanup-auth` aplica la retención de sesiones, tokens y contadores (`backend/scripts/cleanup-auth.ts`, `AUTH_RETENTION_DAYS=30`). Conserva como máximo el último marcador de verificación del sello vigente de cada usuario pendiente para que el reenvío mantenga el requisito de contraseña correcto. El código sigue vencido; el marcador vuelve a ser elegible para limpieza cuando la cuenta se activa o cambia su sello. Los demás códigos antiguos se eliminan.
 - Retención de 90 días con una regla de ciclo de vida del bucket.
 
 Restauración (probarla antes de cerrar el despliegue):

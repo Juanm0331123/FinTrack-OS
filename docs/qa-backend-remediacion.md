@@ -224,8 +224,38 @@ Validaciones de esta ronda (Windows 11, Node 24.16.0, `postgres:18` en Docker):
 
 Riesgos residuales nuevos:
 
-- Si la limpieza de tokens (`db:cleanup-auth`) borra el último código de una cuenta solo-OAuth pendiente, el reenvío vuelve a exigir contraseña. El usuario debe repetir el inicio con su proveedor.
+- El riesgo de perder la procedencia OAuth tras la limpieza queda corregido en la cuarta ronda, descrita a continuación.
 - Las cuentas con hash heredado y contraseña de exactamente 71 o 72 bytes deberán restablecerla.
+
+## Cuarta ronda: cierre de los tres detalles residuales
+
+Correcciones sobre `32ce55c`, sin nuevas dependencias ni migraciones. Se reprodujo cada fallo con una regresión permanente antes de corregirlo. Las pruebas de persistencia usan API y PostgreSQL 18 reales aislados; solo los proveedores externos de correo y OAuth son dobles de prueba.
+
+| ID | Importancia | Causa y corrección | Evidencia antes → después |
+|---|---|---|---|
+| AUTH-R3-01-cleanup-provenance | Media | La limpieza eliminaba el dato que distingue un código de registro de uno OAuth. Conserva como máximo el último marcador de verificación del sello vigente de cada usuario pendiente. El marcador vence normalmente y vuelve a ser elegible para limpieza al activar la cuenta o cambiar el sello. La lectura y la limpieza usan el mismo orden determinista. | `auth-cleanup.test.ts`: limpieza real → reenvío → código OAuth correcto sin contraseña, 401 → 200. Código vencido sigue 401; registro posterior a OAuth sigue exigiendo contraseña; históricos eliminados, un marcador retenido y liberado tras activar/cambiar sello. |
+| RDATA-REVIVE-REPLAY-R3 | Baja | POST reactivaba una cuenta de otro UUID por nombre; el nuevo UUID no podía repetirse. POST crea o repite el UUID solicitado; restaurar exige PATCH al UUID original. El store detecta la cuenta archivada por nombre normalizado y usa ese PATCH. | `finance-consistency.test.ts`: POST de otro UUID, 201 → 409 consistente; PATCH original repetido, 200/200, incluso al límite de cuentas. Historial conservado y usuario ajeno rechazado. `workbook-store.test.ts`: respuesta perdida → reintento con el mismo PATCH y UUID, sin POST ni duplicados. |
+| R3OPS-01 | Baja | Se borraban los recibos anteriores antes de releerlos al insertar otro intento en el respaldo. Se capturan antes de mover la clave en el mapa. | `rate-limit-store.test.ts`: dos incrementos en respaldo sin contexto y dos decrementos tras recuperarse el primario: primario/respaldo 6/1 → 7/0. TTL, tope y contexto de petición mantienen sus pruebas. |
+
+Cambios de contrato y operación:
+
+- `POST /api/finance/accounts` responde 409 `ACCOUNT_NAME_TAKEN` si el nombre corresponde a una cuenta archivada con otro UUID. Restaurar usa `PATCH /api/finance/accounts/:id` con `{ "archived": false }`. El frontend hace esto automáticamente y conserva el historial.
+- La retención de códigos tiene una excepción acotada: un marcador con hash y sal por usuario pendiente, ligado a sus credenciales vigentes. No contiene el código en claro ni permite usar un código vencido. No se retiene el histórico de códigos antiguos.
+- No cambian JWT, cookies, ventanas de sesión, límites de peticiones ni fórmulas financieras.
+
+Validaciones de esta ronda (Windows, Node 24.16.0 y PostgreSQL 18 aislado):
+
+| Comprobación | Resultado |
+|---|---|
+| Backend generate, typecheck, validate y migrate status | aprobado; migraciones al día en la base de prueba |
+| Backend unitarias / migraciones | 112/112 y 7/7 |
+| Backend integración API + PostgreSQL | 145/146 aprobadas, una omisión por SIGTERM en Windows; Linux ejecuta esa prueba en CI |
+| Frontend lint, typecheck, tests y build | aprobado, 129/129 pruebas |
+| Imagen Docker | `SMOKE OK`: migraciones, TLS verify-full, salud, protección de origen y SIGTERM con salida correcta en 1 s |
+| Diff | `git diff --check` aprobado |
+| Navegador y servicios externos | no ejecutados en esta ronda |
+
+El resultado de CI para el SHA final se detalla en la entrega correspondiente. Las tres incidencias quedan corregidas con regresiones permanentes; esto no cubre los pendientes externos ni equivale a aprobación de producción.
 
 ## Informe técnico
 
@@ -281,7 +311,7 @@ Probado sobre el esquema anterior con datos sintéticos (`test/migrations/baseli
 | Inactividad / absoluta | 7 días / 30 días |
 | Reintento concurrente | 30 s → 409 sin revocar; después → revoca la familia |
 | Revocación | logout: la sesión; logout-all, recuperación: todas; cambio de contraseña o correo: todas menos la actual; desactivación o borrado por admin: todas |
-| Retención | 30 días tras vencer o revocarse (purga por usuario y script programable) |
+| Retención | 30 días tras vencer o revocarse; se conserva un marcador de verificación vigente por cuenta pendiente (sin extender su validez) |
 | Códigos | 6 dígitos, 10 min, 5 intentos, un solo uso |
 | Límites | perímetro 600/5 min por IP; credenciales inválidas 60/15 min por IP; login 30 fallos/15 min por IP y 10 por cuenta; códigos 30 fallos/15 min por IP; registro 10/h por IP; correo 1/min y 5/h por dirección, 30/h por IP; refresh 120/15 min por IP; finanzas 300 lecturas y 1200 escrituras/15 min por usuario |
 
@@ -313,7 +343,7 @@ Excepción a la política de versiones con ≥ 2 semanas: Next 16.3.8 (8 días) 
 
 Requieren recursos que no existen todavía (Neon de producción/staging, proyecto GCP, Vercel, apps OAuth, contraseña de aplicación de Gmail). Nada de esto se marcó como aprobado.
 
-1. **CI en GitHub**: subir la rama y comprobar `ci.yml` en verde (backend, frontend, smoke de Docker).
+1. **CI en GitHub**: comprobar `ci.yml` en verde para cada nuevo SHA (backend, frontend, smoke de Docker); los resultados de las rondas anteriores no sustituyen el del commit final.
 2. **Staging** con un proyecto o rama de Neon de prueba, un servicio Cloud Run `fintrack-backend-staging` y un preview de Vercel con `BACKEND_ORIGIN` y `EDGE_PROXY_SECRET`:
    - `curl -I https://<staging>.vercel.app/` y `https://<servicio>.run.app/api/health/live`: certificados válidos y cabeceras de Helmet.
    - `curl -s -o /dev/null -w '%{http_code}' https://<servicio>.run.app/api/auth/me` → 403; vía Vercel → 401.
@@ -329,11 +359,11 @@ Requieren recursos que no existen todavía (Neon de producción/staging, proyect
 ## Identificación de la entrega
 
 - Rama: `fix/backend-qa-remediation`, creada desde `e9208dc`, subida al remoto. No integrada en `main` y no desplegada.
-- Primera ronda: `e9208dc..f74e338`; corrección del smoke por el auditor: `72c8d60`; segunda ronda: `72c8d60..5a4c66f`; tercera ronda: `5a4c66f..HEAD` (`git log --oneline 5a4c66f..fix/backend-qa-remediation`).
+- Primera ronda: `e9208dc..f74e338`; corrección del smoke por el auditor: `72c8d60`; segunda ronda: `72c8d60..5a4c66f`; tercera ronda: `5a4c66f..32ce55c`; cuarta ronda: `32ce55c..HEAD` (`git log --oneline 32ce55c..fix/backend-qa-remediation`).
 - Archivos afectados: `git diff --stat e9208dc..fix/backend-qa-remediation`. Principales: `backend/src/**`, `backend/prisma/**`, `backend/scripts/**`, `backend/test/**`, `backend/Dockerfile`, `backend/test/compose.yaml`, `frontend/src/modules/auth/**`, `frontend/src/modules/finance/{api,store,month,settings,shell}/**`, `frontend/src/proxy.ts`, `frontend/src/shared/lib/edge-proxy*.ts`, `.github/workflows/*`, `docs/despliegue.md`, este documento, `AGENTS.md` y `backend/AGENTS.md`.
 - CI: el resultado de GitHub Actions para el commit final se informa en la entrega al auditor (no se escribe aquí para no fijar un estado que este mismo commit cambia).
 - Working tree al entregar: limpio salvo archivos ignorados (`.local/`, `.tmp/`, `.env`).
 
 ## Recomendación
 
-**LISTO PARA NUEVA REVISIÓN INDEPENDIENTE.** Las 9 incidencias de la tercera ronda y las 19 de la segunda tienen regresión permanente con fallo observado antes de la corrección, corrección de causa raíz y verificación local con API y PostgreSQL reales (o Vitest en el cliente). Esto no es un aval: el auditor decide si se cierran. **No** está listo para producción: siguen pendientes el entorno de staging y las verificaciones externas listadas (OPS-06, OPS-08, OPS-10, DATA-13, DATA-04 contra el Excel) y el recorrido en navegador de los cambios de sesión de esta ronda. Esta recomendación no autoriza integrar en `main` ni desplegar.
+**LOS TRES DETALLES RESIDUALES QUEDAN CORREGIDOS Y VERIFICADOS LOCALMENTE.** Las 3 incidencias de la cuarta ronda, las 9 de la tercera y las 19 de la segunda tienen regresiones permanentes y verificación con API y PostgreSQL reales (o Vitest en el cliente). Se puede continuar con el QA completo del frontend. La aprobación se limita a los escenarios comprobados. **No** está listo para producción: siguen pendientes staging y las verificaciones externas listadas (OPS-06, OPS-08, OPS-10, DATA-13, DATA-04 contra el Excel), además del recorrido en navegador de los cambios de sesión y restauración de cuentas. Esta recomendación no autoriza integrar en `main` ni desplegar.
