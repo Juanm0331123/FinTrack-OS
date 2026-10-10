@@ -97,7 +97,7 @@ function EntryFields({
                         <label
                             key={category}
                             className={cn(
-                                'flex min-h-10 cursor-pointer items-center gap-2 rounded-lg border px-3 text-[13px] font-medium transition-colors duration-150 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-ft-focus',
+                                'flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border px-3 text-[13px] font-medium transition-colors duration-150 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-ft-focus',
                                 value.category === category
                                     ? cn('border-transparent', CATEGORY_STYLES[category].pill)
                                     : 'border-ft-line text-ft-ink-2 hover:bg-ft-hover',
@@ -293,7 +293,7 @@ function NewEntryContent({
             onSubmit={(event) => {
                 event.preventDefault()
 
-                if (!canSave) {
+                if (!event.currentTarget.reportValidity() || !canSave) {
                     return
                 }
 

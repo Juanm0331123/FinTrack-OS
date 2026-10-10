@@ -52,7 +52,7 @@ colors:
   ink-quiet: "#98a2b3"
   brand-ground: "oklch(0.982 0.006 255)"
   brand-ink: "oklch(0.19 0.025 255)"
-  brand-blue: "oklch(0.58 0.19 252)"
+  brand-blue: "oklch(0.53 0.18 252)"
   brand-rose: "oklch(0.65 0.22 354.5)"
   brand-violet: "oklch(0.67 0.17 305)"
   brand-mint: "oklch(0.72 0.18 168)"
@@ -220,7 +220,7 @@ The six expense categories, validated together for color-vision deficiency. Ink 
 - **Ink** (#0f172a), **Ink Secondary** (#475467), **Ink Tertiary** (#667085), **Ink Quiet** (#98a2b3): headings and figures, body copy, metadata and placeholders, disabled and inactive marks.
 
 ### Public brand palette
-The home and sign-in surfaces keep the original OKLCH brand: **Brand Ground** (oklch(0.982 0.006 255)) and **Brand Ink** (oklch(0.19 0.025 255)), **Brand Blue** (oklch(0.58 0.19 252)) for the gradient brand-action button, and **Brand Rose**, **Violet**, **Mint**, **Cyan** and **Coral** for the wordmark gradient (`text-brand-gradient`), soft radial backdrops (`bg-auth-soft`, `bg-app-gradient`) and celebratory moments. These tokens are canonical in OKLCH and have dark variants under `.dark`.
+The home and sign-in surfaces keep the original OKLCH brand: **Brand Ground** (oklch(0.982 0.006 255)) and **Brand Ink** (oklch(0.19 0.025 255)), **Brand Blue** (oklch(0.53 0.18 252), the `--primary` of public surfaces: white text and blue links reach at least 4.5:1) for links and the gradient brand-action button, and **Brand Rose**, **Violet**, **Mint**, **Cyan** and **Coral** for the wordmark gradient (`text-brand-gradient`), soft radial backdrops (`bg-auth-soft`, `bg-app-gradient`) and celebratory moments. These tokens are canonical in OKLCH and have dark variants under `.dark`.
 
 ### Named Rules
 **The One Blue Rule.** Action Blue means "you can act here" or "this is selected". It never marks a category, decorates a card, or colors a number.
@@ -275,13 +275,13 @@ Gently rounded and consistent. Controls (buttons, inputs, selects, navigation it
 
 ### Buttons
 Quiet, compact and unmistakable.
-- **Shape:** 8px radius; 40px tall (36px small, 40px square icon buttons); 14px semibold label with optional 16px icon.
+- **Shape:** 8px radius; 40px tall from 1024px (36px small, 40px square icon buttons) and 44px below 1024px, phones and tablets alike; 14px semibold label with optional 16px icon.
 - **Primary:** Action Blue fill, white label, micro-lift shadow; hover deepens to #1d43b3. One primary per view.
 - **Secondary:** white with a Hairline edge and Ink label; hover Hover Wash.
 - **Ghost:** no fill, Ink Tertiary icon or label; hover Muted Fill and Ink.
 - **Danger:** white with a rose edge and Alarm Rose label; hover rose wash.
 - **Focus / Disabled:** 2px Focus Blue outline offset 2px; disabled at 50% opacity without pointer events.
-- **Brand action (public surfaces only):** the 44px vertical blue gradient button (`brand-action`, 12px radius) with a hairline stroke, a lift that grows on hover and a 4px focus halo.
+- **Brand action (public surfaces only):** the 44px vertical blue gradient button (`brand-action`, 12px radius) with a hairline stroke, a lift that grows on hover and a 4px focus halo. The ramp runs oklch(0.54 0.15 249) → oklch(0.49 0.14 250) and only darkens on hover and press, so white text stays at or above 4.5:1 at every point of the gradient (measured over the rendered pixels).
 
 ### Status badges and category pills
 - **Payment badge:** 28px pill with a 6px dot and a word: Pagado (green), Pendiente (white with hairline), Vencido (rose). The badge is the toggle; its accessible name states the current state and the action.
@@ -298,7 +298,7 @@ Quiet, compact and unmistakable.
 - **KPI strip:** one card divided into cells by 1px Soft Hairline gaps; Disponible carries the cushion meter, a 6px bar in Paid Green.
 
 ### Inputs / Fields
-- **Style:** 40px, 8px radius, 1px Hairline stroke, white fill, 14px value; money inputs carry a muted "$" or "−$" prefix and tabular digits.
+- **Style:** 40px from 1024px and 44px below, 8px radius, 1px Hairline stroke, white fill, 14px value; money inputs carry a muted "$" or "−$" prefix and tabular digits, take whole pesos and explain a rejected format under the field.
 - **Focus:** stroke turns Focus Blue with a 3px Focus Halo.
 - **Inline cells:** amounts in the Gastos table are transparent until hover (hairline) or focus (white with halo); Enter moves to the next amount.
 - **Segmented control:** Muted Fill track with 3px padding; the selected option is white with a micro-lift.
@@ -326,7 +326,7 @@ Day cells at least 124px tall on desktop with payment chips in category washes; 
 - **Do** pair every status color with a word and a dot or bar (Pagado, Pendiente, Vencido, Vas bien, Excedido).
 - **Do** set every amount in tabular numerals with Colombian grouping and no decimals.
 - **Do** keep category hues inside pills, dots, bars and calendar chips.
-- **Do** keep controls at 8px radius and cards at 11.2px, with 40px controls and 44px touch targets on phones.
+- **Do** keep controls at 8px radius and cards at 11.2px, with 40px controls from 1024px and 44px touch targets below 1024px (project policy, stricter than the WCAG 2.2 AA minimum).
 - **Do** keep brand gradients, radial backdrops and the gradient brand-action button on public surfaces only.
 
 ### Don't:

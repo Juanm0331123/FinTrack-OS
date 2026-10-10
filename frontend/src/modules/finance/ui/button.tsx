@@ -13,10 +13,10 @@ export const ftButtonVariants = cva(
         },
         variants: {
             size: {
-                icon: 'size-11 sm:size-10',
-                'icon-sm': 'size-11 sm:size-9',
-                md: 'h-11 px-3.5 sm:h-10',
-                sm: 'h-11 px-3 text-[13px] sm:h-9',
+                icon: 'size-11 lg:size-10',
+                'icon-sm': 'size-11 lg:size-9',
+                md: 'h-11 px-3.5 lg:h-10',
+                sm: 'h-11 px-3 text-[13px] lg:h-9',
             },
             variant: {
                 danger: 'border border-ft-neg-border bg-white text-ft-neg hover:bg-ft-neg-soft',

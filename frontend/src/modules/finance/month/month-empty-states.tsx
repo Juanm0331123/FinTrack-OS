@@ -31,7 +31,7 @@ function startMonthOptions(currentYearMonth: string, selected: string) {
         shiftYearMonth(currentYearMonth, index - MONTHS_BACK),
     )
 
-    return options.includes(selected) ? options : [...options, selected].toSorted()
+    return options.includes(selected) ? options : [...options, selected].sort()
 }
 
 export function CreateMonthState({ yearMonth }: { yearMonth: string }) {
@@ -188,7 +188,7 @@ export function FirstRunSetup({ yearMonth }: { yearMonth: string }) {
                     htmlFor="setup-benefits"
                     hint="Salud y pensión que te descuentan del salario. En Colombia suele ser 8%."
                 >
-                    <PercentInput id="setup-benefits" value={benefitsRate} onValueChange={setBenefitsRate} />
+                    <PercentInput id="setup-benefits" scale={4} value={benefitsRate} onValueChange={setBenefitsRate} />
                 </Field>
                 <div>
                     <p className="mb-1.5 text-[13px] font-medium text-ft-ink-2">Tus cuentas</p>

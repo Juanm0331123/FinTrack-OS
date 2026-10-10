@@ -54,7 +54,8 @@ export function HomePage() {
     return (
         <main className="bg-app-gradient min-h-dvh text-foreground">
             <div className="mx-auto flex min-h-dvh w-full max-w-7xl flex-col px-5 py-5 sm:px-8 lg:px-10">
-                <header className="flex items-center justify-between gap-4 rounded-xl bg-card/80 px-4 py-3 ring-1 ring-border backdrop-blur">
+                {/* En móvil las acciones bajan a su propia fila: sin scroll horizontal ni CTA recortado. */}
+                <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 rounded-xl bg-card/80 px-4 py-3 ring-1 ring-border backdrop-blur">
                     <div className="flex items-center gap-3">
                         <BrandLogo
                             width={156}
@@ -71,18 +72,18 @@ export function HomePage() {
                             </p>
                         </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex w-full items-center gap-2 sm:w-auto">
                         <HomeAuthButton
                             destination="register"
                             variant="ghost"
-                            className="h-10 px-3"
+                            className="h-11 flex-1 px-3 sm:flex-none"
                         >
                             Crear cuenta
                         </HomeAuthButton>
                         <HomeAuthButton
                             destination="login"
                             variant="outline"
-                            className="h-10"
+                            className="h-11 flex-1 sm:flex-none"
                             withLoginIcon
                         >
                             Iniciar sesión

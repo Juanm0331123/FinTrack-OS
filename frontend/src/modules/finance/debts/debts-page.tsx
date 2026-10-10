@@ -59,10 +59,19 @@ function StrategyCard({ hasSheet, plan, yearMonth }: { hasSheet: boolean; plan: 
     } else if (first) {
         headline = `Prioridad 1: ${first.debt.name}`
         explanation = `${strategyReason(plan, first)} ${
-            plan.pool > 0
+            plan.extraTotal > 0
+                ? 'Su tope o saldo limita el abono extra. La bolsa se asigna a las siguientes deudas según su prioridad.'
+                : plan.pool > 0
                 ? 'Todas las deudas ya están en su tope o en su saldo; el excedente queda disponible.'
+                : plan.excess > 0
+                  ? 'El excedente se reserva para las cuotas mínimas pendientes; este mes no queda bolsa extra.'
                 : `Este mes no hay excedente sobre el colchón (${formatMoney(plan.cushion)}), así que paga la base de cada deuda.`
         }`
+    }
+
+    if (hasSheet && plan.availableAfterRecommended < plan.cushion && plan.recommendedTotal > plan.currentTotal) {
+        headline = 'Las cuotas mínimas reducen tu colchón'
+        explanation = `Después de los pagos recomendados quedarían ${formatMoney(plan.availableAfterRecommended)}, por debajo de tu colchón (${formatMoney(plan.cushion)}). Revisa las cuotas vigentes y el presupuesto del mes; el plan no puede cubrir ambas condiciones con el disponible actual.`
     }
 
     return (
@@ -189,6 +198,12 @@ function DebtCard({ onOpen, row }: { onOpen: (id: string) => void; row: DebtPlan
                 {row.extra > 0 ? (
                     <p className="text-[12.5px] text-ft-ink-2">
                         Base {formatMoney(row.base)} + extra {formatMoney(row.extra)}
+                    </p>
+                ) : null}
+                {row.capBelowMinimum && row.cap !== null ? (
+                    <p className="mt-1 text-[12.5px] font-medium text-ft-warn">
+                        Tu tope ({formatMoney(row.cap)}) es menor que tu cuota mínima: mantenemos esa cuota hasta tu saldo,
+                        sin abono extra. Revisa el tope o la cuota vigente.
                     </p>
                 ) : null}
                 <span

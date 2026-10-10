@@ -220,7 +220,7 @@ export function SummaryChart({ cushion, rows, year }: { cushion: number; rows: r
                 ) : null}
             </div>
             <ul className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-[12.5px] text-ft-ink-2" aria-label="Leyenda">
-                {(Object.keys(SERIES) as Series[]).toReversed().map((series) => (
+                {(Object.keys(SERIES) as Series[]).reverse().map((series) => (
                     <li key={series} className="flex items-center gap-1.5">
                         <span aria-hidden="true" className="size-2.5 rounded-sm" style={{ background: SERIES[series].color }} />
                         {SERIES[series].label}

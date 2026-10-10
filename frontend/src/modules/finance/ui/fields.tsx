@@ -1,12 +1,12 @@
 'use client'
 
-import { useState, type ComponentProps, type KeyboardEvent, type ReactNode } from 'react'
+import { useId, useState, type ChangeEvent, type ComponentProps, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 
 import { cn } from '@/shared/lib/utils'
-import { formatAmount, parseAmountInput, parseDecimalInput, toPercentInput } from '../lib/format'
+import { formatAmount, parseAmountInput, percentInputToFraction, toPercentInput } from '../lib/format'
 
 export const inputClassName =
-    'h-11 w-full min-w-0 rounded-lg border border-ft-line bg-white px-3 text-sm text-ft-ink outline-none transition-[border-color,box-shadow] duration-150 focus:border-ft-focus focus:ring-[3px] focus:ring-ft-focus-soft disabled:bg-ft-hover disabled:text-ft-ink-3 sm:h-10'
+    'h-11 w-full min-w-0 rounded-lg border border-ft-line bg-white px-3 text-sm text-ft-ink outline-none transition-[border-color,box-shadow] duration-150 focus:border-ft-focus focus:ring-[3px] focus:ring-ft-focus-soft disabled:bg-ft-hover disabled:text-ft-ink-3 lg:h-10'
 
 export const selectClassName = cn(inputClassName, 'cursor-pointer appearance-none bg-[length:16px] bg-[right_10px_center] bg-no-repeat pr-9')
 
@@ -39,6 +39,59 @@ export function Field({
     )
 }
 
+// Borrador de un monto mientras se edita: el texto escrito se conserva tal cual (sin reformatear a
+// cada tecla) y solo un valor válido llega al libro. Un formato rechazado deja el último valor
+// válido y muestra el motivo asociado al campo. La validez nativa impide que un formulario
+// envíe ese valor anterior mientras el texto visible sea inválido.
+export function useAmountDraft(value: number | null, onValueChange: (value: number | null) => void) {
+    const [draft, setDraft] = useState<string | null>(null)
+    const [error, setError] = useState<string | null>(null)
+
+    return {
+        error,
+        inputProps: {
+            'aria-invalid': error ? true : undefined,
+            onBlur: () => {
+                if (!error) {
+                    setDraft(null)
+                }
+            },
+            onChange: (event: ChangeEvent<HTMLInputElement>) => {
+                const parsed = parseAmountInput(event.target.value)
+
+                event.currentTarget.setCustomValidity(parsed.ok ? '' : parsed.error)
+                setDraft(event.target.value)
+
+                if (parsed.ok) {
+                    setError(null)
+                    onValueChange(parsed.value)
+                } else {
+                    setError(parsed.error)
+                }
+            },
+            value: draft ?? (value === null ? '' : formatAmount(value)),
+        },
+    }
+}
+
+// Toda la caja del campo (44 px, con prefijo y relleno) enfoca su input, no solo el texto.
+function focusInnerInput(event: MouseEvent<HTMLDivElement>) {
+    const input = event.currentTarget.querySelector('input')
+
+    if (input && event.target !== input) {
+        event.preventDefault()
+        input.focus()
+    }
+}
+
+export function FieldError({ id, message }: { id: string; message: string | null }) {
+    return (
+        <p id={id} aria-live="polite" className={cn('text-[12.5px] font-medium text-ft-neg', message ? 'mt-1.5' : 'sr-only')}>
+            {message}
+        </p>
+    )
+}
+
 type MoneyInputProps = Omit<ComponentProps<'input'>, 'onChange' | 'value' | 'prefix'> & {
     onValueChange: (value: number | null) => void
     prefix?: string
@@ -54,45 +107,60 @@ export function MoneyInput({
     wrapperClassName,
     ...props
 }: MoneyInputProps) {
+    const errorId = useId()
+    const { error, inputProps } = useAmountDraft(value, onValueChange)
+    const describedBy = [props['aria-describedby'], error ? errorId : null].filter(Boolean).join(' ') || undefined
+
     return (
-        <div
-            className={cn(
-                'flex h-11 items-center gap-1.5 rounded-lg border border-ft-line bg-white px-3 sm:h-10 transition-[border-color,box-shadow] duration-150 focus-within:border-ft-focus focus-within:ring-[3px] focus-within:ring-ft-focus-soft',
-                wrapperClassName,
-            )}
-        >
-            <span aria-hidden="true" className="text-[13px] text-ft-ink-3">
-                {prefix}
-            </span>
-            <input
-                {...props}
-                type="text"
-                inputMode="numeric"
-                autoComplete="off"
+        <>
+            <div
+                onMouseDown={focusInnerInput}
                 className={cn(
-                    'h-full min-w-0 flex-1 bg-transparent text-sm font-medium text-ft-ink outline-none tabular',
-                    className,
+                    'flex h-11 items-center gap-1.5 rounded-lg border bg-white px-3 transition-[border-color,box-shadow] duration-150 focus-within:border-ft-focus focus-within:ring-[3px] focus-within:ring-ft-focus-soft lg:h-10',
+                    error ? 'border-ft-neg' : 'border-ft-line',
+                    wrapperClassName,
                 )}
-                value={value === null ? '' : formatAmount(value)}
-                onChange={(event) => onValueChange(parseAmountInput(event.target.value))}
-            />
-        </div>
+            >
+                <span aria-hidden="true" className="text-[13px] text-ft-ink-3">
+                    {prefix}
+                </span>
+                <input
+                    {...props}
+                    {...inputProps}
+                    aria-describedby={describedBy}
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    className={cn(
+                        'h-full min-w-0 flex-1 bg-transparent text-sm font-medium text-ft-ink outline-none tabular',
+                        className,
+                    )}
+                />
+            </div>
+            <FieldError id={errorId} message={error} />
+        </>
     )
 }
 
+// scale: decimales de la fracción que guarda el API (tasas 6, prestaciones 4).
 export function PercentInput({
     id,
     onValueChange,
+    scale = 6,
     value,
     ...props
 }: Omit<ComponentProps<'input'>, 'onChange' | 'value'> & {
     onValueChange: (fraction: number) => void
+    scale?: number
     value: number
 }) {
     const [draft, setDraft] = useState(() => toPercentInput(value))
 
     return (
-        <div className="flex h-11 items-center gap-1.5 rounded-lg border border-ft-line bg-white px-3 sm:h-10 transition-[border-color,box-shadow] duration-150 focus-within:border-ft-focus focus-within:ring-[3px] focus-within:ring-ft-focus-soft">
+        <div
+            onMouseDown={focusInnerInput}
+            className="flex h-11 items-center gap-1.5 rounded-lg border border-ft-line bg-white px-3 transition-[border-color,box-shadow] duration-150 focus-within:border-ft-focus focus-within:ring-[3px] focus-within:ring-ft-focus-soft lg:h-10"
+        >
             <input
                 {...props}
                 id={id}
@@ -104,10 +172,10 @@ export function PercentInput({
                 onChange={(event) => {
                     setDraft(event.target.value)
 
-                    const parsed = parseDecimalInput(event.target.value)
+                    const fraction = percentInputToFraction(event.target.value, scale)
 
-                    if (parsed !== null && parsed <= 100) {
-                        onValueChange(Math.round(parsed * 10_000) / 1_000_000)
+                    if (fraction !== null) {
+                        onValueChange(fraction)
                     }
                 }}
                 onBlur={() => setDraft(toPercentInput(value))}
@@ -150,7 +218,7 @@ export function Segmented<T extends string>({
                     type="button"
                     aria-pressed={option.value === value}
                     onClick={() => onChange(option.value)}
-                    className="h-[38px] flex-none cursor-pointer rounded-[7px] px-2.5 sm:h-8 text-[13px] font-medium text-ft-ink-2 transition-colors duration-150 outline-none hover:text-ft-ink focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ft-focus aria-pressed:bg-white aria-pressed:text-ft-ink aria-pressed:shadow-[0_1px_2px_rgba(16,24,40,0.1)]"
+                    className="h-11 min-w-11 flex-none cursor-pointer rounded-[7px] px-2.5 lg:h-8 lg:min-w-0 text-[13px] font-medium text-ft-ink-2 transition-colors duration-150 outline-none hover:text-ft-ink focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ft-focus aria-pressed:bg-white aria-pressed:text-ft-ink aria-pressed:shadow-[0_1px_2px_rgba(16,24,40,0.1)]"
                 >
                     {option.label}
                 </button>
@@ -177,7 +245,7 @@ export function Switch({
             aria-checked={checked}
             onClick={() => onCheckedChange(!checked)}
             className={cn(
-                'group inline-flex min-h-11 cursor-pointer sm:min-h-10 items-center gap-2.5 rounded-lg text-left text-sm font-medium text-ft-ink outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ft-focus',
+                'group inline-flex min-h-11 cursor-pointer lg:min-h-10 items-center gap-2.5 rounded-lg text-left text-sm font-medium text-ft-ink outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ft-focus',
                 className,
             )}
         >

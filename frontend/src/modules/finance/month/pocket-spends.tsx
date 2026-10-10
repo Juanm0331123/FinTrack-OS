@@ -52,7 +52,7 @@ function SpendForm({
     const submit = (event: FormEvent<HTMLFormElement>) => {
         event.preventDefault()
 
-        if (!canSave || draft.amount === null) {
+        if (!event.currentTarget.reportValidity() || !canSave || draft.amount === null) {
             return
         }
 
@@ -134,7 +134,7 @@ export function PocketSpends({ entry, yearMonth }: { entry: MonthEntry; yearMont
     const pocket = useMemo(() => pocketProgress(entry), [entry])
     const timing = useMemo(() => monthTiming(yearMonth, today), [today, yearMonth])
     const range = useMemo(() => monthDateRange(yearMonth), [yearMonth])
-    const newestFirst = useMemo(() => entry.spends.toReversed(), [entry.spends])
+    const newestFirst = useMemo(() => [...entry.spends].reverse(), [entry.spends])
 
     return (
         <div className="flex flex-col gap-5">

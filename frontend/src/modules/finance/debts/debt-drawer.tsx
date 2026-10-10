@@ -3,13 +3,15 @@
 import { Trash2 } from 'lucide-react'
 import { useState } from 'react'
 
-import { myMinimumOf } from '../domain/debt-plan'
+import { myMinimumOf, sharedAmountExceedsBalance } from '../domain/debt-plan'
 import type { Debt } from '../domain/types'
+import { roundHalfUp } from '../domain/money'
 import { formatMoney, parseDecimalInput } from '../lib/format'
+import { createId } from '../store/create-id'
 import { useWorkbookActions, useWorkbookState } from '../store/workbook-context'
 import { FtButton } from '../ui/button'
 import { ConfirmDialog, Drawer } from '../ui/drawer'
-import { Field, inputClassName, MoneyInput, PercentInput, SELECT_CHEVRON_STYLE, Segmented, selectClassName, Switch } from '../ui/fields'
+import { Field, FieldError, inputClassName, MoneyInput, PercentInput, SELECT_CHEVRON_STYLE, Segmented, selectClassName, Switch } from '../ui/fields'
 
 export type DebtEditorTarget = { debtId: string; mode: 'edit' } | { mode: 'new' }
 
@@ -36,11 +38,19 @@ const EMPTY_DEBT: DebtDraft = {
 
 const DAY_OPTIONS = Array.from({ length: 31 }, (_, index) => index + 1)
 
+const SHARED_ERROR_ID = 'debt-shared-error'
+
+function sharedErrorOf(value: DebtDraft) {
+    return sharedAmountExceedsBalance(value)
+        ? `La parte de la otra persona (${formatMoney(value.sharedAmount)}) no puede superar el saldo total (${formatMoney(value.totalBalance)}).`
+        : null
+}
+
 function SharedPercentInput({ onValueChange, value }: { onValueChange: (value: number) => void; value: number }) {
     const [draft, setDraft] = useState(() => String(value).replace('.', ','))
 
     return (
-        <div className="flex h-11 items-center gap-1.5 rounded-lg border border-ft-line bg-white px-3 transition-[border-color,box-shadow] sm:h-10 duration-150 focus-within:border-ft-focus focus-within:ring-[3px] focus-within:ring-ft-focus-soft">
+        <div className="flex h-11 items-center gap-1.5 rounded-lg border border-ft-line bg-white px-3 transition-[border-color,box-shadow] lg:h-10 duration-150 focus-within:border-ft-focus focus-within:ring-[3px] focus-within:ring-ft-focus-soft">
             <input
                 id="debt-shared-percent"
                 type="text"
@@ -53,8 +63,9 @@ function SharedPercentInput({ onValueChange, value }: { onValueChange: (value: n
 
                     const parsed = parseDecimalInput(event.target.value)
 
+                    // El API guarda el porcentaje compartido con 2 decimales.
                     if (parsed !== null && parsed <= 100) {
-                        onValueChange(parsed)
+                        onValueChange(roundHalfUp(parsed, 2))
                     }
                 }}
             />
@@ -70,6 +81,7 @@ function DebtFields({ onChange, value }: { onChange: (patch: Partial<DebtDraft>)
     const sharedMode = value.sharedPercent !== null ? 'PERCENT' : 'AMOUNT'
     const manualMinimum = value.myMinimumOverride !== null
     const autoMinimum = myMinimumOf({ ...value, id: '', myMinimumOverride: null, sortOrder: 0 })
+    const sharedError = sharedErrorOf(value)
 
     return (
         <div className="flex flex-col gap-4">
@@ -128,6 +140,7 @@ function DebtFields({ onChange, value }: { onChange: (patch: Partial<DebtDraft>)
             <Field label="Saldo total" htmlFor="debt-balance" hint="Según el último extracto.">
                 <MoneyInput
                     id="debt-balance"
+                    aria-describedby={sharedError ? SHARED_ERROR_ID : undefined}
                     value={value.totalBalance}
                     onValueChange={(totalBalance) => onChange({ totalBalance: totalBalance ?? 0 })}
                 />
@@ -160,6 +173,8 @@ function DebtFields({ onChange, value }: { onChange: (patch: Partial<DebtDraft>)
                         <Field label="Valor de la otra persona" htmlFor="debt-shared-amount">
                             <MoneyInput
                                 id="debt-shared-amount"
+                                aria-invalid={sharedError ? true : undefined}
+                                aria-describedby={sharedError ? SHARED_ERROR_ID : undefined}
                                 value={value.sharedAmount}
                                 onValueChange={(sharedAmount) => onChange({ sharedAmount: sharedAmount ?? 0 })}
                             />
@@ -176,6 +191,7 @@ function DebtFields({ onChange, value }: { onChange: (patch: Partial<DebtDraft>)
                         />
                     </Field>
                 </div>
+                <FieldError id={SHARED_ERROR_ID} message={sharedError} />
             </div>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field label="Tasa M.V." htmlFor="debt-rate" hint="Interés mes vencido.">
@@ -188,7 +204,7 @@ function DebtFields({ onChange, value }: { onChange: (patch: Partial<DebtDraft>)
                         onValueChange={(insuranceRate) => onChange({ insuranceRate })}
                     />
                 </Field>
-                <Field label="Cuota mínima total" htmlFor="debt-minimum">
+                <Field label="Cuota mínima total" htmlFor="debt-minimum" hint="Ingresa la cuota vigente del extracto y actualízala cuando cambie.">
                     <MoneyInput
                         id="debt-minimum"
                         value={value.minimumPayment}
@@ -226,7 +242,11 @@ function DebtFields({ onChange, value }: { onChange: (patch: Partial<DebtDraft>)
                     </p>
                 )}
             </div>
-            <Field label="Mi tope al mes" htmlFor="debt-cap" hint="Opcional. El plan nunca recomienda pagar más que esto.">
+            <Field
+                label="Mi tope al mes"
+                htmlFor="debt-cap"
+                hint="Vacío: sin tope. 0: sin abono extra. Un tope menor que la mínima conserva esa cuota, sin superar tu saldo."
+            >
                 <MoneyInput
                     id="debt-cap"
                     placeholder="Sin tope"
@@ -256,6 +276,9 @@ function DebtFields({ onChange, value }: { onChange: (patch: Partial<DebtDraft>)
 function EditDebtContent({ debt, onClose }: { debt: Debt; onClose: () => void }) {
     const actions = useWorkbookActions()
     const [confirming, setConfirming] = useState(false)
+    // Cambios que dejarían la parte compartida por encima del saldo: se muestran con su error y no
+    // se envían hasta que la combinación vuelva a ser válida.
+    const [held, setHeld] = useState<Partial<DebtDraft>>({})
     const apply = (patch: Partial<DebtDraft>) => {
         if (patch.name !== undefined) {
             const name = patch.name.trim()
@@ -264,17 +287,24 @@ function EditDebtContent({ debt, onClose }: { debt: Debt; onClose: () => void })
                 return
             }
 
-            actions.updateDebt(debt.id, { ...patch, name })
+            patch = { ...patch, name }
+        }
+
+        const pending = { ...held, ...patch }
+
+        if (sharedAmountExceedsBalance({ ...debt, ...pending })) {
+            setHeld(pending)
 
             return
         }
 
-        actions.updateDebt(debt.id, patch)
+        setHeld({})
+        actions.updateDebt(debt.id, pending)
     }
 
     return (
         <>
-            <DebtFields key={debt.id} value={debt} onChange={apply} />
+            <DebtFields key={debt.id} value={{ ...debt, ...held }} onChange={apply} />
             <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-ft-line pt-4">
                 <FtButton variant="danger" onClick={() => setConfirming(true)}>
                     <Trash2 aria-hidden="true" />
@@ -303,16 +333,18 @@ function EditDebtContent({ debt, onClose }: { debt: Debt; onClose: () => void })
 function NewDebtContent({ onClose }: { onClose: () => void }) {
     const actions = useWorkbookActions()
     const [draft, setDraft] = useState<DebtDraft>(EMPTY_DEBT)
+    // Una deuda nueva = una acción: los reintentos de este formulario conservan su identidad.
+    const [clientId] = useState(createId)
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState<string | null>(null)
-    const canSave = draft.name.trim().length > 0 && !busy
+    const canSave = draft.name.trim().length > 0 && !busy && !sharedAmountExceedsBalance(draft)
 
     return (
         <form
             onSubmit={async (event) => {
                 event.preventDefault()
 
-                if (!canSave) {
+                if (!event.currentTarget.reportValidity() || !canSave) {
                     return
                 }
 
@@ -320,7 +352,7 @@ function NewDebtContent({ onClose }: { onClose: () => void }) {
                 setError(null)
 
                 try {
-                    await actions.createDebt({ ...draft, name: draft.name.trim() })
+                    await actions.createDebt({ ...draft, name: draft.name.trim() }, clientId)
                     onClose()
                 } catch (createError) {
                     setError(createError instanceof Error ? createError.message : 'No pudimos guardar la deuda.')
