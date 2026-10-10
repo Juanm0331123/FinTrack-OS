@@ -174,3 +174,64 @@ describe('request context at response time', () => {
         }
     })
 })
+
+describe('fallback receipts do not accumulate after an outage (R2OPS-01)', () => {
+    function clockedSetup() {
+        let now = 1_000_000
+        const primary = flakyPrimary()
+        const store = new ResilientRateLimitStore(primary.store, { now: () => now })
+
+        store.init({ windowMs: 60_000 } as Options)
+
+        return { advance: (ms: number) => (now += ms), primary, store }
+    }
+
+    it('keeps no global receipt for requests that never undo their increment', async () => {
+        const { advance, primary, store } = clockedSetup()
+
+        primary.setDown(true)
+
+        for (let index = 0; index < 1000; index += 1) {
+            await runWithRequestContext({ requestId: `fallida-${index}` }, () => store.increment(`ip-${index}`))
+        }
+
+        advance(100 * 60_000)
+        primary.setDown(false)
+
+        for (let index = 0; index < 1000; index += 1) {
+            await store.increment(`otra-${index}`)
+        }
+
+        assert.equal(store.fallbackReceiptCount(), 0)
+        store.shutdown()
+    })
+
+    it('drops expired receipts without context once their window passes, whatever keys arrive later', async () => {
+        const { advance, primary, store } = clockedSetup()
+
+        primary.setDown(true)
+
+        for (let index = 0; index < 1000; index += 1) {
+            await store.increment(`sin-contexto-${index}`)
+        }
+
+        assert.equal(store.fallbackReceiptCount(), 1000)
+
+        advance(100 * 60_000)
+        primary.setDown(false)
+        await store.increment('cualquier-otra')
+
+        assert.equal(store.fallbackReceiptCount(), 0)
+        store.shutdown()
+    })
+
+    it('clears receipts on shutdown', async () => {
+        const { primary, store } = clockedSetup()
+
+        primary.setDown(true)
+        await store.increment('ip')
+        store.shutdown()
+
+        assert.equal(store.fallbackReceiptCount(), 0)
+    })
+})

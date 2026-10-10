@@ -13,12 +13,14 @@ import { getRequestContext } from './request-context.ts'
 // Cada incremento recuerda en qué almacén quedó, y su decremento (skipSuccessfulRequests) se
 // aplica en ese mismo almacén aunque el primario se haya recuperado o caído entretanto. La
 // procedencia se guarda en el contexto de la petición (AsyncLocalStorage, vigente también en el
-// evento finish); sin contexto, un decremento se aplica al respaldo si este tiene incrementos
-// pendientes de la ventana actual.
+// evento finish) mediante un WeakMap: se libera con la petición aunque nunca se decremente. Solo
+// los incrementos sin contexto dejan un recibo global, que vence con la ventana, se barre
+// periódicamente sin depender de que vuelva a llegar la misma clave y tiene un tope de claves.
 
 type Source = 'fallback' | 'primary'
 
 const CLEANUP_EVERY_INCREMENTS = 500
+const MAX_FALLBACK_RECEIPT_KEYS = 10_000
 const FAILURE_LOG_INTERVAL_MS = 60_000
 
 let incrementsSinceCleanup = 0
@@ -96,9 +98,13 @@ export class ResilientRateLimitStore implements Store {
     private readonly sourcesByRequest = new WeakMap<object, Map<string, Source[]>>()
     private readonly fallbackPending = new Map<string, number[]>()
     private windowMs = 60_000
+    private nextReceiptSweepAt = 0
 
-    constructor(primary: Store & { prefix?: string }) {
+    private readonly now: () => number
+
+    constructor(primary: Store & { prefix?: string }, options: { now?: () => number } = {}) {
         this.primary = primary
+        this.now = options.now ?? Date.now
         this.prefix = primary.prefix ?? ''
     }
 
@@ -116,15 +122,49 @@ export class ResilientRateLimitStore implements Store {
 
             sources.set(key, [...(sources.get(key) ?? []), source])
             this.sourcesByRequest.set(context, sources)
+
+            return
         }
 
         if (source === 'fallback') {
-            this.fallbackPending.set(key, [...this.pendingInFallback(key), Date.now() + this.windowMs])
+            this.fallbackPending.delete(key)
+            this.fallbackPending.set(key, [...this.pendingInFallback(key), this.now() + this.windowMs])
+
+            // Tope de memoria: se descartan las claves más antiguas (el decremento sin recibo cae en
+            // el primario, que es el lado más restrictivo).
+            for (const oldest of this.fallbackPending.keys()) {
+                if (this.fallbackPending.size <= MAX_FALLBACK_RECEIPT_KEYS) {
+                    break
+                }
+
+                this.fallbackPending.delete(oldest)
+            }
+        }
+    }
+
+    // Barrido de recibos vencidos, como mucho una vez por ventana, para todas las claves.
+    private sweepExpiredReceipts() {
+        const now = this.now()
+
+        if (now < this.nextReceiptSweepAt) {
+            return
+        }
+
+        this.nextReceiptSweepAt = now + this.windowMs
+
+        for (const [key, receipts] of this.fallbackPending) {
+            const alive = receipts.filter((expiresAt) => expiresAt > now)
+
+            if (alive.length > 0) {
+                this.fallbackPending.set(key, alive)
+            } else {
+                this.fallbackPending.delete(key)
+            }
         }
     }
 
     private pendingInFallback(key: string) {
-        const now = Date.now()
+        const now = this.now()
 
         return (this.fallbackPending.get(key) ?? []).filter((expiresAt) => expiresAt > now)
     }
@@ -167,6 +207,8 @@ export class ResilientRateLimitStore implements Store {
     }
 
     async increment(key: string) {
+        this.sweepExpiredReceipts()
+
         try {
             const result = await this.primary.increment(key)
 
@@ -187,6 +229,8 @@ export class ResilientRateLimitStore implements Store {
     // Si el primario falla al deshacer su propio incremento, no se descuenta del respaldo: eso
     // borraría un intento que sí ocurrió allí. El intento queda contado (más restrictivo).
     async decrement(key: string) {
+        this.sweepExpiredReceipts()
+
         if (this.sourceToUndo(key) === 'fallback') {
             await this.fallback.decrement(key)
             return
@@ -210,7 +254,19 @@ export class ResilientRateLimitStore implements Store {
         }
     }
 
+    // Diagnóstico: recibos de incrementos en el respaldo que aún se conservan en memoria.
+    fallbackReceiptCount() {
+        let count = 0
+
+        for (const receipts of this.fallbackPending.values()) {
+            count += receipts.length
+        }
+
+        return count
+    }
+
     shutdown() {
+        this.fallbackPending.clear()
         this.fallback.shutdown()
     }
 }
