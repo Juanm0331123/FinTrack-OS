@@ -24,7 +24,7 @@ import type {
     WorkbookQuery,
 } from './finance.schemas.ts'
 import type { DecimalLike, WorkbookDto } from './finance.types.ts'
-import { toNullableNumber } from './finance.mappers.ts'
+import { toNullableNumber, toNumber } from './finance.mappers.ts'
 import { buildCopiedEntries, buildCopiedIncome } from './sheet-copy.ts'
 
 // Cuotas funcionales por usuario: acotan el tamaño del libro y el costo de cada lectura.
@@ -70,6 +70,24 @@ function sameValue(stored: unknown, requested: unknown) {
 // Un reintento es equivalente si cada campo enviado coincide con lo guardado.
 function matchesStored(stored: Record<string, unknown>, requested: Record<string, unknown>) {
     return Object.entries(requested).every(([key, value]) => key === 'id' || sameValue(stored[key], value))
+}
+
+type SharedTerms = { sharedAmount: number; sharedPercent: number | null; totalBalance: number }
+
+// Con valor fijo, la parte de la otra persona no puede superar el saldo total (con porcentaje ya
+// está acotada a 100 %). El campo señalado es el que el cambio intentó mover.
+function sharedPortionIssue(terms: SharedTerms, changed: { sharedAmount?: unknown; totalBalance?: unknown }): ValidationIssue | null {
+    if (terms.sharedPercent !== null || terms.sharedAmount <= terms.totalBalance) {
+        return null
+    }
+
+    return changed.totalBalance !== undefined && changed.sharedAmount === undefined
+        ? { field: 'totalBalance', message: 'El saldo total no puede ser menor que la parte de la otra persona.' }
+        : { field: 'sharedAmount', message: 'La parte de la otra persona no puede superar el saldo total.' }
+}
+
+function touchesSharedTerms(input: UpdateDebtInput) {
+    return input.sharedAmount !== undefined || input.sharedPercent !== undefined || input.totalBalance !== undefined
 }
 
 function assertDateInMonth(spentOn: string, yearMonth: string) {
@@ -426,6 +444,15 @@ export class FinanceService {
     }
 
     async createDebt(userId: string, input: CreateDebtInput): Promise<Created<ReturnType<typeof toDebtDto>>> {
+        const sharedIssue = sharedPortionIssue(
+            { sharedAmount: input.sharedAmount ?? 0, sharedPercent: input.sharedPercent ?? null, totalBalance: input.totalBalance ?? 0 },
+            input,
+        )
+
+        if (sharedIssue) {
+            throw new RequestValidationError('Revisa los datos enviados.', [sharedIssue])
+        }
+
         if (input.id) {
             const replay = await this.replayDebt(userId, input)
 
@@ -457,7 +484,29 @@ export class FinanceService {
     async updateDebt(userId: string, id: string, input: UpdateDebtInput) {
         await this.getOwnedDebt(userId, id)
 
-        return toDebtDto(await this.repository.updateDebt(userId, id, input))
+        // Solo los cambios que tocan saldo o parte compartida se validan contra el estado vigente:
+        // editar el nombre de una deuda antigua inconsistente sigue siendo posible.
+        const result = await this.repository.updateDebtChecked(userId, id, input, (current) =>
+            touchesSharedTerms(input)
+                ? sharedPortionIssue(
+                      {
+                          sharedAmount: input.sharedAmount ?? toNumber(current.sharedAmount),
+                          sharedPercent: input.sharedPercent !== undefined ? input.sharedPercent : toNullableNumber(current.sharedPercent),
+                          totalBalance: input.totalBalance ?? toNumber(current.totalBalance),
+                      },
+                      input,
+                  )
+                : null,
+        )
+
+        switch (result.status) {
+            case 'missing':
+                throw new NotFoundError('No encontramos esa deuda.')
+            case 'rejected':
+                throw new RequestValidationError('Revisa los datos enviados.', [result.rejection])
+            case 'updated':
+                return toDebtDto(result.debt)
+        }
     }
 
     async deleteDebt(userId: string, id: string) {

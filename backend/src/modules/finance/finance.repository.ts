@@ -1,7 +1,7 @@
 import { FinanceOperationKind, Prisma } from '@prisma/client'
 import { isForeignKeyViolation, isUniqueViolation } from '../../config/database-errors.ts'
 import { prisma, withTransaction, type TransactionClient } from '../../config/prisma.ts'
-import type { DebtStrategy } from './finance.types.ts'
+import type { DebtStrategy, DecimalLike } from './finance.types.ts'
 import type { CopiedEntry, CopiedIncome, CopyableIncome } from './sheet-copy.ts'
 
 // Solo los campos que expone la API (sin userId ni marcas de tiempo).
@@ -608,8 +608,35 @@ export class FinanceRepository {
         })
     }
 
-    updateDebt(userId: string, id: string, data: Prisma.DebtUncheckedUpdateInput) {
-        return prisma.debt.update({ data, select: debtSelect, where: { id_userId: { id, userId } } })
+    // Lee la deuda vigente bajo el lock financiero del usuario, deja que el llamador valide la
+    // combinación resultante y solo entonces actualiza: dos PATCH parciales simultáneos no pueden
+    // dejar juntos una parte compartida mayor que el saldo.
+    updateDebtChecked<T>(
+        userId: string,
+        id: string,
+        data: Prisma.DebtUncheckedUpdateInput,
+        check: (current: { sharedAmount: DecimalLike; sharedPercent: DecimalLike | null; totalBalance: DecimalLike }) => T | null,
+    ) {
+        return withTransaction(async (transaction) => {
+            await lockUserFinance(transaction, userId)
+
+            const current = await transaction.debt.findUnique({
+                select: { sharedAmount: true, sharedPercent: true, totalBalance: true },
+                where: { id_userId: { id, userId } },
+            })
+
+            if (!current) {
+                return { status: 'missing' as const }
+            }
+
+            const rejection = check(current)
+
+            if (rejection !== null) {
+                return { rejection, status: 'rejected' as const }
+            }
+
+            return { debt: await transaction.debt.update({ data, select: debtSelect, where: { id_userId: { id, userId } } }), status: 'updated' as const }
+        })
     }
 
     deleteDebt(userId: string, id: string) {

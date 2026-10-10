@@ -536,3 +536,40 @@ describe('payload and quotas (DATA-02)', () => {
         }
     })
 })
+
+// QA frontend F-DATA-12: con valor fijo, la parte compartida no puede superar el saldo total. Se
+// valida contra el estado vigente: un PATCH parcial que baja el saldo o sube la parte se rechaza.
+describe('shared portion within the total balance (frontend F-DATA-12)', () => {
+    it('rejects creations and partial edits that leave the shared amount above the balance', async () => {
+        const session = await owner()
+        const http = as(session)
+        const tooShared = await http.post('/debts', { name: 'Compartida de más', sharedAmount: 200, totalBalance: 100 })
+
+        assert.equal(tooShared.status, 422)
+        assert.equal(tooShared.body.errors[0].field, 'sharedAmount')
+
+        const created = await http.post('/debts', { name: 'Compartida', sharedAmount: 80, totalBalance: 100 })
+
+        assert.equal(created.status, 201)
+
+        const id = created.body.data.id
+        const lowerBalance = await http.patch(`/debts/${id}`, { totalBalance: 50 })
+
+        assert.equal(lowerBalance.status, 422)
+        assert.equal(lowerBalance.body.errors[0].field, 'totalBalance')
+
+        const raiseShared = await http.patch(`/debts/${id}`, { sharedAmount: 150 })
+
+        assert.equal(raiseShared.status, 422)
+        assert.equal(raiseShared.body.errors[0].field, 'sharedAmount')
+
+        const stored = (await http.get('/workbook')).body.data.debts.find((debt: { id: string }) => debt.id === id)
+
+        assert.equal(stored.totalBalance, 100)
+        assert.equal(stored.sharedAmount, 80)
+
+        // Ambos cambios juntos, o pasar a porcentaje, dejan una combinación válida.
+        assert.equal((await http.patch(`/debts/${id}`, { sharedAmount: 40, totalBalance: 50 })).status, 200)
+        assert.equal((await http.patch(`/debts/${id}`, { sharedPercent: 50, totalBalance: 20 })).status, 200)
+    })
+})
