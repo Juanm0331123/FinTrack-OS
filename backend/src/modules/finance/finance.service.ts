@@ -123,7 +123,6 @@ export class FinanceService {
 
             switch (result.status) {
                 case 'created':
-                case 'revived':
                     return { replayed: false, value: toAccountDto(result.account) }
                 case 'id-taken':
                     return (await this.replayAccount(userId, input)) ?? throwIdempotencyConflict()

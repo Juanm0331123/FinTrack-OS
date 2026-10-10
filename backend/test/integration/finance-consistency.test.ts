@@ -561,3 +561,66 @@ function barrierPair() {
 
     return { reached: () => reached(), release: () => release(), resume, waiting }
 }
+
+describe('archived accounts are restored by their original id (RDATA-REVIVE-REPLAY-R3)', () => {
+    it('rejects a new id for an existing name and repeats an explicit restoration without losing history', async () => {
+        const session = await owner()
+        const other = await owner()
+        const id = randomUUID()
+
+        assert.equal((await as(session).post('/accounts', { id, name: 'Ahorros' })).status, 201)
+        assert.equal((await as(session).post('/sheets', { yearMonth: '2028-01' })).status, 201)
+
+        const entry = await as(session).post('/sheets/2028-01/entries', { accountId: id, concept: 'Histórico', amount: 500 })
+
+        assert.equal(entry.status, 201)
+        assert.equal((await as(session).patch(`/accounts/${id}`, { archived: true })).status, 200)
+
+        const createBody = { id: randomUUID(), name: '  AHORROS  ' }
+
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+            const rejected = await as(session).post('/accounts', createBody)
+
+            assert.equal(rejected.status, 409)
+            assert.equal(rejected.body.code, 'ACCOUNT_NAME_TAKEN')
+        }
+
+        const beforeRestore = await as(session).get('/workbook')
+
+        assert.equal(beforeRestore.status, 200)
+        assert.equal(beforeRestore.body.data.accounts[0].archived, true)
+
+        // Archived accounts already count against the limit; restoring adds no account.
+        await prisma.moneyAccount.createMany({
+            data: Array.from({ length: FINANCE_LIMITS.accounts - 1 }, (_, index) => ({
+                name: `Otra cuenta ${index}`,
+                nameKey: `otra cuenta ${index}`,
+                userId: session.userId,
+            })),
+        })
+
+        const forbidden = await as(other).patch(`/accounts/${id}`, { archived: false })
+
+        assert.equal(forbidden.status, 404)
+
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+            const restored = await as(session).patch(`/accounts/${id}`, { archived: false })
+
+            assert.equal(restored.status, 200)
+            assert.equal(restored.body.data.id, id)
+            assert.equal(restored.body.data.archived, false)
+        }
+
+        const workbook = await as(session).get('/workbook')
+
+        assert.equal(workbook.status, 200)
+        assert.equal(workbook.body.data.accounts.length, FINANCE_LIMITS.accounts)
+        assert.equal(workbook.body.data.sheets[0].entries[0].id, entry.body.data.id)
+        assert.equal(workbook.body.data.sheets[0].entries[0].accountId, id)
+
+        const activeName = await as(session).post('/accounts', createBody)
+
+        assert.equal(activeName.status, 409)
+        assert.equal(activeName.body.code, 'ACCOUNT_NAME_TAKEN')
+    })
+})

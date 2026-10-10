@@ -52,6 +52,10 @@ function cleanNote(note: string | null | undefined) {
     return trimmed ? trimmed : null
 }
 
+function accountNameKey(name: string) {
+    return name.trim().normalize('NFC').toLowerCase()
+}
+
 // Un fallo sin respuesta definitiva (red, timeout, 5xx, 429) puede haberse aplicado en el
 // servidor: el reintento debe usar el mismo operationId. Un 4xx definitivo cierra la operación.
 function isRetryableFailure(error: unknown) {
@@ -243,7 +247,14 @@ export function createWorkbookStore(api: FinanceApi) {
         },
 
         async createAccount(name: string) {
-            const account = await api.createAccount({ id: createId(), name: name.trim() })
+            const archived = state.workbook?.accounts.find(
+                (account) => account.archived && accountNameKey(account.name) === accountNameKey(name),
+            )
+            // Restaurar conserva el id y los movimientos. Si se pierde la respuesta, el estado
+            // local sigue archivado y el siguiente intento repite el mismo PATCH idempotente.
+            const account = archived
+                ? await api.updateAccount(archived.id, { archived: false })
+                : await api.createAccount({ id: createId(), name: name.trim() })
 
             updateWorkbook((workbook) => ({
                 ...workbook,

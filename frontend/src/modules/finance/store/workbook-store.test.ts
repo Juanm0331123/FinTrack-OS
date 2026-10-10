@@ -49,6 +49,48 @@ describe('createWorkbookStore', () => {
         expect(store.getState().status).toBe('ready')
     })
 
+    it('restores an archived account by its original id and retries a lost response with the same patch', async () => {
+        const original = { archived: true, id: 'archived-account', name: 'Ahorros café', sortOrder: 3 }
+        let serverArchived = true
+        let attempts = 0
+        const api = fakeApi({
+            createAccount: vi.fn(async () => {
+                throw new FinanceApiError(409, 'Ya tienes una cuenta con ese nombre.', 'ACCOUNT_NAME_TAKEN')
+            }),
+            getWorkbook: vi.fn(async () => ({ ...workbook(), accounts: [original] })),
+            updateAccount: vi.fn(async () => {
+                serverArchived = false
+                attempts += 1
+
+                if (attempts === 1) {
+                    throw new FinanceApiError(0, 'Respuesta perdida')
+                }
+
+                return { ...original, archived: false }
+            }),
+        })
+        const store = createWorkbookStore(api)
+
+        await store.actions.load()
+        await expect(store.actions.createAccount('  AHORROS CAFE\u0301  ')).rejects.toThrow('Respuesta perdida')
+
+        expect(serverArchived).toBe(false)
+        expect(store.getState().workbook!.accounts[0].archived).toBe(true)
+
+        const restored = await store.actions.createAccount('  AHORROS CAFE\u0301  ')
+
+        expect(restored).toEqual({ ...original, archived: false })
+        expect(api.createAccount).not.toHaveBeenCalled()
+        expect(api.updateAccount).toHaveBeenCalledTimes(2)
+        expect(api.updateAccount).toHaveBeenNthCalledWith(1, original.id, { archived: false })
+        expect(api.updateAccount).toHaveBeenNthCalledWith(2, original.id, { archived: false })
+        expect(store.getState().workbook!.accounts).toEqual([{ ...original, archived: false }])
+
+        // Once active, a fresh create request keeps the duplicate-name contract.
+        await expect(store.actions.createAccount('Ahorros café')).rejects.toThrow('Ya tienes una cuenta con ese nombre.')
+        expect(api.createAccount).toHaveBeenCalledTimes(1)
+    })
+
     it('updates an entry optimistically and saves one coalesced patch', async () => {
         const api = fakeApi()
         const store = createWorkbookStore(api)

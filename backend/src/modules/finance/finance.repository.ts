@@ -181,18 +181,14 @@ export class FinanceRepository {
             }
 
             const sameName = await transaction.moneyAccount.findUnique({
-                select: { archivedAt: true, id: true },
+                select: { id: true },
                 where: { userId_nameKey: { nameKey: accountNameKey(data.name), userId: data.userId } },
             })
 
             if (sameName) {
-                if (!sameName.archivedAt) {
-                    return { status: 'name-taken' as const }
-                }
-
-                const account = await transaction.moneyAccount.update({ data: { archivedAt: null }, select: accountSelect, where: { id: sameName.id } })
-
-                return { account, status: 'revived' as const }
+                // Restaurar es un PATCH del id original. Un POST con un id nuevo nunca cambia
+                // otra cuenta ni acepta un id que después no se pueda reintentar.
+                return { status: 'name-taken' as const }
             }
 
             if ((await transaction.moneyAccount.count({ where: { userId: data.userId } })) >= limit) {
