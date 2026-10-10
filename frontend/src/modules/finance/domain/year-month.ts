@@ -1,4 +1,17 @@
-const YEAR_MONTH_PATTERN = /^\d{4}-(0[1-9]|1[0-2])$/
+// Contrato del API: hojas entre 2000-01 y 2099-12.
+const YEAR_MONTH_PATTERN = /^20\d{2}-(0[1-9]|1[0-2])$/
+
+// La fecha de negocio (hoy, mes actual, vencimientos) es la de Colombia, sin importar la zona
+// horaria del dispositivo. Bogotá no tiene horario de verano, pero se usa Intl para no depender de
+// un desfase fijo.
+const BUSINESS_TIME_ZONE = 'America/Bogota'
+
+const businessDateFormatter = new Intl.DateTimeFormat('en-CA', {
+    day: '2-digit',
+    month: '2-digit',
+    timeZone: BUSINESS_TIME_ZONE,
+    year: 'numeric',
+})
 
 const MONTH_NAMES = [
     'enero',
@@ -39,12 +52,15 @@ export function formatYearMonth(year: number, month: number) {
     return `${year}-${pad(month)}`
 }
 
-export function toYearMonth(date: Date) {
-    return formatYearMonth(date.getFullYear(), date.getMonth() + 1)
+// Fecha AAAA-MM-DD de ese instante en Bogotá.
+export function toIsoDate(date: Date) {
+    const parts = Object.fromEntries(businessDateFormatter.formatToParts(date).map((part) => [part.type, part.value]))
+
+    return `${parts.year}-${parts.month}-${parts.day}`
 }
 
-export function toIsoDate(date: Date) {
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+export function toYearMonth(date: Date) {
+    return toIsoDate(date).slice(0, 7)
 }
 
 export function shiftYearMonth(value: string, delta: number) {

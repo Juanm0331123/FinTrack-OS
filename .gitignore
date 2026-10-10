@@ -19,6 +19,8 @@ Thumbs.db
 
 # Dependencies and builds outside the boundaries
 node_modules/
+.tmp/
+*.tsbuildinfo
 dist/
 build/
 coverage/

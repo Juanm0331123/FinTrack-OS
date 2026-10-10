@@ -7,6 +7,7 @@ import {
 } from 'react'
 
 import { cn } from '@/shared/lib/utils'
+import { codeDigits, pasteCode, writeDigit } from './one-time-code'
 
 type OneTimeCodeInputProps = {
     describedBy?: string
@@ -24,50 +25,56 @@ export function OneTimeCodeInput({
     value,
 }: OneTimeCodeInputProps) {
     const inputRefs = useRef<Array<HTMLInputElement | null>>([])
-    const digits = Array.from({ length }, (_, index) => value[index] ?? '')
+    const digits = codeDigits(value, length)
 
-    function updateValue(index: number, nextDigit: string) {
-        const sanitizedDigit = nextDigit.replace(/\D/g, '').slice(-1)
-        const nextDigits = [...digits]
-        nextDigits[index] = sanitizedDigit
-        onChange(nextDigits.join(''))
+    function focusAt(index: number) {
+        inputRefs.current[Math.min(Math.max(index, 0), length - 1)]?.focus()
+    }
 
-        if (sanitizedDigit && index < length - 1) {
-            inputRefs.current[index + 1]?.focus()
+    function updateValue(index: number, typed: string) {
+        const incoming = typed.replace(/\D/g, '')
+
+        // Varios dígitos de golpe (autocompletado del sistema): se reparten como un pegado.
+        if (incoming.length > 1) {
+            onChange(pasteCode(value, index, incoming, length))
+            focusAt(index + incoming.length)
+            return
+        }
+
+        onChange(writeDigit(value, index, incoming, length))
+
+        if (incoming && index < length - 1) {
+            focusAt(index + 1)
         }
     }
 
     function handleKeyDown(index: number, event: KeyboardEvent<HTMLInputElement>) {
         if (event.key === 'Backspace' && !digits[index] && index > 0) {
-            inputRefs.current[index - 1]?.focus()
+            event.preventDefault()
+            focusAt(index - 1)
         }
 
         if (event.key === 'ArrowLeft' && index > 0) {
             event.preventDefault()
-            inputRefs.current[index - 1]?.focus()
+            focusAt(index - 1)
         }
 
         if (event.key === 'ArrowRight' && index < length - 1) {
             event.preventDefault()
-            inputRefs.current[index + 1]?.focus()
+            focusAt(index + 1)
         }
     }
 
-    function handlePaste(event: ClipboardEvent<HTMLInputElement>) {
-        const pastedValue = event.clipboardData
-            .getData('text')
-            .replace(/\D/g, '')
-            .slice(0, length)
+    function handlePaste(index: number, event: ClipboardEvent<HTMLInputElement>) {
+        const pasted = event.clipboardData.getData('text').replace(/\D/g, '')
 
-        if (!pastedValue) {
+        if (!pasted) {
             return
         }
 
         event.preventDefault()
-        onChange(pastedValue)
-
-        const nextFocusIndex = Math.min(pastedValue.length, length - 1)
-        inputRefs.current[nextFocusIndex]?.focus()
+        onChange(pasteCode(value, index, pasted, length))
+        focusAt(index + pasted.length)
     }
 
     return (
@@ -87,11 +94,11 @@ export function OneTimeCodeInput({
                         error &&
                             'border-destructive/60 focus-visible:border-destructive/60 focus-visible:ring-destructive/20',
                     )}
-                    maxLength={1}
                     value={digit}
+                    onFocus={(event) => event.currentTarget.select()}
                     onChange={(event) => updateValue(index, event.target.value)}
                     onKeyDown={(event) => handleKeyDown(index, event)}
-                    onPaste={handlePaste}
+                    onPaste={(event) => handlePaste(index, event)}
                 />
             ))}
         </div>

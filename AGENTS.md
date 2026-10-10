@@ -5,7 +5,7 @@ Fuente canónica de instrucciones compartidas para agentes de desarrollo como Co
 ## Identidad del proyecto
 
 - FinTrack OS es una app de finanzas personales que replica el flujo de un libro de Excel mensual: hoja del mes (ingresos, gastos por cuenta y categoría, colchón mínimo), resumen anual, plan de deudas por método avalancha y configuración.
-- Las fórmulas del Excel de referencia son la especificación funcional: cualquier cambio en un cálculo financiero debe mantener la paridad con ellas y quedar cubierto por tests.
+- Las fórmulas compartidas del Excel de referencia y el contrato financiero aprobado en `PRODUCT.md` son la especificación funcional. Todo cambio de cálculo debe respetarlos y quedar cubierto por tests. Las diferencias aprobadas sobre topes, precisión monetaria y entradas manuales están trazadas en `docs/qa-excel-paridad.md`; no afirmar identidad literal con reglas del libro que el contrato de la app adapta.
 - `PRODUCT.md` describe usuarios, propósito y principios; `DESIGN.md` describe el sistema visual vigente. Ambos viven en la raíz.
 - Los agentes, las skills, `.agents/`, `.claude/`, `skills-lock.json` y los archivos `AGENTS.md`/`CLAUDE.md` son herramientas de desarrollo. Nunca forman parte del runtime ni son dependencias del código de producto.
 
@@ -27,7 +27,7 @@ Prohibido:
 Usar `pnpm` (hay lockfile en cada boundary).
 
 - Frontend: `pnpm dev`, `pnpm build`, `pnpm start`, `pnpm lint`, `pnpm typecheck`, `pnpm test`.
-- Backend: `pnpm dev`, `pnpm start`, `pnpm typecheck`, `pnpm test`, `pnpm prisma:validate`, `pnpm prisma:generate`, `pnpm prisma:migrate:dev`, `pnpm prisma:migrate:deploy`.
+- Backend: `pnpm dev`, `pnpm start`, `pnpm typecheck`, `pnpm test`, `pnpm test:integration`, `pnpm test:migrations`, `pnpm prisma:validate`, `pnpm prisma:generate`, `pnpm prisma:migrate:dev`, `pnpm prisma:migrate:deploy`, `pnpm db:check-migration`, `pnpm db:cleanup-auth`. Las suites de integración y migraciones exigen `TEST_DATABASE_URL` hacia un PostgreSQL aislado (`backend/test/compose.yaml`); nunca usan `DATABASE_URL` del `.env`.
 
 ## Reglas de trabajo
 
@@ -103,5 +103,5 @@ Si dos skills aplicables se contradicen, preferir la más específica para la ta
 
 - El diff contiene solo el alcance pedido y pasa `git diff --check`.
 - No hay secretos, credenciales ni archivos que `.gitignore` deba excluir.
-- Los cálculos financieros nuevos o modificados tienen tests que comparan contra valores del Excel de referencia.
+- Los cálculos financieros nuevos o modificados tienen tests con fixtures sintéticos del Excel para las fórmulas compartidas y del contrato aprobado en `PRODUCT.md` para sus diferencias explícitas. No versionar datos personales del libro original.
 - La documentación afectada (`AGENTS.md`, `DESIGN.md`, `.env.example`) quedó actualizada y coherente.

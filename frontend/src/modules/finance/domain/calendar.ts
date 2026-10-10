@@ -158,5 +158,28 @@ export function upcomingEntries(
 
             return !isPocket(entry) && !entry.isPaid && dueDate !== null && dueDate <= limitIso
         })
-        .toSorted((left, right) => (left.dueDay ?? 0) - (right.dueDay ?? 0))
+        .sort((left, right) => (left.dueDay ?? 0) - (right.dueDay ?? 0))
+}
+
+const DAY_KEY_STEPS: Record<string, number> = { ArrowDown: 7, ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7 }
+
+// Navegación por teclado del calendario (patrón grid): flechas ±1 y ±7 días, Inicio y Fin al
+// comienzo y al final de la semana (lunes a domingo). Nunca sale del mes; null si la tecla no aplica.
+export function moveCalendarDay(isoDate: string, key: string, yearMonth: string): string | null {
+    const day = Number(isoDate.slice(8, 10))
+    const last = daysInMonth(yearMonth)
+    let target: number
+
+    if (key in DAY_KEY_STEPS) {
+        target = day + DAY_KEY_STEPS[key]
+    } else if (key === 'Home' || key === 'End') {
+        const [year, month] = yearMonth.split('-').map(Number)
+        const weekday = (new Date(Date.UTC(year, month - 1, day)).getUTCDay() + 6) % 7
+
+        target = key === 'Home' ? day - weekday : day + (6 - weekday)
+    } else {
+        return null
+    }
+
+    return isoDateFor(yearMonth, Math.min(Math.max(target, 1), last))
 }

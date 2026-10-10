@@ -1,55 +1,35 @@
-import { createHash, randomBytes, randomInt } from 'node:crypto'
+import { createHash, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto'
 import { SignJWT, jwtVerify } from 'jose'
+import { z } from 'zod'
+import { durationToSeconds } from '../../config/duration.ts'
 import { env } from '../../config/env.ts'
 import { UnauthorizedError } from '../../utils/app-error.ts'
 import type { AccessTokenClaims, RefreshTokenClaims } from './auth.types.ts'
+
+// JWT firmados con HS256 y secretos distintos por tipo. La verificación exige algoritmo, emisor,
+// audiencia, tipo de cabecera y claims de tiempo e identidad: un token de refresh no sirve como
+// bearer ni al revés, y un token sin `exp` se rechaza. Los claims no son confidenciales (ids y
+// rol), por lo que no se cifran.
 
 const textEncoder = new TextEncoder()
 const accessSecret = textEncoder.encode(env.JWT_ACCESS_SECRET)
 const refreshSecret = textEncoder.encode(env.JWT_REFRESH_SECRET)
 
-function parseDurationToSeconds(value: string) {
-    const match = value.trim().match(/^(\d+)(s|m|h|d)$/i)
+const ACCESS_TOKEN_TYPE = 'at+jwt'
+const REFRESH_TOKEN_TYPE = 'rt+jwt'
 
-    if (!match) {
-        throw new Error(
-            `Unsupported duration "${value}". Use a value like 15m, 1h, or 7d.`,
-        )
-    }
+const accessClaimsSchema = z.object({
+    jti: z.string().min(1),
+    role: z.enum(['USER', 'ADMIN']),
+    sid: z.uuid(),
+    sub: z.uuid(),
+})
 
-    const amount = Number(match[1])
-    const unit = match[2].toLowerCase()
-
-    if (unit === 's') {
-        return amount
-    }
-
-    if (unit === 'm') {
-        return amount * 60
-    }
-
-    if (unit === 'h') {
-        return amount * 60 * 60
-    }
-
-    return amount * 60 * 60 * 24
-}
-
-function assertSubject(value: unknown) {
-    if (typeof value !== 'string' || value.length === 0) {
-        throw new UnauthorizedError('Tu sesión no es válida. Vuelve a iniciar sesión.')
-    }
-
-    return value
-}
-
-function assertStringClaim(value: unknown, claimName: string) {
-    if (typeof value !== 'string' || value.length === 0) {
-        throw new UnauthorizedError(`Invalid token claim: ${claimName}.`)
-    }
-
-    return value
-}
+const refreshClaimsSchema = z.object({
+    jti: z.uuid(),
+    sid: z.uuid(),
+    sub: z.uuid(),
+})
 
 export function createOpaqueToken() {
     return randomBytes(32).toString('base64url')
@@ -69,93 +49,77 @@ export function hashToken(token: string, salt?: string) {
         .digest('hex')
 }
 
-export async function signAccessToken(input: {
-    role: AccessTokenClaims['role']
-    userId: string
-}) {
-    const accessTokenExpiresInSeconds = parseDurationToSeconds(env.JWT_ACCESS_TTL)
+export function tokenHashMatches(token: string, expectedHash: string, salt?: string | null) {
+    const actual = Buffer.from(hashToken(token, salt ?? undefined), 'hex')
+    const expected = Buffer.from(expectedHash, 'hex')
+
+    return actual.length === expected.length && timingSafeEqual(actual, expected)
+}
+
+export function accessTokenLifetimeSeconds() {
+    return durationToSeconds(env.JWT_ACCESS_TTL)
+}
+
+export async function signAccessToken(input: { role: AccessTokenClaims['role']; sessionId: string; userId: string }) {
+    const accessTokenExpiresInSeconds = accessTokenLifetimeSeconds()
     const issuedAt = Math.floor(Date.now() / 1000)
-    const expirationTime = issuedAt + accessTokenExpiresInSeconds
-    const accessToken = await new SignJWT({
-        role: input.role,
-        tokenType: 'access',
-    })
-        .setProtectedHeader({ alg: 'HS256' })
-        .setIssuedAt(issuedAt)
+    const accessToken = await new SignJWT({ role: input.role, sid: input.sessionId })
+        .setProtectedHeader({ alg: 'HS256', typ: ACCESS_TOKEN_TYPE })
+        .setIssuer(env.JWT_ISSUER)
+        .setAudience(env.JWT_ACCESS_AUDIENCE)
         .setSubject(input.userId)
-        .setExpirationTime(expirationTime)
+        .setJti(randomUUID())
+        .setIssuedAt(issuedAt)
+        .setExpirationTime(issuedAt + accessTokenExpiresInSeconds)
         .sign(accessSecret)
 
-    return {
-        accessToken,
-        accessTokenExpiresInSeconds,
-    }
+    return { accessToken, accessTokenExpiresInSeconds }
 }
 
-export async function signRefreshToken(input: {
-    role: RefreshTokenClaims['role']
-    sessionId: string
-    userId: string
-}) {
-    const refreshTokenExpiresInSeconds = parseDurationToSeconds(env.JWT_REFRESH_TTL)
-    const issuedAt = Math.floor(Date.now() / 1000)
-    const expirationTime = issuedAt + refreshTokenExpiresInSeconds
-    const refreshToken = await new SignJWT({
-        role: input.role,
-        tokenType: 'refresh',
-    })
-        .setProtectedHeader({ alg: 'HS256' })
-        .setIssuedAt(issuedAt)
-        .setJti(input.sessionId)
+export async function signRefreshToken(input: { expiresAt: Date; sessionId: string; tokenId: string; userId: string }) {
+    return new SignJWT({ sid: input.sessionId })
+        .setProtectedHeader({ alg: 'HS256', typ: REFRESH_TOKEN_TYPE })
+        .setIssuer(env.JWT_ISSUER)
+        .setAudience(env.JWT_REFRESH_AUDIENCE)
         .setSubject(input.userId)
-        .setExpirationTime(expirationTime)
+        .setJti(input.tokenId)
+        .setIssuedAt()
+        .setExpirationTime(Math.floor(input.expiresAt.getTime() / 1000))
         .sign(refreshSecret)
-
-    return {
-        refreshToken,
-        refreshTokenExpiresAt: new Date(expirationTime * 1000),
-        refreshTokenMaxAgeMs: refreshTokenExpiresInSeconds * 1000,
-    }
 }
 
-export async function verifyAccessToken(token: string) {
+const INVALID_SESSION_MESSAGE = 'Tu sesión expiró. Vuelve a iniciar sesión.'
+
+export async function verifyAccessToken(token: string): Promise<AccessTokenClaims> {
     try {
         const { payload } = await jwtVerify(token, accessSecret, {
             algorithms: ['HS256'],
+            audience: env.JWT_ACCESS_AUDIENCE,
+            issuer: env.JWT_ISSUER,
+            requiredClaims: ['exp', 'iat', 'jti', 'sub'],
+            typ: ACCESS_TOKEN_TYPE,
         })
+        const claims = accessClaimsSchema.parse(payload)
 
-        return {
-            role: assertStringClaim(payload.role, 'role') as AccessTokenClaims['role'],
-            tokenType: assertStringClaim(
-                payload.tokenType,
-                'tokenType',
-            ) as AccessTokenClaims['tokenType'],
-            userId: assertSubject(payload.sub),
-        }
+        return { role: claims.role, sessionId: claims.sid, userId: claims.sub }
     } catch {
-        throw new UnauthorizedError('Tu sesión expiró. Vuelve a iniciar sesión.')
+        throw new UnauthorizedError(INVALID_SESSION_MESSAGE, 'SESSION_INVALID')
     }
 }
 
-export async function verifyRefreshToken(token: string) {
+export async function verifyRefreshToken(token: string): Promise<RefreshTokenClaims> {
     try {
         const { payload } = await jwtVerify(token, refreshSecret, {
             algorithms: ['HS256'],
+            audience: env.JWT_REFRESH_AUDIENCE,
+            issuer: env.JWT_ISSUER,
+            requiredClaims: ['exp', 'iat', 'jti', 'sub'],
+            typ: REFRESH_TOKEN_TYPE,
         })
+        const claims = refreshClaimsSchema.parse(payload)
 
-        return {
-            role: assertStringClaim(
-                payload.role,
-                'role',
-            ) as RefreshTokenClaims['role'],
-            sessionId: assertStringClaim(payload.jti, 'jti'),
-            tokenType: assertStringClaim(
-                payload.tokenType,
-                'tokenType',
-            ) as RefreshTokenClaims['tokenType'],
-            userId: assertSubject(payload.sub),
-        }
+        return { sessionId: claims.sid, tokenId: claims.jti, userId: claims.sub }
     } catch {
-        throw new UnauthorizedError('Tu sesión expiró. Vuelve a iniciar sesión.')
+        throw new UnauthorizedError(INVALID_SESSION_MESSAGE, 'SESSION_INVALID')
     }
 }

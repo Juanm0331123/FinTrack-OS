@@ -1,0 +1,17 @@
+# PostgreSQL aislado para las pruebas de integración y migraciones (no es producción).
+#   docker compose -f test/compose.yaml up -d
+#   TEST_DATABASE_URL=postgresql://fintrack_test:fintrack_test_only@127.0.0.1:55433/fintrack_test pnpm test:integration
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_DB: fintrack_test
+      POSTGRES_PASSWORD: fintrack_test_only
+      POSTGRES_USER: fintrack_test
+    ports:
+      - '127.0.0.1:55433:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U fintrack_test -d fintrack_test']
+      interval: 2s
+      timeout: 3s
+      retries: 20

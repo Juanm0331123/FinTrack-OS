@@ -3,39 +3,13 @@
 import { LoaderCircle, TriangleAlert } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useEffect, useSyncExternalStore } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 
 import { APP_ROUTES } from '@/shared/config/routes'
 import { Button } from '@/shared/ui/button'
-import {
-    clearPendingVerification,
-    saveAuthSession,
-    savePendingVerification,
-} from './auth.storage'
-import type {
-    AuthUser,
-    PendingVerificationState,
-    PendingVerificationSource,
-} from './auth.types'
-
-type OAuthCallbackResult =
-    | {
-          kind: 'loading'
-      }
-    | {
-          kind: 'success'
-          accessToken: string
-          accessTokenExpiresInSeconds: number
-          user: AuthUser
-      }
-    | {
-          kind: 'pending_verification'
-          pendingVerification: PendingVerificationState
-      }
-    | {
-          kind: 'error'
-          message: string
-      }
+import { clearPendingVerification, savePendingVerification } from './auth.storage'
+import { getBrowserSession } from './browser-session'
+import { parseOAuthCallbackResult, type OAuthCallbackResult } from './oauth-callback-result'
 
 function subscribeToHashChange(onStoreChange: () => void) {
     window.addEventListener('hashchange', onStoreChange)
@@ -53,83 +27,8 @@ function getServerHashSnapshot() {
     return ''
 }
 
-function parseOAuthCallbackResult(hash: string): OAuthCallbackResult {
-    if (!hash) {
-        return {
-            kind: 'loading',
-        }
-    }
-
-    const hashParams = new URLSearchParams(hash.replace(/^#/, ''))
-    const resultStatus = hashParams.get('status')
-
-    if (!resultStatus) {
-        return {
-            kind: 'error',
-            message: 'No pudimos completar el acceso con el proveedor externo.',
-        }
-    }
-
-    if (resultStatus === 'success') {
-        const accessToken = hashParams.get('accessToken')
-        const accessTokenExpiresInSeconds = Number(
-            hashParams.get('accessTokenExpiresInSeconds'),
-        )
-        const userPayload = hashParams.get('user')
-
-        if (!accessToken || !userPayload || Number.isNaN(accessTokenExpiresInSeconds)) {
-            return {
-                kind: 'error',
-                message: 'No pudimos completar el acceso con OAuth.',
-            }
-        }
-
-        try {
-            return {
-                kind: 'success',
-                accessToken,
-                accessTokenExpiresInSeconds,
-                user: JSON.parse(userPayload) as AuthUser,
-            }
-        } catch {
-            return {
-                kind: 'error',
-                message: 'No pudimos completar el acceso con OAuth.',
-            }
-        }
-    }
-
-    if (resultStatus === 'pending_verification') {
-        const email = hashParams.get('email')
-        const expiresAt = hashParams.get('expiresAt')
-        const provider = hashParams.get('provider')
-
-        if (!email || !expiresAt || (provider !== 'google' && provider !== 'github')) {
-            return {
-                kind: 'error',
-                message: 'No pudimos continuar con la verificación del correo.',
-            }
-        }
-
-        return {
-            kind: 'pending_verification',
-            pendingVerification: {
-                email,
-                expiresAt,
-                source: provider as PendingVerificationSource,
-                ...(hashParams.get('verificationCode')
-                    ? { verificationCode: hashParams.get('verificationCode') ?? undefined }
-                    : {}),
-            },
-        }
-    }
-
-    return {
-        kind: 'error',
-        message:
-            hashParams.get('message') ??
-            'No pudimos completar el acceso con el proveedor externo.',
-    }
+function subscribeToNothing() {
+    return () => undefined
 }
 
 export function OAuthCallbackPage() {
@@ -139,25 +38,50 @@ export function OAuthCallbackPage() {
         getClientHashSnapshot,
         getServerHashSnapshot,
     )
-    const result = parseOAuthCallbackResult(hash)
+    const hydrated = useSyncExternalStore(subscribeToNothing, () => true, () => false)
+    const parsed = parseOAuthCallbackResult(hash, { hydrated })
+    const [sessionError, setSessionError] = useState<string | null>(null)
+    const result: OAuthCallbackResult = sessionError ? { kind: 'error', message: sessionError } : parsed
+    const pendingVerification = parsed.kind === 'pending_verification' ? parsed.pendingVerification : null
 
     useEffect(() => {
-        if (result.kind === 'success') {
-            clearPendingVerification()
-            saveAuthSession({
-                accessToken: result.accessToken,
-                accessTokenExpiresInSeconds: result.accessTokenExpiresInSeconds,
-                user: result.user,
-            })
-            router.replace(APP_ROUTES.dashboard)
+        if (parsed.kind !== 'success') {
             return
         }
 
-        if (result.kind === 'pending_verification') {
-            savePendingVerification(result.pendingVerification)
+        let cancelled = false
+
+        clearPendingVerification()
+        getBrowserSession()
+            .ensureAccessToken({ forceRefresh: true })
+            .then((token) => {
+                if (cancelled) {
+                    return
+                }
+
+                if (token) {
+                    router.replace(APP_ROUTES.dashboard)
+                } else {
+                    setSessionError('No pudimos abrir tu sesión. Intenta iniciar sesión de nuevo.')
+                }
+            })
+            .catch(() => {
+                if (!cancelled) {
+                    setSessionError('No pudimos abrir tu sesión en este momento. Intenta de nuevo en unos segundos.')
+                }
+            })
+
+        return () => {
+            cancelled = true
+        }
+    }, [parsed.kind, router])
+
+    useEffect(() => {
+        if (pendingVerification) {
+            savePendingVerification(pendingVerification)
             router.replace(APP_ROUTES.login)
         }
-    }, [result, router])
+    }, [pendingVerification, router])
 
     if (
         result.kind === 'loading' ||

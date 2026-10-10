@@ -25,9 +25,10 @@ function Kpi({
     return (
         <div className={cn('min-w-0 bg-ft-card px-4 py-4 sm:px-[18px]', className)}>
             <dt className="text-[13px] font-medium text-ft-ink-3">{label}</dt>
+            {/* El monto se muestra íntegro: con cifras grandes o texto ampliado envuelve en vez de cortarse. */}
             <dd
                 className={cn(
-                    'mt-1 truncate text-xl font-semibold tracking-[-0.015em] text-ft-ink tabular sm:text-[22px]',
+                    'mt-1 text-xl leading-tight font-semibold tracking-[-0.015em] text-ft-ink tabular [overflow-wrap:anywhere] sm:text-[22px]',
                     valueTone === 'neg' && 'text-ft-neg',
                 )}
             >

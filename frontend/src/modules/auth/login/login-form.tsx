@@ -16,11 +16,14 @@ import { EmailVerificationForm } from '../email-verification-form'
 import {
     clearPendingVerification,
     loadPendingVerification,
-    saveAuthSession,
+    savePasswordResetHandoff,
     savePendingVerification,
 } from '../auth.storage'
-import type { PendingVerificationState } from '../auth.types'
+import type { AuthenticatedResponse, PendingVerificationState } from '../auth.types'
+import { getBrowserSession } from '../browser-session'
 import { AuthSocialButtons } from '../auth-social-buttons'
+import { useFlowGuard } from '../flow-guard'
+import { createSingleFlight } from '../single-flight'
 import { loginSchema, type LoginFormValues } from './login.schema'
 
 function getFallbackPendingVerificationExpiry() {
@@ -32,7 +35,12 @@ export function LoginForm() {
     const [pendingVerification, setPendingVerification] =
         useState<PendingVerificationState | null>(() => loadPendingVerification())
     const [serverErrorMessage, setServerErrorMessage] = useState<string | null>(null)
+    // Solo en memoria: el backend exige la contraseña junto al código para activar la cuenta.
+    const [verificationPassword, setVerificationPassword] = useState<string | null>(null)
     const [showPassword, setShowPassword] = useState(false)
+    const [submission] = useState(createSingleFlight)
+    // Al desmontar (p. ej. navegar a otra página) una respuesta tardía no adopta sesión ni cambia de paso.
+    const guard = useFlowGuard()
     const {
         formState: { errors, isSubmitting },
         handleSubmit,
@@ -55,25 +63,36 @@ export function LoginForm() {
     function handlePendingVerificationClear() {
         clearPendingVerification()
         setPendingVerification(null)
+        setVerificationPassword(null)
     }
 
-    function handleAuthenticated(session: {
-        accessToken: string
-        accessTokenExpiresInSeconds: number
-        user: Parameters<typeof saveAuthSession>[0]['user']
-    }) {
+    function handleAuthenticated(session: AuthenticatedResponse) {
         clearPendingVerification()
-        saveAuthSession(session)
+        setVerificationPassword(null)
+        getBrowserSession().setSession(session)
         router.replace(APP_ROUTES.dashboard)
     }
 
-    async function onSubmit(values: LoginFormValues) {
+    function onSubmit(values: LoginFormValues) {
+        return submission.run(() => submit(values))
+    }
+
+    async function submit(values: LoginFormValues) {
         setServerErrorMessage(null)
 
+        const run = guard.begin()
+
         try {
-            const session = await loginWithEmail(values)
-            handleAuthenticated(session)
+            const session = await loginWithEmail(values, { signal: run.signal })
+
+            if (run.isCurrent()) {
+                handleAuthenticated(session)
+            }
         } catch (error) {
+            if (!run.isCurrent()) {
+                return
+            }
+
             if (
                 error instanceof AuthApiError &&
                 error.code === 'EMAIL_VERIFICATION_REQUIRED'
@@ -93,7 +112,20 @@ export function LoginForm() {
                         : {}),
                 }
 
+                setVerificationPassword(values.password)
                 handlePendingVerificationChange(nextPendingVerification)
+                return
+            }
+
+            if (error instanceof AuthApiError && error.code === 'PASSWORD_RESET_REQUIRED') {
+                savePasswordResetHandoff({
+                    email: typeof error.details?.email === 'string' ? error.details.email : values.email.trim().toLowerCase(),
+                    expiresAt:
+                        typeof error.details?.expiresAt === 'string'
+                            ? error.details.expiresAt
+                            : getFallbackPendingVerificationExpiry(),
+                })
+                router.push(APP_ROUTES.forgotPassword)
                 return
             }
 
@@ -113,6 +145,7 @@ export function LoginForm() {
                 onPendingVerificationChange={handlePendingVerificationChange}
                 onCancelPendingVerification={handlePendingVerificationClear}
                 onVerified={handleAuthenticated}
+                password={verificationPassword}
             />
         )
     }

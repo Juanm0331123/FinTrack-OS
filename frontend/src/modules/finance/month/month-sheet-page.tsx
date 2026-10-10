@@ -10,7 +10,7 @@ import { computeSummaryRows } from '../domain/annual-summary'
 import { computeMonthSheet } from '../domain/month-sheet'
 import { summarizePockets } from '../domain/pockets'
 import type { MonthSheet } from '../domain/types'
-import { monthLabel, monthName, shiftYearMonth } from '../domain/year-month'
+import { isYearMonth, monthLabel, monthName, shiftYearMonth } from '../domain/year-month'
 import { useSelectedMonth } from '../hooks/use-selected-month'
 import { useToday } from '../hooks/use-today'
 import { useAccounts, usePreviousSheet, useSettings, useSheet, useSheets } from '../hooks/use-workbook-data'
@@ -37,18 +37,23 @@ function MonthNavigation({ yearMonth }: { yearMonth: string }) {
     const previous = shiftYearMonth(yearMonth, -1)
     const next = shiftYearMonth(yearMonth, 1)
 
+    // Sin enlaces fuera del rango que admite el API (2000-01..2099-12).
     return (
         <>
-            <FtButton asChild variant="ghost" size="icon">
-                <Link href={hrefFor(previous)} aria-label={`Mes anterior: ${monthLabel(previous)}`}>
-                    <ChevronLeft aria-hidden="true" />
-                </Link>
-            </FtButton>
-            <FtButton asChild variant="ghost" size="icon">
-                <Link href={hrefFor(next)} aria-label={`Mes siguiente: ${monthLabel(next)}`}>
-                    <ChevronRight aria-hidden="true" />
-                </Link>
-            </FtButton>
+            {isYearMonth(previous) ? (
+                <FtButton asChild variant="ghost" size="icon">
+                    <Link href={hrefFor(previous)} aria-label={`Mes anterior: ${monthLabel(previous)}`}>
+                        <ChevronLeft aria-hidden="true" />
+                    </Link>
+                </FtButton>
+            ) : null}
+            {isYearMonth(next) ? (
+                <FtButton asChild variant="ghost" size="icon">
+                    <Link href={hrefFor(next)} aria-label={`Mes siguiente: ${monthLabel(next)}`}>
+                        <ChevronRight aria-hidden="true" />
+                    </Link>
+                </FtButton>
+            ) : null}
         </>
     )
 }

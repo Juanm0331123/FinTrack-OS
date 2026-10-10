@@ -1,10 +1,11 @@
 import { Router } from 'express'
 import { requireAuth } from '../../middlewares/auth.middleware.ts'
-import { financeRateLimiter } from '../../middlewares/rate-limit.middleware.ts'
+import { financeReadRateLimiter, financeWriteRateLimiter } from '../../middlewares/rate-limit.middleware.ts'
 import { validate } from '../../middlewares/validate.middleware.ts'
 import { FinanceController } from './finance.controller.ts'
 import { FinanceRepository } from './finance.repository.ts'
 import {
+    copyPreviousSheetSchema,
     createAccountSchema,
     createDebtSchema,
     createEntrySchema,
@@ -17,6 +18,7 @@ import {
     updateSettingsSchema,
     updateSheetSchema,
     updateSpendSchema,
+    workbookQuerySchema,
     yearMonthParamsSchema,
 } from './finance.schemas.ts'
 import { FinanceService } from './finance.service.ts'
@@ -24,9 +26,10 @@ import { FinanceService } from './finance.service.ts'
 const router = Router()
 const financeController = new FinanceController(new FinanceService(new FinanceRepository()))
 
-router.use(requireAuth, financeRateLimiter)
+// La autenticación y las cuotas por usuario corren después del límite perimetral (app.ts).
+router.use(requireAuth, financeReadRateLimiter, financeWriteRateLimiter)
 
-router.get('/workbook', financeController.getWorkbook)
+router.get('/workbook', validate(workbookQuerySchema), financeController.getWorkbook)
 
 router.patch('/settings', validate(updateSettingsSchema), financeController.updateSettings)
 
@@ -39,7 +42,7 @@ router.patch('/sheets/:yearMonth', validate(updateSheetSchema), financeControlle
 router.delete('/sheets/:yearMonth', validate(yearMonthParamsSchema), financeController.deleteSheet)
 router.post(
     '/sheets/:yearMonth/copy-previous',
-    validate(yearMonthParamsSchema),
+    validate(copyPreviousSheetSchema),
     financeController.copyPreviousSheet,
 )
 router.post(

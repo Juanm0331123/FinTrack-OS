@@ -9,11 +9,11 @@ import { CATEGORY_LABELS, CATEGORY_ORDER } from '../domain/categories'
 import { sumAmounts } from '../domain/money'
 import { isPocket, monthTiming, pocketProgress, type MonthTiming } from '../domain/pockets'
 import type { EntryCategory, MoneyAccount, MonthEntry } from '../domain/types'
-import { formatAmount, formatMoney, parseAmountInput } from '../lib/format'
+import { formatMoney } from '../lib/format'
 import { useWorkbookActions } from '../store/workbook-context'
 import { FtButton } from '../ui/button'
 import { CategoryPill, CATEGORY_STYLES } from '../ui/category-pill'
-import { focusNextInGroup, Segmented } from '../ui/fields'
+import { FieldError, focusNextInGroup, Segmented, useAmountDraft } from '../ui/fields'
 import { Panel, PanelHeader } from '../ui/panel'
 import { paymentStateOf, StatusBadge } from '../ui/status-badge'
 import { PocketBadge } from './pocket-parts'
@@ -83,20 +83,29 @@ const AmountCell = memo(function AmountCell({
     onAmount: RowHandlers['onAmount']
     value: number | null
 }) {
+    const errorId = `amount-error-${id}`
+    const { error, inputProps } = useAmountDraft(value, (amount) => onAmount(id, amount))
+
     return (
-        <input
-            type="text"
-            inputMode="numeric"
-            autoComplete="off"
-            data-input-group="entry-amounts"
-            aria-label={`Valor de ${concept}`}
-            placeholder="Sin valor"
-            value={value === null ? '' : formatAmount(value)}
-            onChange={(event) => onAmount(id, parseAmountInput(event.target.value))}
-            onKeyDown={(event) => focusNextInGroup(event, 'entry-amounts')}
-            onFocus={(event) => event.currentTarget.select()}
-            className="h-9 w-full rounded-[7px] border border-transparent bg-transparent px-2 text-right text-sm font-semibold text-ft-ink tabular outline-none transition-[border-color,box-shadow] duration-150 hover:border-ft-line focus:border-ft-focus focus:bg-white focus:ring-[3px] focus:ring-ft-focus-soft"
-        />
+        <>
+            <input
+                {...inputProps}
+                type="text"
+                inputMode="numeric"
+                autoComplete="off"
+                data-input-group="entry-amounts"
+                aria-label={`Valor de ${concept}`}
+                aria-describedby={error ? errorId : undefined}
+                placeholder="Sin valor"
+                onKeyDown={(event) => focusNextInGroup(event, 'entry-amounts')}
+                onFocus={(event) => event.currentTarget.select()}
+                className={cn(
+                    'h-11 w-full rounded-[7px] border bg-transparent px-2 text-right lg:h-9 text-sm font-semibold text-ft-ink tabular outline-none transition-[border-color,box-shadow] duration-150 hover:border-ft-line focus:border-ft-focus focus:bg-white focus:ring-[3px] focus:ring-ft-focus-soft',
+                    error ? 'border-ft-neg' : 'border-transparent',
+                )}
+            />
+            <FieldError id={errorId} message={error} />
+        </>
     )
 })
 
@@ -119,7 +128,7 @@ const EntryRow = memo(function EntryRow({
                 <button
                     type="button"
                     onClick={() => handlers.onEdit(entry.id)}
-                    className="block w-full min-w-0 cursor-pointer rounded-md text-left outline-none focus-visible:outline-2 focus-visible:outline-ft-focus"
+                    className="block min-h-11 w-full min-w-0 cursor-pointer rounded-md text-left outline-none focus-visible:outline-2 focus-visible:outline-ft-focus lg:min-h-0"
                 >
                     <span className="block truncate font-semibold text-ft-ink">{entry.concept}</span>
                     <span className="block truncate text-[12.5px] text-ft-ink-3">
@@ -240,7 +249,7 @@ export function EntriesCard({
 
                 return normalize(`${entry.concept} ${account} ${entry.note ?? ''}`).includes(needle)
             })
-            .toSorted((left, right) => (left.dueDay ?? 99) - (right.dueDay ?? 99) || left.sortOrder - right.sortOrder)
+            .sort((left, right) => (left.dueDay ?? 99) - (right.dueDay ?? 99) || left.sortOrder - right.sortOrder)
     }, [accountNames, deferredQuery, entries, filter])
 
     const shownTotal = sumAmounts(rows)
@@ -260,7 +269,7 @@ export function EntriesCard({
                 }
             />
             <div className="flex flex-wrap items-center gap-2.5 px-4 pb-3 sm:px-[18px]">
-                <label className="flex h-11 min-w-0 flex-[1_1_200px] items-center sm:h-[38px] gap-2 rounded-lg border border-ft-line px-2.5 text-ft-ink-3 transition-[border-color,box-shadow] duration-150 focus-within:border-ft-focus focus-within:ring-[3px] focus-within:ring-ft-focus-soft">
+                <label className="flex h-11 min-w-0 flex-[1_1_200px] items-center lg:h-[38px] gap-2 rounded-lg border border-ft-line px-2.5 text-ft-ink-3 transition-[border-color,box-shadow] duration-150 focus-within:border-ft-focus focus-within:ring-[3px] focus-within:ring-ft-focus-soft">
                     <Search className="size-4 flex-none" aria-hidden="true" />
                     <span className="sr-only">Buscar gastos</span>
                     <input

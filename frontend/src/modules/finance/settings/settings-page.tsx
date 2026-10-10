@@ -3,6 +3,8 @@
 import { Archive, ArchiveRestore, ArrowDown, ArrowUp, Plus } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
+import { useResolvedAuthSession } from '@/modules/auth/auth-session'
+
 import { STRATEGY_HINTS, STRATEGY_OPTIONS } from '../debts/debt-strategy'
 import { CATEGORY_DESCRIPTIONS, CATEGORY_ORDER } from '../domain/categories'
 import type { MoneyAccount } from '../domain/types'
@@ -10,9 +12,10 @@ import { useAccounts, useSettings } from '../hooks/use-workbook-data'
 import { useWorkbookActions } from '../store/workbook-context'
 import { FtButton } from '../ui/button'
 import { CategoryPill } from '../ui/category-pill'
-import { Field, inputClassName, MoneyInput, PercentInput, Segmented, Switch } from '../ui/fields'
+import { Field, FieldError, inputClassName, MoneyInput, PercentInput, Segmented, Switch } from '../ui/fields'
 import { PageHeader } from '../ui/layout-parts'
 import { Panel, PanelHeader } from '../ui/panel'
+import { AccountSecurityPanel } from './account-security-panel'
 
 function messageOf(error: unknown) {
     return error instanceof Error ? error.message : 'No pudimos guardar el cambio.'
@@ -76,7 +79,7 @@ function AccountRow({
         <li className="flex flex-wrap items-start gap-2 border-b border-ft-line-soft py-2.5 last:border-b-0">
             <div className="min-w-0 flex-[1_1_200px]">
                 <label htmlFor={`account-${account.id}`} className="sr-only">
-                    Nombre de la cuenta
+                    Nombre de la cuenta {account.name}
                 </label>
                 <input
                     id={`account-${account.id}`}
@@ -84,6 +87,7 @@ function AccountRow({
                     value={name}
                     maxLength={60}
                     aria-invalid={error ? true : undefined}
+                    aria-describedby={error ? `account-${account.id}-error` : undefined}
                     onChange={(event) => setName(event.target.value)}
                     onBlur={commit}
                     onKeyDown={(event) => {
@@ -92,7 +96,7 @@ function AccountRow({
                         }
                     }}
                 />
-                {error ? <p className="mt-1 text-[12.5px] font-medium text-ft-neg">{error}</p> : null}
+                <FieldError id={`account-${account.id}-error`} message={error} />
             </div>
             <div className="flex items-center gap-1">
                 <FtButton
@@ -125,12 +129,13 @@ export function SettingsPage() {
     const settings = useSettings()
     const accounts = useAccounts()
     const actions = useWorkbookActions()
+    const sessionUser = useResolvedAuthSession().session?.user
     const [newAccount, setNewAccount] = useState('')
     const [message, setMessage] = useState<string | null>(null)
     const [busy, setBusy] = useState(false)
 
     const active = useMemo(
-        () => (accounts ?? []).filter((account) => !account.archived).toSorted((left, right) => left.sortOrder - right.sortOrder),
+        () => (accounts ?? []).filter((account) => !account.archived).sort((left, right) => left.sortOrder - right.sortOrder),
         [accounts],
     )
     const archived = useMemo(() => (accounts ?? []).filter((account) => account.archived), [accounts])
@@ -161,7 +166,7 @@ export function SettingsPage() {
 
     return (
         <div className="flex flex-col gap-[18px]">
-            <PageHeader title="Configuración" subtitle="Colchón, prestaciones, plan de deudas y cuentas" />
+            <PageHeader title="Configuración" subtitle="Colchón, prestaciones, plan de deudas, cuentas y seguridad" />
             <div className="grid grid-cols-1 items-start gap-[18px] xl:grid-cols-2">
                 <div className="flex flex-col gap-[18px]">
                     <Panel aria-labelledby="money-settings">
@@ -185,6 +190,7 @@ export function SettingsPage() {
                             >
                                 <PercentInput
                                     id="settings-benefits"
+                                    scale={4}
                                     value={settings.benefitsRate}
                                     onValueChange={(benefitsRate) => actions.updateSettings({ benefitsRate })}
                                 />
@@ -232,6 +238,7 @@ export function SettingsPage() {
                     </Panel>
                 </div>
 
+                <div className="flex flex-col gap-[18px]">
                 <Panel aria-labelledby="account-settings">
                     <PanelHeader id="account-settings" title="Cuentas" aside="Dónde sale cada gasto" />
                     <ul className="px-4 sm:px-[18px]">
@@ -295,6 +302,9 @@ export function SettingsPage() {
                         </div>
                     ) : null}
                 </Panel>
+                {/* key: un cambio de cuenta monta un panel nuevo y cancela lo que estaba en vuelo. */}
+                {sessionUser ? <AccountSecurityPanel key={sessionUser.id} currentEmail={sessionUser.email} userId={sessionUser.id} /> : null}
+                </div>
             </div>
         </div>
     )

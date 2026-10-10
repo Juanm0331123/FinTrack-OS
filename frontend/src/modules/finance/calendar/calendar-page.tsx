@@ -1,16 +1,16 @@
 'use client'
 
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight } from 'lucide-react'
 import Link from 'next/link'
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type KeyboardEvent } from 'react'
 
 import { APP_ROUTES } from '@/shared/config/routes'
 import { cn } from '@/shared/lib/utils'
-import { buildCalendarWeeks, isEntryOverdue, splitMonthHalves, upcomingEntries, type CalendarDay } from '../domain/calendar'
+import { buildCalendarWeeks, isEntryOverdue, moveCalendarDay, splitMonthHalves, upcomingEntries, type CalendarDay } from '../domain/calendar'
 import { CATEGORY_LABELS } from '../domain/categories'
 import { sumSpends, type DaySpend } from '../domain/pockets'
 import type { MoneyAccount, MonthEntry } from '../domain/types'
-import { isoDateFor, longDayLabel, monthLabel, shiftYearMonth, shortDayLabel } from '../domain/year-month'
+import { isoDateFor, isYearMonth, longDayLabel, monthLabel, shiftYearMonth, shortDayLabel } from '../domain/year-month'
 import { useSelectedMonth } from '../hooks/use-selected-month'
 import { useToday } from '../hooks/use-today'
 import { useAccounts, useSheet } from '../hooks/use-workbook-data'
@@ -38,7 +38,7 @@ function dayAriaLabel(day: CalendarDay) {
     if (day.entries.length > 0) {
         parts.push(
             `${day.entries.length} ${day.entries.length === 1 ? 'pago' : 'pagos'}: ${day.entries
-                .map((entry) => `${entry.concept} (${CATEGORY_LABELS[entry.category]})`)
+                .map((entry) => `${entry.concept} (${CATEGORY_LABELS[entry.category]}${entry.isPaid ? ', pagado' : ''})`)
                 .join(', ')}`,
         )
     }
@@ -115,12 +115,24 @@ function CalendarView({ accounts, entries, today, yearMonth }: {
     const toggle = (entry: MonthEntry) => actions.updateEntry(yearMonth, entry.id, { isPaid: !entry.isPaid })
     const accountOf = (entry: MonthEntry) =>
         entry.accountId ? (accountNames.get(entry.accountId) ?? 'Sin cuenta') : 'Sin cuenta'
+    // Patrón grid: una sola parada Tab (el día seleccionado) y flechas para moverse entre días.
+    const onGridKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+        const target = moveCalendarDay(selectedIso, event.key, yearMonth)
+
+        if (!target) {
+            return
+        }
+
+        event.preventDefault()
+        setSelectedIso(target)
+        event.currentTarget.querySelector<HTMLButtonElement>(`[data-iso="${target}"]`)?.focus()
+    }
 
     return (
         <div className="flex flex-wrap items-start gap-[18px]">
             <Panel aria-label={`Calendario de ${monthLabel(yearMonth)}`} className="flex-[999_1_640px] overflow-hidden">
                 <div className="hidden overflow-x-auto md:block">
-                    <div role="grid" aria-label={monthLabel(yearMonth)} className="min-w-[740px]">
+                    <div role="grid" aria-label={monthLabel(yearMonth)} className="min-w-[740px]" onKeyDown={onGridKeyDown}>
                         <div role="row" className="grid grid-cols-7">
                             {WEEKDAYS.map((weekday) => (
                                 <span
@@ -142,6 +154,8 @@ function CalendarView({ accounts, entries, today, yearMonth }: {
                                             key={day.iso}
                                             type="button"
                                             role="gridcell"
+                                            data-iso={day.iso}
+                                            tabIndex={selected ? 0 : -1}
                                             aria-selected={selected}
                                             aria-label={dayAriaLabel(day)}
                                             disabled={!day.inMonth}
@@ -177,12 +191,15 @@ function CalendarView({ accounts, entries, today, yearMonth }: {
                                                         className={cn(
                                                             'flex h-6 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-xs font-medium',
                                                             CATEGORY_STYLES[entry.category].pill,
-                                                            entry.isPaid && 'line-through opacity-55',
                                                             late && 'shadow-[inset_0_0_0_1.5px_var(--ft-neg-dot)]',
                                                         )}
                                                     >
-                                                        <span className="min-w-0 flex-1 truncate">{entry.concept}</span>
-                                                        <span className="tabular opacity-85">
+                                                        {/* Pagado: icono + tachado con la tinta de la categoría intacta (F-UI-03). */}
+                                                        {entry.isPaid ? <Check className="size-3 flex-none" aria-hidden="true" /> : null}
+                                                        <span className={cn('min-w-0 flex-1 truncate', entry.isPaid && 'line-through')}>
+                                                            {entry.concept}
+                                                        </span>
+                                                        <span className="tabular">
                                                             {entry.amount === null ? '—' : formatCompactMoney(entry.amount)}
                                                         </span>
                                                     </span>
@@ -208,7 +225,7 @@ function CalendarView({ accounts, entries, today, yearMonth }: {
                 </div>
 
                 <div className="md:hidden">
-                    <div role="grid" aria-label={monthLabel(yearMonth)}>
+                    <div role="grid" aria-label={monthLabel(yearMonth)} onKeyDown={onGridKeyDown}>
                         <div role="row" className="grid grid-cols-7 border-b border-ft-line bg-ft-hover">
                             {WEEKDAYS.map((weekday) => (
                                 <span key={weekday} role="columnheader" className="py-2 text-center text-[11.5px] font-medium text-ft-ink-3">
@@ -223,6 +240,8 @@ function CalendarView({ accounts, entries, today, yearMonth }: {
                                         key={day.iso}
                                         type="button"
                                         role="gridcell"
+                                        data-iso={day.iso}
+                                        tabIndex={day.iso === selectedIso ? 0 : -1}
                                         aria-selected={day.iso === selectedIso}
                                         aria-label={dayAriaLabel(day)}
                                         disabled={!day.inMonth}
@@ -364,19 +383,23 @@ export function CalendarPage() {
                 title="Calendario de pagos"
                 actions={
                     <>
-                        <FtButton asChild variant="ghost" size="icon">
-                            <Link href={hrefFor(previous)} aria-label={`Mes anterior: ${monthLabel(previous)}`}>
-                                <ChevronLeft aria-hidden="true" />
-                            </Link>
-                        </FtButton>
+                        {isYearMonth(previous) ? (
+                            <FtButton asChild variant="ghost" size="icon">
+                                <Link href={hrefFor(previous)} aria-label={`Mes anterior: ${monthLabel(previous)}`}>
+                                    <ChevronLeft aria-hidden="true" />
+                                </Link>
+                            </FtButton>
+                        ) : null}
                         <span className="hidden h-10 items-center rounded-lg border border-ft-line bg-white px-3.5 text-sm font-semibold text-ft-ink lg:inline-flex">
                             {monthLabel(yearMonth)}
                         </span>
-                        <FtButton asChild variant="ghost" size="icon">
-                            <Link href={hrefFor(next)} aria-label={`Mes siguiente: ${monthLabel(next)}`}>
-                                <ChevronRight aria-hidden="true" />
-                            </Link>
-                        </FtButton>
+                        {isYearMonth(next) ? (
+                            <FtButton asChild variant="ghost" size="icon">
+                                <Link href={hrefFor(next)} aria-label={`Mes siguiente: ${monthLabel(next)}`}>
+                                    <ChevronRight aria-hidden="true" />
+                                </Link>
+                            </FtButton>
+                        ) : null}
                         {yearMonth !== currentYearMonth ? (
                             <FtButton asChild variant="secondary">
                                 <Link href={hrefFor(currentYearMonth)}>Hoy</Link>

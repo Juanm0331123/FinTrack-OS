@@ -31,6 +31,8 @@ export function useSelectedMonth() {
     const currentYearMonth = useCurrentYearMonth()
     const requested = searchParams.get('month')
     const yearMonth = isYearMonth(requested) ? requested : currentYearMonth
+    // Un ?month= fuera del contrato (2000-01..2099-12) cae al mes actual y se avisa.
+    const invalidRequest = requested !== null && !isYearMonth(requested) ? requested : null
 
     const hrefFor = useCallback(
         (target: string, path: string = pathname) =>
@@ -38,5 +40,5 @@ export function useSelectedMonth() {
         [pathname],
     )
 
-    return { currentYearMonth, hrefFor, pathname, yearMonth }
+    return { currentYearMonth, hrefFor, invalidRequest, pathname, yearMonth }
 }

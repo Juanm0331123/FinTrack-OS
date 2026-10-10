@@ -7,7 +7,7 @@ import { useState } from 'react'
 
 import { APP_ROUTES } from '@/shared/config/routes'
 import { cn } from '@/shared/lib/utils'
-import { monthLabel, monthName, shiftYearMonth, yearOf } from '../domain/year-month'
+import { isYearMonth, monthLabel, monthName, shiftYearMonth, yearOf } from '../domain/year-month'
 import { monthHref, useSelectedMonth } from '../hooks/use-selected-month'
 import { useSheets } from '../hooks/use-workbook-data'
 import { Drawer } from '../ui/drawer'
@@ -35,7 +35,9 @@ function MonthPicker() {
     const months = useMonthStatuses(year)
     const sheets = useSheets()
     const latest = sheets.at(-1)?.yearMonth
-    const nextMonth = latest ? shiftYearMonth(latest, 1) : null
+    const candidate = latest ? shiftYearMonth(latest, 1) : null
+    const nextMonth = candidate && isYearMonth(candidate) ? candidate : null
+    const previousMonth = yearMonth ? shiftYearMonth(yearMonth, -1) : null
 
     if (!yearMonth) {
         return null
@@ -54,13 +56,15 @@ function MonthPicker() {
             </button>
             <Drawer open={open} onOpenChange={setOpen} title="Meses" description={year ? `Hojas de ${year}` : undefined}>
                 <div className="flex flex-col gap-1">
-                    <Link
-                        href={monthHref(pathname, shiftYearMonth(yearMonth, -1))}
-                        onClick={() => setOpen(false)}
-                        className="flex min-h-11 items-center rounded-lg px-3 text-sm font-medium text-ft-ink-2 hover:bg-ft-muted"
-                    >
-                        ← {capitalize(monthName(shiftYearMonth(yearMonth, -1)))}
-                    </Link>
+                    {previousMonth && isYearMonth(previousMonth) ? (
+                        <Link
+                            href={monthHref(pathname, previousMonth)}
+                            onClick={() => setOpen(false)}
+                            className="flex min-h-11 items-center rounded-lg px-3 text-sm font-medium text-ft-ink-2 hover:bg-ft-muted"
+                        >
+                            ← {capitalize(monthName(previousMonth))}
+                        </Link>
+                    ) : null}
                     {months.map((month) => (
                         <Link
                             key={month.yearMonth}
@@ -155,7 +159,8 @@ export function MobileTopBar({ onLogout, user }: { onLogout: () => void; user: S
                 </Link>
             )}
             <div className="flex items-center gap-1">
-                <SaveIndicator className="hidden sm:block" />
+                <SaveIndicator compact className="sm:hidden" />
+                <SaveIndicator className="hidden sm:inline-flex" />
                 <UserMenu user={user} onLogout={onLogout} />
             </div>
         </header>

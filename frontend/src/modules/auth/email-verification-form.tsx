@@ -8,6 +8,8 @@ import {
 } from 'react'
 
 import { Button } from '@/shared/ui/button'
+import { Input } from '@/shared/ui/input'
+import { Label } from '@/shared/ui/label'
 import { cn } from '@/shared/lib/utils'
 import { AuthApiError, resendEmailCode, verifyEmailCode } from './auth.api'
 import {
@@ -18,7 +20,9 @@ import type {
     AuthenticatedResponse,
     PendingVerificationState,
 } from './auth.types'
+import { useFlowGuard } from './flow-guard'
 import { OneTimeCodeInput } from './one-time-code-input'
+import { isCompleteCode } from './one-time-code'
 
 const CODE_LENGTH = 6
 
@@ -26,7 +30,15 @@ type EmailVerificationFormProps = {
     onCancelPendingVerification: () => void
     onPendingVerificationChange: (state: PendingVerificationState) => void
     onVerified: (session: AuthenticatedResponse) => void
+    // Contraseña recién escrita en el registro o el login; null tras recargar la página.
+    password?: string | null
     pendingVerification: PendingVerificationState
+}
+
+// Los códigos emitidos por un registro o login con contraseña solo activan la cuenta junto a esa
+// contraseña. Los de Google o GitHub no la necesitan.
+function requiresPassword(source: PendingVerificationState['source']) {
+    return source === 'register' || source === 'login'
 }
 
 function getSourceCopy(source: PendingVerificationState['source']) {
@@ -60,15 +72,22 @@ export function EmailVerificationForm({
     onCancelPendingVerification,
     onPendingVerificationChange,
     onVerified,
+    password = null,
     pendingVerification,
 }: EmailVerificationFormProps) {
     const [code, setCode] = useState('')
+    const [typedPassword, setTypedPassword] = useState('')
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
     const [infoMessage, setInfoMessage] = useState<string | null>(null)
     const [isResending, setIsResending] = useState(false)
     const [isSubmitting, setIsSubmitting] = useState(false)
     const [now, setNow] = useState(() => Date.now())
+    // «Usar otro correo» o desmontar invalida la verificación en vuelo: una respuesta tardía no
+    // adopta la sesión ni redirige.
+    const guard = useFlowGuard()
 
+    const needsPassword = requiresPassword(pendingVerification.source)
+    const askForPassword = needsPassword && !password
     const isExpired = isPendingVerificationExpired(pendingVerification.expiresAt)
     const timeLabel = formatCountdownAt(pendingVerification.expiresAt, now)
 
@@ -97,8 +116,13 @@ export function EmailVerificationForm({
             return
         }
 
-        if (code.length !== CODE_LENGTH) {
+        if (!isCompleteCode(code, CODE_LENGTH)) {
             setErrorMessage('Ingresa los 6 dígitos del código para continuar.')
+            return
+        }
+
+        if (askForPassword && !typedPassword) {
+            setErrorMessage('Escribe la contraseña con la que creaste la cuenta.')
             return
         }
 
@@ -106,14 +130,23 @@ export function EmailVerificationForm({
         setErrorMessage(null)
         setInfoMessage(null)
 
+        const run = guard.begin()
+
         try {
             const session = await verifyEmailCode({
                 code,
                 email: pendingVerification.email,
-            })
+                ...(needsPassword ? { password: password || typedPassword } : {}),
+            }, { signal: run.signal })
 
-            onVerified(session)
+            if (run.isCurrent()) {
+                onVerified(session)
+            }
         } catch (error) {
+            if (!run.isCurrent()) {
+                return
+            }
+
             if (error instanceof AuthApiError) {
                 if (error.code === 'EMAIL_VERIFICATION_EXPIRED') {
                     setErrorMessage(
@@ -144,10 +177,16 @@ export function EmailVerificationForm({
         setErrorMessage(null)
         setInfoMessage(null)
 
+        const run = guard.begin()
+
         try {
             const response = await resendEmailCode({
                 email: pendingVerification.email,
-            })
+            }, { signal: run.signal })
+
+            if (!run.isCurrent()) {
+                return
+            }
 
             const nextPendingVerification: PendingVerificationState = {
                 email: response.email,
@@ -160,6 +199,10 @@ export function EmailVerificationForm({
             onPendingVerificationChange(nextPendingVerification)
             setInfoMessage('Enviamos un código nuevo a tu correo.')
         } catch (error) {
+            if (!run.isCurrent()) {
+                return
+            }
+
             if (error instanceof AuthApiError) {
                 setErrorMessage(error.message)
                 return
@@ -217,6 +260,26 @@ export function EmailVerificationForm({
                     />
                 </div>
 
+                {askForPassword ? (
+                    <div className="space-y-2">
+                        <Label htmlFor="verification-password">Contraseña de la cuenta</Label>
+                        <Input
+                            id="verification-password"
+                            type="password"
+                            autoComplete="current-password"
+                            value={typedPassword}
+                            aria-describedby="verification-password-hint"
+                            onChange={(event) => {
+                                setTypedPassword(event.target.value)
+                                setErrorMessage(null)
+                            }}
+                        />
+                        <p id="verification-password-hint" className="text-sm text-muted-foreground">
+                            Por seguridad, el código solo activa la cuenta junto con su contraseña.
+                        </p>
+                    </div>
+                ) : null}
+
                 {pendingVerification.verificationCode ? (
                     <p className="rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-sm text-foreground">
                         Código de desarrollo: {pendingVerification.verificationCode}
@@ -272,7 +335,10 @@ export function EmailVerificationForm({
                         type="button"
                         variant="ghost"
                         className="w-full"
-                        onClick={onCancelPendingVerification}
+                        onClick={() => {
+                            guard.invalidate()
+                            onCancelPendingVerification()
+                        }}
                     >
                         Usar otro correo
                     </Button>

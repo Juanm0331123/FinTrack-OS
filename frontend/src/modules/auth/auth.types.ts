@@ -75,3 +75,9 @@ export type PasswordResetCodeVerificationResponse = {
 export type PasswordResetResponse = {
     passwordReset: true
 }
+
+export type EmailChangeRequestResponse = {
+    email: string
+    expiresAt: string
+    verificationCode?: string
+}

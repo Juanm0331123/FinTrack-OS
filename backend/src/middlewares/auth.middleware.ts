@@ -1,76 +1,52 @@
 import type { NextFunction, Request, Response } from 'express'
-import { UserRole } from '@prisma/client'
-import type { PublicUser } from '../modules/users/users.types.ts'
-import { UnauthorizedError, ForbiddenError } from '../utils/app-error.ts'
+import type { UserRole } from '@prisma/client'
 import { AuthRepository } from '../modules/auth/auth.repository.ts'
 import { verifyAccessToken } from '../modules/auth/auth.tokens.ts'
+import type { PublicUser } from '../modules/users/users.types.ts'
+import { ForbiddenError, UnauthorizedError } from '../utils/app-error.ts'
 
 const authRepository = new AuthRepository()
 
 export type AuthenticatedRequest = Request & {
     auth: {
-        sessionId?: string
+        sessionId: string
         user: PublicUser
     }
 }
 
-type RequestWithOptionalAuth = Request & {
-    auth?: AuthenticatedRequest['auth']
-}
-
 export function toAuthenticatedRequest(req: Request): AuthenticatedRequest {
-    const authenticatedRequest = req as RequestWithOptionalAuth
-
-    if (!authenticatedRequest.auth) {
-        throw new UnauthorizedError('Inicia sesión para continuar.')
+    if (!req.auth) {
+        throw new UnauthorizedError('Inicia sesión para continuar.', 'SESSION_MISSING')
     }
 
-    return authenticatedRequest as AuthenticatedRequest
+    return req as AuthenticatedRequest
 }
 
 function extractBearerToken(req: Request) {
-    const authorizationHeader = req.get('authorization')
+    const [scheme, token, extra] = req.get('authorization')?.split(' ') ?? []
 
-    if (!authorizationHeader) {
-        return null
-    }
-
-    const [scheme, token] = authorizationHeader.split(' ')
-
-    if (scheme !== 'Bearer' || !token) {
-        return null
-    }
-
-    return token
+    return scheme === 'Bearer' && token && !extra ? token : null
 }
 
-export async function requireAuth(
-    req: Request,
-    _res: Response,
-    next: NextFunction,
-) {
+// Verifica el JWT y, en la misma consulta que carga al usuario, que su sesión siga abierta.
+// Así logout, logout-all, recuperación y cambios de credenciales invalidan de inmediato los
+// access tokens emitidos, sin esperar a que venzan.
+export async function requireAuth(req: Request, _res: Response, next: NextFunction) {
     try {
         const accessToken = extractBearerToken(req)
 
         if (!accessToken) {
-            throw new UnauthorizedError('Inicia sesión para continuar.')
+            throw new UnauthorizedError('Inicia sesión para continuar.', 'SESSION_MISSING')
         }
 
         const claims = await verifyAccessToken(accessToken)
+        const session = await authRepository.findActiveSessionUser(claims.sessionId, claims.userId, new Date())
 
-        if (claims.tokenType !== 'access') {
-            throw new UnauthorizedError('Tu sesión no es válida. Vuelve a iniciar sesión.')
+        if (!session) {
+            throw new UnauthorizedError('Tu sesión se cerró. Vuelve a iniciar sesión.', 'SESSION_REVOKED')
         }
 
-        const user = await authRepository.findActiveUserById(claims.userId)
-
-        if (!user) {
-            throw new UnauthorizedError('No encontramos tu usuario. Vuelve a iniciar sesión.')
-        }
-
-        ;(req as RequestWithOptionalAuth).auth = {
-            user,
-        }
+        req.auth = { sessionId: claims.sessionId, user: session.user }
 
         next()
     } catch (error) {
@@ -90,17 +66,11 @@ export function requireRole(...roles: UserRole[]) {
     }
 }
 
-export function requireSelfOrRole(
-    paramName: string,
-    ...roles: UserRole[]
-) {
+export function requireSelfOrRole(paramName: string, ...roles: UserRole[]) {
     return (req: Request, _res: Response, next: NextFunction) => {
         const authenticatedRequest = toAuthenticatedRequest(req)
 
-        if (
-            authenticatedRequest.auth.user.id === req.params[paramName] ||
-            roles.includes(authenticatedRequest.auth.user.role)
-        ) {
+        if (authenticatedRequest.auth.user.id === req.params[paramName] || roles.includes(authenticatedRequest.auth.user.role)) {
             return next()
         }
 

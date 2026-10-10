@@ -47,7 +47,7 @@ export function StatusBadge({
             aria-label={state === 'paid' ? `${concept}: pagado. Marcar como pendiente` : `${concept}: ${LABELS[state].toLowerCase()}. Marcar como pagado`}
             onClick={onToggle}
             className={cn(
-                'relative inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-full border px-2.5 text-[12.5px] font-medium whitespace-nowrap transition-colors duration-150 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ft-focus max-sm:after:absolute max-sm:after:-inset-2',
+                'relative inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-full border px-2.5 text-[12.5px] font-medium whitespace-nowrap transition-colors duration-150 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ft-focus max-lg:after:absolute max-lg:after:-inset-2',
                 styles.badge,
                 className,
             )}

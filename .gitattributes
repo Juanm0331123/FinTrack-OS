@@ -2,3 +2,6 @@
 .agents/skills/tdd/** text eol=lf
 frontend/.agents/skills/playwright-best-practices/** text eol=lf
 backend/.agents/skills/api-testing/** text eol=lf
+
+# Scripts de shell ejecutados en Linux (CI y Docker).
+*.sh text eol=lf

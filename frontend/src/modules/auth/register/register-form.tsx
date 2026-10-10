@@ -15,11 +15,13 @@ import { EmailVerificationForm } from '../email-verification-form'
 import {
     clearPendingVerification,
     loadPendingVerification,
-    saveAuthSession,
     savePendingVerification,
 } from '../auth.storage'
-import type { PendingVerificationState } from '../auth.types'
+import type { AuthenticatedResponse, PendingVerificationState } from '../auth.types'
+import { getBrowserSession } from '../browser-session'
 import { AuthSocialButtons } from '../auth-social-buttons'
+import { useFlowGuard } from '../flow-guard'
+import { createSingleFlight } from '../single-flight'
 import {
     registerSchema,
     type RegisterFormValues,
@@ -30,8 +32,13 @@ export function RegisterForm() {
     const [pendingVerification, setPendingVerification] =
         useState<PendingVerificationState | null>(() => loadPendingVerification())
     const [serverErrorMessage, setServerErrorMessage] = useState<string | null>(null)
+    // Solo en memoria: el backend exige la contraseña junto al código para activar la cuenta.
+    const [verificationPassword, setVerificationPassword] = useState<string | null>(null)
     const [showConfirmPassword, setShowConfirmPassword] = useState(false)
     const [showPassword, setShowPassword] = useState(false)
+    const [submission] = useState(createSingleFlight)
+    // Al desmontar (p. ej. navegar a otra página) una respuesta tardía no adopta sesión ni cambia de paso.
+    const guard = useFlowGuard()
     const {
         formState: { errors, isSubmitting },
         handleSubmit,
@@ -57,20 +64,24 @@ export function RegisterForm() {
     function handlePendingVerificationClear() {
         clearPendingVerification()
         setPendingVerification(null)
+        setVerificationPassword(null)
     }
 
-    function handleAuthenticated(session: {
-        accessToken: string
-        accessTokenExpiresInSeconds: number
-        user: Parameters<typeof saveAuthSession>[0]['user']
-    }) {
+    function handleAuthenticated(session: AuthenticatedResponse) {
         clearPendingVerification()
-        saveAuthSession(session)
+        setVerificationPassword(null)
+        getBrowserSession().setSession(session)
         router.replace(APP_ROUTES.dashboard)
     }
 
-    async function onSubmit(values: RegisterFormValues) {
+    function onSubmit(values: RegisterFormValues) {
+        return submission.run(() => submit(values))
+    }
+
+    async function submit(values: RegisterFormValues) {
         setServerErrorMessage(null)
+
+        const run = guard.begin()
 
         try {
             const response = await registerWithEmail({
@@ -78,8 +89,13 @@ export function RegisterForm() {
                 firstName: values.firstName,
                 lastName: values.lastName || undefined,
                 password: values.password,
-            })
+            }, { signal: run.signal })
 
+            if (!run.isCurrent()) {
+                return
+            }
+
+            setVerificationPassword(values.password)
             handlePendingVerificationChange({
                 email: response.email,
                 expiresAt: response.expiresAt,
@@ -87,6 +103,10 @@ export function RegisterForm() {
                 verificationCode: response.verificationCode,
             })
         } catch (error) {
+            if (!run.isCurrent()) {
+                return
+            }
+
             setServerErrorMessage(
                 error instanceof AuthApiError || error instanceof Error
                     ? error.message
@@ -103,6 +123,7 @@ export function RegisterForm() {
                 onPendingVerificationChange={handlePendingVerificationChange}
                 onCancelPendingVerification={handlePendingVerificationClear}
                 onVerified={handleAuthenticated}
+                password={verificationPassword}
             />
         )
     }

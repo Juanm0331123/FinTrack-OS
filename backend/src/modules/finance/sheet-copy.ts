@@ -54,7 +54,14 @@ export function buildCopiedEntries(
         }))
 }
 
-export function buildCopiedIncome(source: CopyableIncome) {
+export type CopiedIncome = {
+    benefitsOverride: number | null
+    otherDeductions: number
+    salary: number
+    transportAllowance: number
+}
+
+export function buildCopiedIncome(source: CopyableIncome): CopiedIncome {
     return {
         benefitsOverride: toNullableNumber(source.benefitsOverride),
         otherDeductions: toNumber(source.otherDeductions),

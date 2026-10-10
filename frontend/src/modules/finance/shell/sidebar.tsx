@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { APP_ROUTES } from '@/shared/config/routes'
 import { cn } from '@/shared/lib/utils'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/ui/tooltip'
-import { monthName, shiftYearMonth, yearOf } from '../domain/year-month'
+import { isYearMonth, monthName, shiftYearMonth, yearOf } from '../domain/year-month'
 import { monthHref, useSelectedMonth } from '../hooks/use-selected-month'
 import { useSheets } from '../hooks/use-workbook-data'
 import { NAV_ITEMS, navHref } from './nav-items'
@@ -48,7 +48,8 @@ export function Sidebar({ onLogout, user }: { onLogout: () => void; user: ShellU
     const months = useMonthStatuses(year)
     const sheets = useSheets()
     const latest = sheets.at(-1)?.yearMonth
-    const nextMonth = latest ? shiftYearMonth(latest, 1) : null
+    const candidate = latest ? shiftYearMonth(latest, 1) : null
+    const nextMonth = candidate && isYearMonth(candidate) ? candidate : null
     const showNextMonth = nextMonth !== null && year !== null && yearOf(nextMonth) === year
 
     return (

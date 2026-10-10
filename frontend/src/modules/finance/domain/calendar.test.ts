@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
     buildCalendarWeeks,
     isEntryOverdue,
+    moveCalendarDay,
     splitMonthHalves,
     upcomingEntries,
 } from './calendar'
@@ -127,5 +128,28 @@ describe('getColombianHolidays', () => {
             '2026-12-08',
             '2026-12-25',
         ])
+    })
+})
+
+// F-UI-06: el modelo de teclado del grid del calendario.
+describe('moveCalendarDay', () => {
+    it('moves by day and by week inside the month', () => {
+        expect(moveCalendarDay('2026-10-14', 'ArrowRight', '2026-10')).toBe('2026-10-15')
+        expect(moveCalendarDay('2026-10-14', 'ArrowLeft', '2026-10')).toBe('2026-10-13')
+        expect(moveCalendarDay('2026-10-14', 'ArrowDown', '2026-10')).toBe('2026-10-21')
+        expect(moveCalendarDay('2026-10-14', 'ArrowUp', '2026-10')).toBe('2026-10-07')
+    })
+
+    it('goes to the start and end of the week (Monday to Sunday)', () => {
+        // 14 de octubre de 2026 es miércoles.
+        expect(moveCalendarDay('2026-10-14', 'Home', '2026-10')).toBe('2026-10-12')
+        expect(moveCalendarDay('2026-10-14', 'End', '2026-10')).toBe('2026-10-18')
+    })
+
+    it('stays inside the month and ignores other keys', () => {
+        expect(moveCalendarDay('2026-10-01', 'ArrowUp', '2026-10')).toBe('2026-10-01')
+        expect(moveCalendarDay('2026-10-30', 'ArrowDown', '2026-10')).toBe('2026-10-31')
+        expect(moveCalendarDay('2026-10-01', 'Home', '2026-10')).toBe('2026-10-01')
+        expect(moveCalendarDay('2026-10-14', 'a', '2026-10')).toBeNull()
     })
 })

@@ -13,7 +13,7 @@ import {
     ShieldCheck,
 } from 'lucide-react'
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import { useForm } from 'react-hook-form'
 
 import { APP_ROUTES } from '@/shared/config/routes'
@@ -28,8 +28,10 @@ import {
     resetPassword,
     verifyPasswordResetCode,
 } from '../auth.api'
-import { maskEmailAddress } from '../auth.storage'
+import { clearPasswordResetHandoff, maskEmailAddress, peekPasswordResetHandoff, type PasswordResetHandoff } from '../auth.storage'
+import { useFlowGuard } from '../flow-guard'
 import { OneTimeCodeInput } from '../one-time-code-input'
+import { isCompleteCode } from '../one-time-code'
 import {
     forgotPasswordRequestSchema,
     forgotPasswordResetSchema,
@@ -51,6 +53,33 @@ type PasswordResetSessionState = {
 type StepId = 'request' | 'verify' | 'reset'
 
 const CODE_LENGTH = 6
+
+const HANDOFF_MESSAGE =
+    'Por seguridad debes crear una contraseña nueva. Te enviamos un código de recuperación a tu correo.'
+
+// Handoff del login (contraseña heredada): se lee como snapshot externo, null en el servidor y en
+// la hidratación, y el valor del navegador justo después. Leerlo no lo borra (render puro, seguro
+// en Strict Mode); se borra al reiniciar o completar el flujo, así una recarga conserva el paso.
+let handoffSnapshot: { key: string; value: PasswordResetHandoff | null } = { key: '', value: null }
+
+function readHandoffSnapshot() {
+    const value = peekPasswordResetHandoff()
+    const key = value ? `${value.email}|${value.expiresAt}` : ''
+
+    if (key !== handoffSnapshot.key) {
+        handoffSnapshot = { key, value }
+    }
+
+    return handoffSnapshot.value
+}
+
+function subscribeToNothing() {
+    return () => undefined
+}
+
+function usePasswordResetHandoff() {
+    return useSyncExternalStore(subscribeToNothing, readHandoffSnapshot, () => null)
+}
 
 function formatCountdown(expiresAt: string) {
     const remainingMs = Math.max(0, new Date(expiresAt).getTime() - Date.now())
@@ -124,11 +153,16 @@ function StepRail({ step }: { step: StepId }) {
 }
 
 export function ForgotPasswordFlow() {
+    const handoff = usePasswordResetHandoff()
+    const guard = useFlowGuard()
+    const [handoffDismissed, setHandoffDismissed] = useState(false)
     const [code, setCode] = useState('')
-    const [requestState, setRequestState] =
-        useState<PasswordResetRequestState | null>(null)
+    const [ownRequestState, setRequestState] = useState<PasswordResetRequestState | null>(null)
     const [requestError, setRequestError] = useState<string | null>(null)
-    const [requestInfo, setRequestInfo] = useState<string | null>(null)
+    const [ownRequestInfo, setRequestInfo] = useState<string | null>(null)
+    const handoffRequest = handoffDismissed ? null : handoff
+    const requestState = ownRequestState ?? handoffRequest
+    const requestInfo = ownRequestInfo ?? (!ownRequestState && handoffRequest ? HANDOFF_MESSAGE : null)
     const [resetError, setResetError] = useState<string | null>(null)
     const [resetInfo, setResetInfo] = useState<string | null>(null)
     const [resetState, setResetState] =
@@ -195,7 +229,11 @@ export function ForgotPasswordFlow() {
         }
     }, [passwordForm, resetState])
 
+    // Reiniciar invalida lo que esté en vuelo: una verificación tardía no repone el paso anterior.
     function restartFlow(options?: { email?: string; message?: string }) {
+        guard.invalidate()
+        clearPasswordResetHandoff()
+        setHandoffDismissed(true)
         setCode('')
         setRequestState(null)
         setRequestError(null)
@@ -219,10 +257,16 @@ export function ForgotPasswordFlow() {
         setRequestError(null)
         setRequestInfo(null)
 
+        const run = guard.begin()
+
         try {
             const response = await requestPasswordReset({
                 email: values.email,
-            })
+            }, { signal: run.signal })
+
+            if (!run.isCurrent()) {
+                return
+            }
 
             setCode('')
             setResetState(null)
@@ -234,6 +278,10 @@ export function ForgotPasswordFlow() {
                 'Si encontramos una cuenta asociada, enviamos un código de 6 dígitos al correo indicado.',
             )
         } catch (error) {
+            if (!run.isCurrent()) {
+                return
+            }
+
             setRequestError(
                 error instanceof Error
                     ? error.message
@@ -255,10 +303,16 @@ export function ForgotPasswordFlow() {
         setResetInfo(null)
         setCode('')
 
+        const run = guard.begin()
+
         try {
             const response = await requestPasswordReset({
                 email: requestState.email,
-            })
+            }, { signal: run.signal })
+
+            if (!run.isCurrent()) {
+                return
+            }
 
             setRequestState({
                 email: response.email,
@@ -268,6 +322,10 @@ export function ForgotPasswordFlow() {
                 'Generamos un código nuevo. El anterior ya no funciona.',
             )
         } catch (error) {
+            if (!run.isCurrent()) {
+                return
+            }
+
             setRequestError(
                 error instanceof Error
                     ? error.message
@@ -290,7 +348,7 @@ export function ForgotPasswordFlow() {
             return
         }
 
-        if (code.length !== CODE_LENGTH) {
+        if (!isCompleteCode(code, CODE_LENGTH)) {
             setRequestError('Ingresa los 6 dígitos para continuar.')
             return
         }
@@ -298,11 +356,17 @@ export function ForgotPasswordFlow() {
         setIsVerifyingCode(true)
         setRequestError(null)
 
+        const run = guard.begin()
+
         try {
             const response = await verifyPasswordResetCode({
                 code,
                 email: requestState.email,
-            })
+            }, { signal: run.signal })
+
+            if (!run.isCurrent()) {
+                return
+            }
 
             setResetState({
                 email: response.email,
@@ -314,6 +378,10 @@ export function ForgotPasswordFlow() {
                 'Código validado. Ahora define una contraseña nueva para tu cuenta.',
             )
         } catch (error) {
+            if (!run.isCurrent()) {
+                return
+            }
+
             if (error instanceof AuthApiError) {
                 if (error.code === 'PASSWORD_RESET_CODE_EXPIRED') {
                     setRequestError(
@@ -347,13 +415,21 @@ export function ForgotPasswordFlow() {
         setResetError(null)
         setResetInfo(null)
 
+        const run = guard.begin()
+
         try {
             await resetPassword({
                 email: resetState.email,
                 password: values.password,
                 resetToken: resetState.resetToken,
-            })
+            }, { signal: run.signal })
 
+            if (!run.isCurrent()) {
+                return
+            }
+
+            clearPasswordResetHandoff()
+            setHandoffDismissed(true)
             setSuccessEmail(resetState.email)
             setCode('')
             setRequestState(null)
@@ -361,6 +437,10 @@ export function ForgotPasswordFlow() {
             setResetInfo(null)
             passwordForm.reset()
         } catch (error) {
+            if (!run.isCurrent()) {
+                return
+            }
+
             if (error instanceof AuthApiError) {
                 if (
                     error.code === 'PASSWORD_RESET_TOKEN_EXPIRED' ||
@@ -607,7 +687,7 @@ export function ForgotPasswordFlow() {
                             type="button"
                             variant="brand"
                             className="w-full"
-                            disabled={code.length !== CODE_LENGTH || isVerifyingCode}
+                            disabled={!isCompleteCode(code, CODE_LENGTH) || isVerifyingCode}
                             onClick={handleVerifyCode}
                         >
                             {isVerifyingCode ? (

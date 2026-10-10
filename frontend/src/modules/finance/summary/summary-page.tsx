@@ -17,10 +17,14 @@ import { EmptyState, PageHeader } from '../ui/layout-parts'
 import { Panel, PanelHeader } from '../ui/panel'
 import { SummaryChart } from './summary-chart'
 
+// Mismo rango que las hojas del API (2000..2099).
+const MIN_YEAR = 2000
+const MAX_YEAR = 2099
+
 function parseYear(value: string | null) {
     const year = Number(value)
 
-    return Number.isInteger(year) && year >= 2000 && year <= 2100 ? year : null
+    return Number.isInteger(year) && year >= MIN_YEAR && year <= MAX_YEAR ? year : null
 }
 
 export function SummaryPage() {
@@ -50,16 +54,20 @@ export function SummaryPage() {
                 subtitle="Ingresos, gastos, colchón y ahorro de cada mes"
                 actions={
                     <>
-                        <FtButton asChild variant="ghost" size="icon">
-                            <Link href={href(year - 1)} aria-label={`Año anterior: ${year - 1}`}>
-                                <ChevronLeft aria-hidden="true" />
-                            </Link>
-                        </FtButton>
-                        <FtButton asChild variant="ghost" size="icon">
-                            <Link href={href(year + 1)} aria-label={`Año siguiente: ${year + 1}`}>
-                                <ChevronRight aria-hidden="true" />
-                            </Link>
-                        </FtButton>
+                        {year > MIN_YEAR ? (
+                            <FtButton asChild variant="ghost" size="icon">
+                                <Link href={href(year - 1)} aria-label={`Año anterior: ${year - 1}`}>
+                                    <ChevronLeft aria-hidden="true" />
+                                </Link>
+                            </FtButton>
+                        ) : null}
+                        {year < MAX_YEAR ? (
+                            <FtButton asChild variant="ghost" size="icon">
+                                <Link href={href(year + 1)} aria-label={`Año siguiente: ${year + 1}`}>
+                                    <ChevronRight aria-hidden="true" />
+                                </Link>
+                            </FtButton>
+                        ) : null}
                     </>
                 }
             />
@@ -152,7 +160,7 @@ export function SummaryPage() {
                                             >
                                                 <Link
                                                     href={`${APP_ROUTES.dashboard}?month=${row.yearMonth}`}
-                                                    className="inline-flex min-h-11 items-center rounded outline-none hover:text-ft-primary hover:underline focus-visible:outline-2 focus-visible:outline-ft-focus sm:min-h-0"
+                                                    className="inline-flex min-h-11 items-center rounded outline-none hover:text-ft-primary hover:underline focus-visible:outline-2 focus-visible:outline-ft-focus lg:min-h-0"
                                                 >
                                                     {monthLabel(row.yearMonth)}
                                                 </Link>

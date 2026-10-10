@@ -1,189 +1,144 @@
 'use client'
 
-import type {
-    AuthSession,
-    AuthUser,
-    PendingVerificationState,
-} from './auth.types'
+import type { PendingVerificationSource, PendingVerificationState } from './auth.types'
 
-const AUTH_SESSION_STORAGE_KEY = 'fintrack.auth.session'
+// Estado temporal de flujos de verificación. Va en sessionStorage (dura lo que la pestaña) y
+// nunca contiene tokens de sesión: el access token vive solo en memoria (session-manager.ts).
+//
+// El storage es una ayuda opcional para sobrevivir a una recarga: cualquier operación puede
+// fallar (modo privado, cuota, política del navegador) y entonces el flujo sigue en memoria. Lo
+// leído se valida: un valor incompatible, de otra versión o vencido se descarta.
 const PENDING_VERIFICATION_STORAGE_KEY = 'fintrack.auth.pending-verification'
-const AUTH_SESSION_EVENT = 'fintrack:auth-session-change'
+const PASSWORD_RESET_HANDOFF_KEY = 'fintrack.auth.password-reset-required'
 
-function isBrowser() {
-    return typeof window !== 'undefined'
-}
+const SOURCES: readonly PendingVerificationSource[] = ['login', 'register', 'google', 'github']
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+$/
 
-function notifyAuthSessionChange() {
-    if (!isBrowser()) {
-        return
-    }
-
-    window.dispatchEvent(new Event(AUTH_SESSION_EVENT))
-}
-
-export function saveAuthSession(input: {
-    accessToken: string
-    accessTokenExpiresInSeconds: number
-    user: AuthUser
-}) {
-    if (!isBrowser()) {
-        return
-    }
-
-    const session: AuthSession = {
-        accessToken: input.accessToken,
-        accessTokenExpiresAt: new Date(
-            Date.now() + input.accessTokenExpiresInSeconds * 1000,
-        ).toISOString(),
-        user: input.user,
-    }
-
-    window.localStorage.setItem(
-        AUTH_SESSION_STORAGE_KEY,
-        JSON.stringify(session),
-    )
-    notifyAuthSessionChange()
-}
-
-export function loadAuthSession() {
-    if (!isBrowser()) {
-        return null
-    }
-
-    const rawValue = window.localStorage.getItem(AUTH_SESSION_STORAGE_KEY)
-
-    if (!rawValue) {
-        return null
-    }
-
+function storage() {
     try {
-        return JSON.parse(rawValue) as AuthSession
-    } catch {
-        window.localStorage.removeItem(AUTH_SESSION_STORAGE_KEY)
-        return null
-    }
-}
-
-export function isAuthSessionExpired(accessTokenExpiresAt: string) {
-    return new Date(accessTokenExpiresAt).getTime() <= Date.now()
-}
-
-export function isAuthSessionActive(session: AuthSession | null | undefined) {
-    if (!session?.accessToken || !session.accessTokenExpiresAt) {
-        return false
-    }
-
-    return !isAuthSessionExpired(session.accessTokenExpiresAt)
-}
-
-export function getAuthSessionSnapshot() {
-    if (!isBrowser()) {
-        return ''
-    }
-
-    return window.localStorage.getItem(AUTH_SESSION_STORAGE_KEY) ?? ''
-}
-
-export function parseAuthSessionSnapshot(rawValue: string) {
-    if (!rawValue) {
-        return null
-    }
-
-    try {
-        return JSON.parse(rawValue) as AuthSession
+        return typeof window === 'undefined' ? null : window.sessionStorage
     } catch {
         return null
     }
 }
 
-export function subscribeAuthSessionStore(onStoreChange: () => void) {
-    if (!isBrowser()) {
-        return () => undefined
-    }
+function safely<T>(operation: (store: Storage) => T, fallback: T): T {
+    try {
+        const store = storage()
 
-    const handleStorage = (event: StorageEvent) => {
-        if (!event.key || event.key === AUTH_SESSION_STORAGE_KEY) {
-            onStoreChange()
-        }
-    }
-
-    window.addEventListener('storage', handleStorage)
-    window.addEventListener(AUTH_SESSION_EVENT, onStoreChange)
-
-    return () => {
-        window.removeEventListener('storage', handleStorage)
-        window.removeEventListener(AUTH_SESSION_EVENT, onStoreChange)
+        return store ? operation(store) : fallback
+    } catch {
+        return fallback
     }
 }
 
-export function loadActiveAuthSession() {
-    const session = parseAuthSessionSnapshot(getAuthSessionSnapshot())
+function remove(key: string) {
+    safely((store) => store.removeItem(key), undefined)
+}
 
-    if (!isAuthSessionActive(session)) {
-        if (session) {
-            clearAuthSession()
-        }
+// Lee y valida; lo que no pasa la validación se borra para no volver a romper la página.
+function readValid<T>(key: string, parse: (value: unknown) => T | null): T | null {
+    const raw = safely((store) => store.getItem(key), null)
 
+    if (raw === null) {
         return null
     }
 
-    return session
-}
+    let parsed: T | null = null
 
-export function clearAuthSession() {
-    if (!isBrowser()) {
-        return
+    try {
+        parsed = parse(JSON.parse(raw))
+    } catch {
+        parsed = null
     }
 
-    const hadSession = window.localStorage.getItem(AUTH_SESSION_STORAGE_KEY) !== null
-    window.localStorage.removeItem(AUTH_SESSION_STORAGE_KEY)
+    if (parsed === null) {
+        remove(key)
+    }
 
-    if (hadSession) {
-        notifyAuthSessionChange()
+    return parsed
+}
+
+function write(key: string, value: unknown) {
+    return safely((store) => {
+        store.setItem(key, JSON.stringify(value))
+
+        return true
+    }, false)
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isFutureDate(value: unknown): value is string {
+    return typeof value === 'string' && Number.isFinite(new Date(value).getTime()) && !isPendingVerificationExpired(value)
+}
+
+function isEmail(value: unknown): value is string {
+    return typeof value === 'string' && EMAIL_PATTERN.test(value)
+}
+
+function parsePendingVerification(value: unknown): PendingVerificationState | null {
+    if (
+        !isRecord(value) ||
+        !isEmail(value.email) ||
+        !isFutureDate(value.expiresAt) ||
+        !SOURCES.includes(value.source as PendingVerificationSource)
+    ) {
+        return null
+    }
+
+    return {
+        email: value.email,
+        expiresAt: value.expiresAt,
+        source: value.source as PendingVerificationSource,
+        ...(typeof value.verificationCode === 'string' ? { verificationCode: value.verificationCode } : {}),
     }
 }
 
+// Devuelve false si no se pudo persistir: el flujo continúa igual con el estado en memoria.
 export function savePendingVerification(state: PendingVerificationState) {
-    if (!isBrowser()) {
-        return
-    }
-
-    window.localStorage.setItem(
-        PENDING_VERIFICATION_STORAGE_KEY,
-        JSON.stringify(state),
-    )
+    return write(PENDING_VERIFICATION_STORAGE_KEY, state)
 }
 
 export function loadPendingVerification() {
-    if (!isBrowser()) {
-        return null
-    }
-
-    const rawValue = window.localStorage.getItem(PENDING_VERIFICATION_STORAGE_KEY)
-
-    if (!rawValue) {
-        return null
-    }
-
-    try {
-        return JSON.parse(rawValue) as PendingVerificationState
-    } catch {
-        window.localStorage.removeItem(PENDING_VERIFICATION_STORAGE_KEY)
-        return null
-    }
+    return readValid(PENDING_VERIFICATION_STORAGE_KEY, parsePendingVerification)
 }
 
 export function clearPendingVerification() {
-    if (!isBrowser()) {
-        return
-    }
-
-    window.localStorage.removeItem(PENDING_VERIFICATION_STORAGE_KEY)
+    remove(PENDING_VERIFICATION_STORAGE_KEY)
 }
 
 export function isPendingVerificationExpired(expiresAt: string) {
     return new Date(expiresAt).getTime() <= Date.now()
+}
+
+export type PasswordResetHandoff = {
+    email: string
+    expiresAt: string
+}
+
+function parseHandoff(value: unknown): PasswordResetHandoff | null {
+    return isRecord(value) && isEmail(value.email) && isFutureDate(value.expiresAt)
+        ? { email: value.email, expiresAt: value.expiresAt }
+        : null
+}
+
+// El login detectó una contraseña heredada de más de 72 bytes y el backend ya envió un código de
+// recuperación: la página de recuperación continúa directamente en el paso de verificación. El
+// handoff se lee después del montaje (no en render) y se conserva hasta que el flujo termina o se
+// reinicia, para que una recarga no pierda el paso.
+export function savePasswordResetHandoff(state: PasswordResetHandoff) {
+    return write(PASSWORD_RESET_HANDOFF_KEY, state)
+}
+
+export function peekPasswordResetHandoff() {
+    return readValid(PASSWORD_RESET_HANDOFF_KEY, parseHandoff)
+}
+
+export function clearPasswordResetHandoff() {
+    remove(PASSWORD_RESET_HANDOFF_KEY)
 }
 
 export function maskEmailAddress(email: string) {

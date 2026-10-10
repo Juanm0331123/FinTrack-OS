@@ -1,3 +1,8 @@
 allowBuilds:
   '@prisma/engines': true
   prisma: true
+
+# Avisos del CLI de Prisma (herramienta de desarrollo): fuerza versiones parcheadas.
+overrides:
+  deepmerge-ts: ^8.0.0
+  mysql2: ^3.23.1

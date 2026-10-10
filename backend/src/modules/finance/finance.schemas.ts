@@ -5,34 +5,50 @@ import {
     ENTRY_CATEGORIES,
     LEFTOVER_DESTINATIONS,
 } from './finance.types.ts'
+import { roundHalfUpTo, roundHalfUpToCents } from './money.ts'
 
 const MAX_AMOUNT = 999_999_999_999.99
 const MAX_SORT_ORDER = 1_000_000
 
+// Hojas entre 2000 y 2099: evita crear miles de meses absurdos que inflen el libro.
 const yearMonthSchema = z
     .string()
     .trim()
-    .regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Mes inválido. Usa el formato AAAA-MM.')
+    .regex(/^20\d{2}-(0[1-9]|1[0-2])$/, 'Mes inválido. Usa el formato AAAA-MM entre 2000 y 2099.')
 
 const idSchema = z.uuid('Identificador inválido.')
 
+// Redondeo a centavos como ROUND(valor; 2) de Excel; el máximo se comprueba ya redondeado para
+// que nada exceda numeric(14, 2).
 const amountSchema = z
     .number({ error: 'El valor debe ser un número.' })
     .min(0, 'El valor no puede ser negativo.')
-    .max(MAX_AMOUNT, 'El valor es demasiado alto.')
-    .transform((value) => Math.round(value * 100) / 100)
+    .max(MAX_AMOUNT + 0.01, 'El valor es demasiado alto.')
+    .transform(roundHalfUpToCents)
+    .pipe(z.number().max(MAX_AMOUNT, 'El valor es demasiado alto.'))
 
 const nullableAmountSchema = amountSchema.nullable()
 
-const rateSchema = z
-    .number({ error: 'La tasa debe ser un número.' })
-    .min(0, 'La tasa no puede ser negativa.')
-    .max(1, 'La tasa debe estar entre 0 y 1.')
+// Tasas y porcentajes se normalizan a la escala de su columna antes de guardar y de comparar un
+// reintento: numeric(9, 6) para tasas, numeric(6, 4) para prestaciones y numeric(5, 2) para el
+// porcentaje compartido.
+function rateWithScale(decimals: number) {
+    return z
+        .number({ error: 'La tasa debe ser un número.' })
+        .min(0, 'La tasa no puede ser negativa.')
+        .max(1, 'La tasa debe estar entre 0 y 1.')
+        .transform((value) => roundHalfUpTo(value, decimals))
+}
+
+const rateSchema = rateWithScale(6)
+
+const benefitsRateSchema = rateWithScale(4)
 
 const percentSchema = z
     .number({ error: 'El porcentaje debe ser un número.' })
     .min(0, 'El porcentaje no puede ser negativo.')
     .max(100, 'El porcentaje no puede superar 100.')
+    .transform((value) => roundHalfUpTo(value, 2))
 
 const dueDaySchema = z
     .number({ error: 'El día debe ser un número.' })
@@ -74,12 +90,29 @@ const idParams = z.object({ id: idSchema })
 
 export const yearMonthParamsSchema = z.object({ params: yearMonthParams })
 
+export const workbookQuerySchema = z.object({
+    query: z
+        .object({ from: yearMonthSchema.optional(), to: yearMonthSchema.optional() })
+        .strip()
+        .refine((value) => !value.from || !value.to || value.from <= value.to, {
+            message: 'El mes inicial debe ser anterior o igual al final.',
+            path: ['from'],
+        }),
+})
+
+// operationId identifica una acción del usuario: el mismo id es un reintento (no repite la
+// copia) y un id nuevo es una acción intencional distinta.
+export const copyPreviousSheetSchema = z.object({
+    params: yearMonthParams,
+    body: z.object({ operationId: z.uuid('Identificador inválido.').optional() }).strict().optional(),
+})
+
 export const idParamsSchema = z.object({ params: idParams })
 
 export const updateSettingsSchema = z.object({
     body: z
         .object({
-            benefitsRate: rateSchema.optional(),
+            benefitsRate: benefitsRateSchema.optional(),
             cushionAmount: amountSchema.optional(),
             debtStrategy: z.enum(DEBT_STRATEGIES, { error: 'La estrategia de deudas no es válida.' }).optional(),
             redirectDebtOverpayments: z.boolean().optional(),
@@ -115,6 +148,7 @@ export const createSheetSchema = z.object({
     body: z
         .object({
             copyFrom: z.enum(['PREVIOUS', 'NONE']).default('NONE'),
+            operationId: idSchema.optional(),
             yearMonth: yearMonthSchema,
         })
         .strict(),
@@ -252,6 +286,8 @@ export type UpdateSettingsInput = z.infer<typeof updateSettingsSchema>['body']
 export type CreateAccountInput = z.infer<typeof createAccountSchema>['body']
 export type UpdateAccountInput = z.infer<typeof updateAccountSchema>['body']
 export type CreateSheetInput = z.infer<typeof createSheetSchema>['body']
+export type CopyPreviousSheetInput = NonNullable<z.infer<typeof copyPreviousSheetSchema>['body']>
+export type WorkbookQuery = z.infer<typeof workbookQuerySchema>['query']
 export type UpdateSheetInput = z.infer<typeof updateSheetSchema>['body']
 export type CreateEntryInput = z.infer<typeof createEntrySchema>['body']
 export type UpdateEntryInput = z.infer<typeof updateEntrySchema>['body']
