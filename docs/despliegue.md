@@ -1,6 +1,6 @@
 # Despliegue de FinTrack OS
 
-Arquitectura de producción acordada el 2026-10-08. Estado: **artefactos implementados en la rama `fix/backend-qa-remediation` (Docker, proxy, CI, backups); infraestructura en la nube y validación de staging pendientes**. El detalle de las correcciones de QA está en [`qa-backend-remediacion.md`](qa-backend-remediacion.md).
+Arquitectura de producción acordada el 2026-10-08. Estado: **artefactos integrados en `main` (Docker, proxy, CI, backups); infraestructura en la nube y validación de staging pendientes**. Alcance inicial (2026-10-17): beta privada para familiares y amigos, sin cobro y con registro abierto por decisión del Owner. El detalle de las correcciones de QA está en [`qa-backend-remediacion.md`](qa-backend-remediacion.md).
 
 FinTrack OS es una app personal para pocas personas. El objetivo es desplegar frontend, backend y base de datos **sin costo**, con servicios administrados que aguanten sin mantenimiento constante y sin perder datos financieros.
 
