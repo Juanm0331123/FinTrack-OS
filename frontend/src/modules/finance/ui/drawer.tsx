@@ -9,10 +9,16 @@ import { FtButton } from './button'
 // Destino deliberado cuando quien abrió el panel ya no existe (p. ej. la fila se eliminó).
 export const MAIN_CONTENT_ID = 'main-content'
 
+// Estilo único de los diálogos de confirmación del espacio de trabajo (ConfirmDialog y el aviso de
+// cambios sin guardar del shell): Sheet centrada, radio 11,2px y sombra de Drawer.
+export const DIALOG_OVERLAY_CLASS = 'ft-overlay finance-theme fixed inset-0 z-50 bg-[rgba(15,23,42,0.32)]'
+export const CONFIRM_DIALOG_CLASS =
+    'finance-theme fixed top-1/2 left-1/2 z-50 w-[calc(100vw-32px)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl border border-ft-line bg-ft-card p-5 shadow-[0_20px_48px_-16px_rgba(16,24,40,0.28)] outline-none'
+
 // Sin Dialog.Trigger, Radix no sabe a quién devolver el foco y lo deja en <body>. Se recuerda el
 // elemento enfocado al abrir y se le devuelve al cerrar (Escape, Cerrar o Cancelar); si se
 // desmontó, el foco va al contenido principal.
-function useReturnFocus(onOpenAutoFocus?: (event: Event) => void) {
+export function useReturnFocus(onOpenAutoFocus?: (event: Event) => void) {
     const invoker = useRef<HTMLElement | null>(null)
 
     return {
@@ -55,7 +61,7 @@ export function Drawer({
     return (
         <Dialog.Root open={open} onOpenChange={onOpenChange}>
             <Dialog.Portal>
-                <Dialog.Overlay className="ft-overlay finance-theme fixed inset-0 z-50 bg-[rgba(15,23,42,0.32)]" />
+                <Dialog.Overlay className={DIALOG_OVERLAY_CLASS} />
                 <Dialog.Content
                     onOpenAutoFocus={focus.onOpenAutoFocus}
                     onCloseAutoFocus={focus.onCloseAutoFocus}
@@ -112,11 +118,11 @@ export function ConfirmDialog({
     return (
         <AlertDialog.Root open={open} onOpenChange={onOpenChange}>
             <AlertDialog.Portal>
-                <AlertDialog.Overlay className="ft-overlay finance-theme fixed inset-0 z-50 bg-[rgba(15,23,42,0.32)]" />
+                <AlertDialog.Overlay className={DIALOG_OVERLAY_CLASS} />
                 <AlertDialog.Content
                     onOpenAutoFocus={focus.onOpenAutoFocus}
                     onCloseAutoFocus={focus.onCloseAutoFocus}
-                    className="finance-theme fixed top-1/2 left-1/2 z-50 w-[calc(100vw-32px)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl border border-ft-line bg-ft-card p-5 shadow-[0_20px_48px_-16px_rgba(16,24,40,0.28)] outline-none">
+                    className={CONFIRM_DIALOG_CLASS}>
                     <AlertDialog.Title className="text-lg font-semibold text-ft-ink">{title}</AlertDialog.Title>
                     <AlertDialog.Description className="mt-1.5 text-sm leading-6 text-ft-ink-2">
                         {description}

@@ -100,7 +100,7 @@ const AmountCell = memo(function AmountCell({
                 onKeyDown={(event) => focusNextInGroup(event, 'entry-amounts')}
                 onFocus={(event) => event.currentTarget.select()}
                 className={cn(
-                    'h-11 w-full rounded-[7px] border bg-transparent px-2 text-right lg:h-9 text-sm font-semibold text-ft-ink tabular outline-none transition-[border-color,box-shadow] duration-150 hover:border-ft-line focus:border-ft-focus focus:bg-white focus:ring-[3px] focus:ring-ft-focus-soft',
+                    'h-11 w-full rounded-[7px] border bg-transparent px-2 text-right text-base font-semibold text-ft-ink tabular lg:h-9 lg:text-sm transition-[border-color,box-shadow] duration-150 focus-field hover:border-ft-control focus:border-ft-focus focus:bg-white focus:ring-[3px] focus:ring-ft-focus-soft',
                     error ? 'border-ft-neg' : 'border-transparent',
                 )}
             />
@@ -128,7 +128,7 @@ const EntryRow = memo(function EntryRow({
                 <button
                     type="button"
                     onClick={() => handlers.onEdit(entry.id)}
-                    className="block min-h-11 w-full min-w-0 cursor-pointer rounded-md text-left outline-none focus-visible:outline-2 focus-visible:outline-ft-focus lg:min-h-0"
+                    className="block min-h-11 w-full min-w-0 cursor-pointer rounded-md text-left focus-ring lg:min-h-0"
                 >
                     <span className="block truncate font-semibold text-ft-ink">{entry.concept}</span>
                     <span className="block truncate text-[12.5px] text-ft-ink-3">
@@ -172,7 +172,7 @@ const EntryListItem = memo(function EntryListItem({
             <button
                 type="button"
                 onClick={() => handlers.onEdit(entry.id)}
-                className="min-h-11 min-w-0 flex-1 cursor-pointer text-left outline-none focus-visible:outline-2 focus-visible:outline-ft-focus"
+                className="min-h-11 min-w-0 flex-1 cursor-pointer text-left focus-ring"
             >
                 <span className="block truncate font-semibold text-ft-ink">{entry.concept}</span>
                 <span className={cn('flex items-center gap-1.5 truncate text-[12.5px]', isLate ? 'font-medium text-ft-neg' : 'text-ft-ink-3')}>
@@ -269,7 +269,7 @@ export function EntriesCard({
                 }
             />
             <div className="flex flex-wrap items-center gap-2.5 px-4 pb-3 sm:px-[18px]">
-                <label className="flex h-11 min-w-0 flex-[1_1_200px] items-center lg:h-[38px] gap-2 rounded-lg border border-ft-line px-2.5 text-ft-ink-3 transition-[border-color,box-shadow] duration-150 focus-within:border-ft-focus focus-within:ring-[3px] focus-within:ring-ft-focus-soft">
+                <label className="flex h-11 min-w-0 flex-[1_1_100%] items-center lg:flex-[1_1_200px] lg:h-[38px] gap-2 rounded-lg border border-ft-control bg-white px-2.5 text-ft-ink-3 transition-[border-color,box-shadow] duration-150 hover:border-ft-ink-3 focus-within:border-ft-focus focus-within:ring-[3px] focus-within:ring-ft-focus-soft">
                     <Search className="size-4 flex-none" aria-hidden="true" />
                     <span className="sr-only">Buscar gastos</span>
                     <input
@@ -277,7 +277,7 @@ export function EntriesCard({
                         value={query}
                         onChange={(event) => setQuery(event.target.value)}
                         placeholder="Buscar concepto o cuenta"
-                        className="h-full min-w-0 flex-1 bg-transparent text-sm text-ft-ink outline-none"
+                        className="-my-px h-[calc(100%+2px)] min-w-0 flex-1 bg-transparent text-base text-ft-ink focus-field lg:text-sm"
                     />
                 </label>
                 <Segmented scrollable label="Filtrar por categoría" options={FILTER_OPTIONS} value={filter} onChange={setFilter} />

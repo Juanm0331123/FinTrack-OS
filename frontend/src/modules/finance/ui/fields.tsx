@@ -1,12 +1,31 @@
 'use client'
 
+import { CircleAlert } from 'lucide-react'
 import { useId, useState, type ChangeEvent, type ComponentProps, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 
 import { cn } from '@/shared/lib/utils'
 import { formatAmount, parseAmountInput, percentInputToFraction, toPercentInput } from '../lib/format'
 
-export const inputClassName =
-    'h-11 w-full min-w-0 rounded-lg border border-ft-line bg-white px-3 text-sm text-ft-ink outline-none transition-[border-color,box-shadow] duration-150 focus:border-ft-focus focus:ring-[3px] focus:ring-ft-focus-soft disabled:bg-ft-hover disabled:text-ft-ink-3 lg:h-10'
+// Campo del espacio de trabajo (DESIGN.md › Fields): borde de control (≥ 3:1), hover más oscuro, foco con
+// borde azul y halo, inválido en Negative, deshabilitado y solo lectura sobre Hover Wash con tinta secundaria.
+const fieldStateClassName =
+    'border-ft-control hover:border-ft-ink-3 aria-invalid:border-ft-neg has-aria-invalid:border-ft-neg'
+
+export const inputClassName = cn(
+    'h-11 w-full min-w-0 rounded-lg border bg-white px-3 text-base text-ft-ink transition-[border-color,box-shadow] duration-150 focus-field focus:border-ft-focus focus:ring-[3px] focus:ring-ft-focus-soft read-only:bg-ft-hover disabled:cursor-not-allowed disabled:border-ft-line disabled:bg-ft-hover disabled:text-ft-ink-2 lg:h-10 lg:text-sm',
+    fieldStateClassName,
+)
+
+// Caja con prefijo o sufijo (montos, porcentajes): el input interior no lleva borde; la caja muestra el estado.
+export const affixBoxClassName = cn(
+    'flex h-11 items-center gap-1.5 rounded-lg border bg-white px-3 transition-[border-color,box-shadow] duration-150 focus-within:border-ft-focus focus-within:ring-[3px] focus-within:ring-ft-focus-soft has-disabled:border-ft-line has-disabled:bg-ft-hover lg:h-10',
+    fieldStateClassName,
+)
+
+// El input ocupa también el borde de la caja (44px por debajo de 1024px) y usa 16px en móvil para que
+// el navegador no amplíe la página al enfocarlo.
+export const affixInputClassName =
+    '-my-px h-[calc(100%+2px)] min-w-0 flex-1 bg-transparent text-base font-medium text-ft-ink tabular focus-field disabled:cursor-not-allowed disabled:text-ft-ink-2 lg:text-sm'
 
 export const selectClassName = cn(inputClassName, 'cursor-pointer appearance-none bg-[length:16px] bg-[right_10px_center] bg-no-repeat pr-9')
 
@@ -86,7 +105,8 @@ function focusInnerInput(event: MouseEvent<HTMLDivElement>) {
 
 export function FieldError({ id, message }: { id: string; message: string | null }) {
     return (
-        <p id={id} aria-live="polite" className={cn('text-[12.5px] font-medium text-ft-neg', message ? 'mt-1.5' : 'sr-only')}>
+        <p id={id} aria-live="polite" className={cn('flex items-start gap-1.5 text-[12.5px] font-medium text-ft-neg', message ? 'mt-1.5' : 'sr-only')}>
+            {message ? <CircleAlert className="mt-px size-3.5 flex-none" aria-hidden="true" /> : null}
             {message}
         </p>
     )
@@ -115,11 +135,7 @@ export function MoneyInput({
         <>
             <div
                 onMouseDown={focusInnerInput}
-                className={cn(
-                    'flex h-11 items-center gap-1.5 rounded-lg border bg-white px-3 transition-[border-color,box-shadow] duration-150 focus-within:border-ft-focus focus-within:ring-[3px] focus-within:ring-ft-focus-soft lg:h-10',
-                    error ? 'border-ft-neg' : 'border-ft-line',
-                    wrapperClassName,
-                )}
+                className={cn(affixBoxClassName, wrapperClassName)}
             >
                 <span aria-hidden="true" className="text-[13px] text-ft-ink-3">
                     {prefix}
@@ -131,10 +147,7 @@ export function MoneyInput({
                     type="text"
                     inputMode="numeric"
                     autoComplete="off"
-                    className={cn(
-                        'h-full min-w-0 flex-1 bg-transparent text-sm font-medium text-ft-ink outline-none tabular',
-                        className,
-                    )}
+                    className={cn(affixInputClassName, className)}
                 />
             </div>
             <FieldError id={errorId} message={error} />
@@ -159,7 +172,7 @@ export function PercentInput({
     return (
         <div
             onMouseDown={focusInnerInput}
-            className="flex h-11 items-center gap-1.5 rounded-lg border border-ft-line bg-white px-3 transition-[border-color,box-shadow] duration-150 focus-within:border-ft-focus focus-within:ring-[3px] focus-within:ring-ft-focus-soft lg:h-10"
+            className={affixBoxClassName}
         >
             <input
                 {...props}
@@ -167,7 +180,7 @@ export function PercentInput({
                 type="text"
                 inputMode="decimal"
                 autoComplete="off"
-                className="h-full min-w-0 flex-1 bg-transparent text-sm font-medium text-ft-ink outline-none tabular"
+                className={affixInputClassName}
                 value={draft}
                 onChange={(event) => {
                     setDraft(event.target.value)
@@ -218,7 +231,7 @@ export function Segmented<T extends string>({
                     type="button"
                     aria-pressed={option.value === value}
                     onClick={() => onChange(option.value)}
-                    className="h-11 min-w-11 flex-none cursor-pointer rounded-[7px] px-2.5 lg:h-8 lg:min-w-0 text-[13px] font-medium text-ft-ink-2 transition-colors duration-150 outline-none hover:text-ft-ink focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ft-focus aria-pressed:bg-white aria-pressed:text-ft-ink aria-pressed:shadow-[0_1px_2px_rgba(16,24,40,0.1)]"
+                    className="h-11 min-w-11 flex-none cursor-pointer rounded-[7px] px-2.5 lg:h-8 lg:min-w-0 text-[13px] font-medium text-ft-ink-2 transition-colors duration-150 focus-ring [--focus-offset:1px] hover:text-ft-ink aria-pressed:bg-white aria-pressed:font-semibold aria-pressed:text-ft-ink aria-pressed:shadow-[0_1px_2px_rgba(16,24,40,0.1)]"
                 >
                     {option.label}
                 </button>
@@ -245,7 +258,7 @@ export function Switch({
             aria-checked={checked}
             onClick={() => onCheckedChange(!checked)}
             className={cn(
-                'group inline-flex min-h-11 cursor-pointer lg:min-h-10 items-center gap-2.5 rounded-lg text-left text-sm font-medium text-ft-ink outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ft-focus',
+                'group inline-flex min-h-11 cursor-pointer lg:min-h-10 items-center gap-2.5 rounded-lg text-left text-sm font-medium text-ft-ink focus-ring',
                 className,
             )}
         >

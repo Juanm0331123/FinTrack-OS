@@ -21,8 +21,8 @@ export function SaveIndicator({ className, compact = false }: { className?: stri
     const [Icon, label, tone] = error
         ? [CircleAlert, 'Cambios sin guardar', 'text-ft-neg']
         : pending > 0
-          ? [LoaderCircle, 'Guardando…', 'text-ft-ink-3']
-          : [CloudCheck, 'Cambios guardados', 'text-ft-ink-3']
+          ? [LoaderCircle, 'Guardando…', 'text-ft-ink-2']
+          : [CloudCheck, 'Cambios guardados', 'text-ft-ink-2']
 
     return (
         <span className={cn('inline-flex min-h-8 items-center gap-1.5 px-1 text-[12.5px] font-medium', tone, className)}>
@@ -66,7 +66,7 @@ export function SaveErrorNotice() {
                             <>
                                 <FtButton
                                     variant="secondary"
-                                    disabled={discarding}
+                                    loading={discarding}
                                     onClick={() => {
                                         setDiscarding(true)
                                         void actions.discardFailedSaves().finally(() => setDiscarding(false))

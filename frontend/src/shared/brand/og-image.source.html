@@ -1,0 +1,97 @@
+<!doctype html>
+<!--
+  Fuente de la imagen para compartir (src/app/opengraph-image.png, 1200×630).
+  Solo se usa para regenerarla: no forma parte del runtime ni se sirve.
+  Tokens de DESIGN.md (C «Estudio claro»); símbolo oficial en fintrack-os-symbol.png.
+  Regenerar: chrome --headless --hide-scrollbars --force-device-scale-factor=1 --window-size=1200,630
+             --virtual-time-budget=4000 --screenshot=<salida>.png file:///<ruta>/og-image.source.html
+-->
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>FinTrack OS — imagen para compartir</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@500;600;700&display=block" rel="stylesheet">
+<style>
+    :root {
+        --ground: #f3f5f8;
+        --panel: #ebeef3;
+        --edge: #d5dce6;
+        --ink: #0f172a;
+        --ink-secondary: #475467;
+        --brand-blue: #5b89ff;
+        --brand-violet: #8c7cff;
+        --brand-pink: #cc63c5;
+        --brand-coral: #e5665f;
+        --brand-blue-deep: #3f6ff0;
+        --brand-violet-deep: #7357f0;
+        --brand-pink-deep: #b9479f;
+        --brand-coral-deep: #d24e48;
+    }
+    * { box-sizing: border-box; margin: 0; }
+    html, body { width: 1200px; height: 630px; overflow: hidden; }
+    body {
+        position: relative;
+        background: var(--ground);
+        color: var(--ink);
+        font-family: 'Geist', ui-sans-serif, system-ui, sans-serif;
+    }
+    /* Fondo: manchas suaves del degradado del propietario sobre Ground. */
+    .wash {
+        position: absolute;
+        inset: 0;
+        background:
+            radial-gradient(520px 380px at 1010px 90px, color-mix(in srgb, var(--brand-violet) 30%, transparent), transparent 70%),
+            radial-gradient(460px 340px at 1160px 420px, color-mix(in srgb, var(--brand-pink) 22%, transparent), transparent 70%),
+            radial-gradient(520px 360px at 760px 600px, color-mix(in srgb, var(--brand-blue) 22%, transparent), transparent 70%),
+            radial-gradient(360px 260px at 1190px 610px, color-mix(in srgb, var(--brand-coral) 20%, transparent), transparent 70%);
+    }
+    .frame { position: relative; display: flex; flex-direction: column; justify-content: space-between; height: 100%; padding: 64px 72px; }
+    .lockup { display: flex; align-items: center; gap: 18px; }
+    .lockup img { height: 56px; width: auto; }
+    .lockup span { font-size: 36px; font-weight: 700; letter-spacing: -0.02em; }
+    .copy { max-width: 700px; }
+    .eyebrow { font-size: 26px; font-weight: 500; color: var(--ink-secondary); }
+    h1 { margin-top: 18px; font-size: 72px; line-height: 1.1; font-weight: 600; letter-spacing: -0.03em; }
+    h1 em {
+        font-style: normal;
+        background: linear-gradient(90deg, var(--brand-blue-deep), var(--brand-violet-deep) 33%, var(--brand-pink-deep) 66%, var(--brand-coral-deep));
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+    }
+    .foot { font-size: 26px; font-weight: 500; color: var(--ink-secondary); }
+    /* Panel con el símbolo: superficie de C, borde fino y esquinas redondeadas. */
+    .tile {
+        position: absolute;
+        right: 72px;
+        top: 150px;
+        width: 330px;
+        height: 330px;
+        display: grid;
+        place-items: center;
+        border-radius: 56px;
+        background: var(--panel);
+        border: 2px solid var(--edge);
+        box-shadow: 0 30px 70px -34px rgba(36, 83, 214, 0.35);
+    }
+    .tile img { width: 206px; height: auto; }
+</style>
+</head>
+<body>
+    <div class="wash"></div>
+    <div class="frame">
+        <div class="lockup">
+            <img src="fintrack-os-symbol.png" alt="">
+            <span>FinTrack OS</span>
+        </div>
+        <div class="copy">
+            <p class="eyebrow">Finanzas personales, mes a mes.</p>
+            <h1>Bienvenido a la app<br>de <em>FinTrack OS</em></h1>
+        </div>
+        <p class="foot">Ingresos, gastos y deudas en un solo lugar.</p>
+    </div>
+    <div class="tile"><img src="fintrack-os-symbol.png" alt=""></div>
+</body>
+</html>

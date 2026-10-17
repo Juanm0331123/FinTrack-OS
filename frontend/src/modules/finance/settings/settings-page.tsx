@@ -271,8 +271,8 @@ export function SettingsPage() {
                             maxLength={60}
                             onChange={(event) => setNewAccount(event.target.value)}
                         />
-                        <FtButton type="submit" variant="secondary" disabled={!newAccount.trim() || busy}>
-                            <Plus aria-hidden="true" />
+                        <FtButton type="submit" variant="secondary" disabled={!newAccount.trim()} loading={busy}>
+                            <Plus data-icon="inline-start" aria-hidden="true" />
                             Agregar
                         </FtButton>
                     </form>

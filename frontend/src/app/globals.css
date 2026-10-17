@@ -18,11 +18,6 @@
   --color-sidebar-primary: var(--sidebar-primary);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar: var(--sidebar);
-  --color-chart-5: var(--chart-5);
-  --color-chart-4: var(--chart-4);
-  --color-chart-3: var(--chart-3);
-  --color-chart-2: var(--chart-2);
-  --color-chart-1: var(--chart-1);
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);
@@ -46,61 +41,115 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+  --color-panel: var(--panel);
+  --color-panel-strong: var(--panel-strong);
+  --color-edge: var(--edge);
+  --color-ink-secondary: var(--ink-secondary);
+  --color-control-edge: var(--control-edge);
+  --color-muted-fill: var(--muted-fill);
+  --color-hover-wash: var(--hover-wash);
+  --color-blue-hover: var(--blue-hover);
+  --color-blue-wash: var(--blue-wash);
+  --color-focus-halo: var(--focus-halo);
+  --color-ink-tertiary: var(--ink-tertiary);
+  --color-access-edge: var(--access-edge);
+  --color-access-edge-hover: var(--access-edge-hover);
+  --color-access-hover: var(--access-hover);
+  --color-access-active: var(--access-active);
+  --color-brand-blue: var(--brand-blue);
+  --color-brand-violet: var(--brand-violet);
+  --color-brand-pink: var(--brand-pink);
+  --color-brand-coral: var(--brand-coral);
+  --radius-sheet: 1rem;
+  --radius-panel: 1.75rem;
 }
 
 :root {
-  --background: oklch(0.982 0.006 255);
-  --foreground: oklch(0.19 0.025 255);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.19 0.025 255);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.19 0.025 255);
-  /* Enlaces y textos de acción ≥ 4.5:1 sobre blanco y sus lavados (F-UI-16). */
-  --primary: oklch(0.53 0.18 252);
-  --primary-foreground: oklch(0.99 0 0);
-  --secondary: oklch(0.95 0.018 255);
-  --secondary-foreground: oklch(0.24 0.052 252);
-  --muted: oklch(0.94 0.012 255);
-  --muted-foreground: oklch(0.43 0.035 255);
-  --accent: oklch(0.72 0.18 168);
-  --accent-foreground: oklch(0.13 0.03 168);
-  --destructive: oklch(0.62 0.22 25);
-  --border: oklch(0.88 0.018 255);
-  --input: oklch(0.88 0.018 255);
-  --ring: oklch(0.58 0.19 252);
-  --chart-1: oklch(0.72 0.18 168);
-  --chart-2: oklch(0.58 0.19 252);
-  --chart-3: oklch(0.62 0.22 25);
-  --chart-4: oklch(0.67 0.17 305);
-  --chart-5: oklch(0.78 0.17 82);
-  --brand-rose: oklch(0.65 0.22 354.5);
-  --brand-cyan: oklch(0.72 0.14 215);
-  /* Texto blanco ≥ 4.5:1 en todo el gradiente (F-UI-16): normal ≥ 5.0, hover y activo más oscuros. */
-  --brand-action-top: oklch(0.54 0.15 249);
-  --brand-action-bottom: oklch(0.49 0.14 250);
-  --brand-action-top-hover: oklch(0.51 0.15 249);
-  --brand-action-bottom-hover: oklch(0.46 0.14 250);
-  --brand-action-top-active: oklch(0.48 0.14 249);
-  --brand-action-bottom-active: oklch(0.43 0.13 250);
-  --brand-action-stroke: oklch(0.43 0.11 247 / 28%);
-  --brand-action-shadow: oklch(0.38 0.09 247 / 10%);
-  --brand-action-shadow-hover: oklch(0.36 0.09 247 / 16%);
-  --brand-action-shadow-active: oklch(0.34 0.08 247 / 10%);
-  --brand-action-focus-ring: oklch(0.68 0.12 246 / 28%);
-  --brand-action-disabled-top: oklch(0.74 0.03 246);
-  --brand-action-disabled-bottom: oklch(0.69 0.03 246);
-  --radius: 0.75rem;
+  /*
+   * Primitivos del sistema C «Estudio claro» (DESIGN.md). Cada valor vive aquí una sola vez;
+   * los nombres de shadcn (abajo) y los ft-* del espacio de trabajo (.finance-theme) apuntan a ellos.
+   * Contraste medido: DESIGN.md › Colors › Contrast matrix.
+   */
+  --ground: #f3f5f8;
+  --panel: #ebeef3;
+  --panel-strong: #e4e8ef;
+  --sheet: #ffffff;
+  --edge: #d5dce6;
+  --edge-soft: #eef0f3;
+  /* Relleno apagado (pistas de segmentados, hover discreto) y lavado de hover / deshabilitado de campos. */
+  --muted-fill: #f2f4f7;
+  --hover-wash: #f9fafb;
+  /* Borde que identifica un control o su estado (casillas, interruptores, campos): ≥ 3:1 sobre hoja, suelo y panel. */
+  --control-edge: #7d879a;
+  --ink: #0f172a;
+  --ink-secondary: #475467;
+  /* ≥ 4.5:1 solo sobre hoja, suelo y relleno apagado; nunca como texto sobre --panel ni --panel-strong. */
+  --ink-tertiary: #667085;
+  /* Marcas no textuales y elementos inactivos: ≥ 3:1 sobre hoja. */
+  --ink-quiet: #8a94a6;
+  --blue: #2453d6;
+  --blue-hover: #1d43b3;
+  --blue-wash: #eef4ff;
+  --focus-halo: #d1e0ff;
+  --positive: #067647;
+  --positive-wash: #ecfdf3;
+  --positive-edge: #abefc6;
+  --positive-signal: #17b26a;
+  --negative: #c01048;
+  --negative-wash: #fff1f3;
+  --negative-edge: #fecdd6;
+  --negative-signal: #f04438;
+  --caution: #b54708;
+  --caution-wash: #fffaeb;
+  --caution-edge: #fedf89;
+  --caution-signal: #f79009;
+  /* Acceso claro: borde fino decorativo; la etiqueta y el icono identifican la acción. */
+  --access-edge: #c5cfe0;
+  --access-edge-hover: #98a8c5;
+  --access-hover: #f7f9fd;
+  --access-active: #eef2fa;
+  /* Degradado del propietario: luz, malla y filetes. Como texto solo ≥ 42px sobre --access-hover o más claro (≥ 3:1). */
+  --brand-blue: #5b89ff;
+  --brand-violet: #8c7cff;
+  --brand-pink: #cc63c5;
+  --brand-coral: #e5665f;
+  /* Variante profunda: fondos decorativos o rellenos con texto blanco grande (≥ 24px; contraste ≥ 4.27:1). No garantiza 4.5:1 para texto blanco normal. */
+  --brand-blue-deep: #3f6ff0;
+  --brand-violet-deep: #7357f0;
+  --brand-pink-deep: #b9479f;
+  --brand-coral-deep: #d24e48;
+
+  --background: var(--ground);
+  --foreground: var(--ink);
+  --card: var(--sheet);
+  --card-foreground: var(--ink);
+  --popover: var(--sheet);
+  --popover-foreground: var(--ink);
+  --primary: var(--blue);
+  --primary-foreground: #ffffff;
+  --secondary: var(--panel);
+  --secondary-foreground: var(--ink);
+  --muted: var(--panel);
+  --muted-foreground: var(--ink-secondary);
+  --accent: var(--panel);
+  --accent-foreground: var(--ink);
+  --destructive: var(--negative);
+  --border: var(--edge);
+  --input: var(--control-edge);
+  --ring: var(--blue);
+  /* Radio de controles públicos (14px): botones de acceso, campos y menús de auth. */
+  --radius: 0.875rem;
   --motion-shell-enter: 220ms;
   --motion-shell-exit: 170ms;
   --ease-shell: cubic-bezier(0.22, 1, 0.36, 1);
-  --sidebar: oklch(0.965 0.01 255);
-  --sidebar-foreground: oklch(0.19 0.025 255);
-  --sidebar-primary: oklch(0.53 0.18 252);
-  --sidebar-primary-foreground: oklch(0.99 0 0);
-  --sidebar-accent: oklch(0.93 0.02 255);
-  --sidebar-accent-foreground: oklch(0.24 0.052 252);
-  --sidebar-border: oklch(0.88 0.018 255);
-  --sidebar-ring: oklch(0.58 0.19 252);
+  --sidebar: var(--panel);
+  --sidebar-foreground: var(--ink);
+  --sidebar-primary: var(--blue);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: var(--blue-wash);
+  --sidebar-accent-foreground: var(--blue);
+  --sidebar-border: var(--edge);
+  --sidebar-ring: var(--blue);
 }
 
 .dark {
@@ -122,26 +171,6 @@
   --border: oklch(1 0 0 / 12%);
   --input: oklch(1 0 0 / 16%);
   --ring: oklch(0.68 0.17 252);
-  --chart-1: oklch(0.75 0.16 168);
-  --chart-2: oklch(0.68 0.17 252);
-  --chart-3: oklch(0.68 0.2 25);
-  --chart-4: oklch(0.74 0.15 305);
-  --chart-5: oklch(0.82 0.15 82);
-  --brand-rose: oklch(0.72 0.18 354.5);
-  --brand-cyan: oklch(0.78 0.12 215);
-  --brand-action-top: oklch(0.55 0.14 249);
-  --brand-action-bottom: oklch(0.5 0.13 250);
-  --brand-action-top-hover: oklch(0.52 0.14 249);
-  --brand-action-bottom-hover: oklch(0.47 0.13 250);
-  --brand-action-top-active: oklch(0.49 0.13 249);
-  --brand-action-bottom-active: oklch(0.44 0.12 250);
-  --brand-action-stroke: oklch(0.98 0.006 245 / 14%);
-  --brand-action-shadow: oklch(0 0 0 / 24%);
-  --brand-action-shadow-hover: oklch(0 0 0 / 30%);
-  --brand-action-shadow-active: oklch(0 0 0 / 20%);
-  --brand-action-focus-ring: oklch(0.74 0.11 246 / 34%);
-  --brand-action-disabled-top: oklch(0.48 0.03 246);
-  --brand-action-disabled-bottom: oklch(0.43 0.03 246);
   --sidebar: oklch(0.18 0.025 255);
   --sidebar-foreground: oklch(0.96 0.005 255);
   --sidebar-primary: oklch(0.68 0.17 252);
@@ -159,62 +188,55 @@
   body {
     @apply bg-background text-foreground;
   }
+  ::selection {
+    background: var(--focus-halo);
+    color: var(--ink);
+  }
   html {
     @apply font-sans;
   }
 }
 
+/*
+ * Foco visible común (DESIGN.md › States). Contorno real (no box-shadow) para que también se vea en colores
+ * forzados. Sustituye la combinación outline-none + focus-visible:outline-2, que en Tailwind v4 deja
+ * outline-style: none y no dibuja nada. --focus-offset ajusta la separación (acceso: 3px).
+ */
+@utility focus-ring {
+  &:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: var(--focus-offset, 2px);
+  }
+}
+
+/* Para filas y celdas que llenan su contenedor: el contorno va por dentro y no lo recorta el overflow. */
+@utility focus-ring-inset {
+  &:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: -2px;
+  }
+}
+
+/*
+ * Campos: el foco se ve con borde azul y halo (box-shadow). El contorno transparente solo aparece en
+ * colores forzados, donde las sombras desaparecen.
+ */
+@utility focus-field {
+  &:focus-visible {
+    outline: 2px solid transparent;
+    outline-offset: 2px;
+  }
+}
+
 @layer utilities {
-  .brand-action {
-    border-color: var(--brand-action-stroke);
-    background: linear-gradient(
-      180deg,
-      var(--brand-action-top) 0%,
-      var(--brand-action-bottom) 100%
-    );
-    box-shadow: 0 1px 2px var(--brand-action-shadow);
-  }
-
-  .brand-action:hover:not(:disabled) {
-    background: linear-gradient(
-      180deg,
-      var(--brand-action-top-hover) 0%,
-      var(--brand-action-bottom-hover) 100%
-    );
-    box-shadow: 0 3px 8px var(--brand-action-shadow-hover);
-  }
-
-  .brand-action:active:not(:disabled) {
-    background: linear-gradient(
-      180deg,
-      var(--brand-action-top-active) 0%,
-      var(--brand-action-bottom-active) 100%
-    );
-    box-shadow: 0 1px 3px var(--brand-action-shadow-active);
-  }
-
-  .brand-action:focus-visible {
-    box-shadow:
-      0 0 0 4px var(--brand-action-focus-ring),
-      0 3px 8px var(--brand-action-shadow-hover);
-  }
-
-  .brand-action:disabled {
-    background: linear-gradient(
-      180deg,
-      var(--brand-action-disabled-top) 0%,
-      var(--brand-action-disabled-bottom) 100%
-    );
-    box-shadow: none;
-  }
-
+  /* Texto grande (≥ 24px) sobre cualquier superficie clara: paradas profundas, ≥ 3.47:1 incluso sobre panel fuerte. */
   .text-brand-gradient {
     background: linear-gradient(
       90deg,
-      oklch(0.64 0.22 254) 0%,
-      oklch(0.66 0.22 283) 28%,
-      oklch(0.67 0.23 330) 58%,
-      oklch(0.69 0.21 26) 100%
+      var(--brand-blue-deep) 0%,
+      var(--brand-violet-deep) 33%,
+      var(--brand-pink-deep) 66%,
+      var(--brand-coral-deep) 100%
     );
     -webkit-background-clip: text;
     background-clip: text;
@@ -223,12 +245,14 @@
     padding-right: 0.02em;
   }
 
-  .text-brand-gradient-cool {
+  /* Paradas claras del propietario: solo ≥ 42px sobre --access-hover o más claro (≥ 3.03:1). */
+  .text-brand-gradient-light {
     background: linear-gradient(
       90deg,
-      oklch(0.9 0.07 165) 0%,
-      oklch(0.78 0.09 205) 44%,
-      oklch(0.58 0.08 252) 100%
+      var(--brand-blue) 0%,
+      var(--brand-violet) 33%,
+      var(--brand-pink) 66%,
+      var(--brand-coral) 100%
     );
     -webkit-background-clip: text;
     background-clip: text;
@@ -239,7 +263,7 @@
 
   @supports not ((background-clip: text) or (-webkit-background-clip: text)) {
     .text-brand-gradient,
-    .text-brand-gradient-cool {
+    .text-brand-gradient-light {
       background: none;
       color: var(--primary);
     }
@@ -247,37 +271,18 @@
 
   .bg-app-gradient {
     background:
-      radial-gradient(
-        circle at 12% 18%,
-        oklch(0.9 0.07 252 / 54%),
-        transparent 28rem
-      ),
-      radial-gradient(
-        circle at 88% 0%,
-        oklch(0.9 0.08 354.5 / 42%),
-        transparent 24rem
-      ),
-      linear-gradient(180deg, var(--background), oklch(0.955 0.012 255));
+      radial-gradient(circle at 78% 8%, color-mix(in srgb, var(--brand-blue) 28%, transparent), transparent 30rem),
+      radial-gradient(circle at 96% 46%, color-mix(in srgb, var(--brand-violet) 24%, transparent), transparent 26rem),
+      radial-gradient(circle at 70% 100%, color-mix(in srgb, var(--brand-coral) 18%, transparent), transparent 26rem),
+      var(--ground);
   }
 
   .bg-auth-soft {
     background:
-      radial-gradient(
-        circle at 16% 18%,
-        oklch(0.84 0.07 252 / 34%),
-        transparent 22rem
-      ),
-      radial-gradient(
-        circle at 84% 14%,
-        oklch(0.88 0.06 168 / 26%),
-        transparent 20rem
-      ),
-      radial-gradient(
-        circle at 74% 82%,
-        oklch(0.9 0.05 215 / 24%),
-        transparent 24rem
-      ),
-      linear-gradient(180deg, oklch(0.995 0.003 255), var(--background));
+      radial-gradient(circle at 16% 18%, color-mix(in srgb, var(--brand-blue) 20%, transparent), transparent 22rem),
+      radial-gradient(circle at 84% 14%, color-mix(in srgb, var(--brand-violet) 16%, transparent), transparent 20rem),
+      radial-gradient(circle at 74% 82%, color-mix(in srgb, var(--brand-pink) 12%, transparent), transparent 24rem),
+      var(--ground);
   }
 
   .finance-number {
@@ -321,6 +326,8 @@
 @theme inline {
   --color-ft-canvas: var(--ft-canvas);
   --color-ft-card: var(--ft-card);
+  --color-ft-panel: var(--ft-panel);
+  --color-ft-panel-strong: var(--ft-panel-strong);
   --color-ft-muted: var(--ft-muted);
   --color-ft-hover: var(--ft-hover);
   --color-ft-line: var(--ft-line);
@@ -371,34 +378,37 @@
 
 @layer base {
 .finance-theme {
-  --ft-canvas: #f5f6f8;
-  --ft-card: #ffffff;
-  --ft-muted: #f2f4f7;
-  --ft-hover: #f9fafb;
-  --ft-line: #e4e7ec;
-  --ft-line-soft: #eef0f3;
-  --ft-control: #d0d5dd;
-  --ft-ink: #0f172a;
-  --ft-ink-2: #475467;
-  --ft-ink-3: #667085;
-  --ft-ink-4: #98a2b3;
-  --ft-primary: #2453d6;
-  --ft-primary-hover: #1d43b3;
-  --ft-primary-soft: #eef4ff;
-  --ft-focus: #84adff;
-  --ft-focus-soft: #d1e0ff;
-  --ft-pos: #067647;
-  --ft-pos-soft: #ecfdf3;
-  --ft-pos-border: #abefc6;
-  --ft-pos-dot: #17b26a;
-  --ft-neg: #c01048;
-  --ft-neg-soft: #fff1f3;
-  --ft-neg-border: #fecdd6;
-  --ft-neg-dot: #f04438;
-  --ft-warn: #b54708;
-  --ft-warn-soft: #fffaeb;
-  --ft-warn-border: #fedf89;
-  --ft-warn-dot: #f79009;
+  /* Espacio de trabajo: mismos primitivos de C con densidad operativa (DESIGN.md › Two Worlds). */
+  --ft-canvas: var(--ground);
+  --ft-card: var(--sheet);
+  --ft-panel: var(--panel);
+  --ft-panel-strong: var(--panel-strong);
+  --ft-muted: var(--muted-fill);
+  --ft-hover: var(--hover-wash);
+  --ft-line: var(--edge);
+  --ft-line-soft: var(--edge-soft);
+  --ft-control: var(--control-edge);
+  --ft-ink: var(--ink);
+  --ft-ink-2: var(--ink-secondary);
+  --ft-ink-3: var(--ink-tertiary);
+  --ft-ink-4: var(--ink-quiet);
+  --ft-primary: var(--blue);
+  --ft-primary-hover: var(--blue-hover);
+  --ft-primary-soft: var(--blue-wash);
+  --ft-focus: var(--blue);
+  --ft-focus-soft: var(--focus-halo);
+  --ft-pos: var(--positive);
+  --ft-pos-soft: var(--positive-wash);
+  --ft-pos-border: var(--positive-edge);
+  --ft-pos-dot: var(--positive-signal);
+  --ft-neg: var(--negative);
+  --ft-neg-soft: var(--negative-wash);
+  --ft-neg-border: var(--negative-edge);
+  --ft-neg-dot: var(--negative-signal);
+  --ft-warn: var(--caution);
+  --ft-warn-soft: var(--caution-wash);
+  --ft-warn-border: var(--caution-edge);
+  --ft-warn-dot: var(--caution-signal);
   --cat-subscription: #6941c6;
   --cat-subscription-soft: #f4f3ff;
   --cat-subscription-fill: #7a5af8;
@@ -441,7 +451,7 @@
   background: var(--ft-canvas);
   color: var(--ft-ink);
   font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
-  scrollbar-color: var(--ft-control) transparent;
+  scrollbar-color: var(--ft-ink-4) transparent;
 }
 
 .finance-theme ::selection {
@@ -455,7 +465,7 @@
 }
 
 .finance-theme ::-webkit-scrollbar-thumb {
-  background: var(--ft-control);
+  background: var(--ft-ink-4);
   border: 3px solid transparent;
   border-radius: 999px;
   background-clip: padding-box;

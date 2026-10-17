@@ -1,6 +1,6 @@
 'use client'
 
-import { LoaderCircle, MailCheck, RefreshCw } from 'lucide-react'
+import { MailCheck, RefreshCw } from 'lucide-react'
 import {
     type FormEvent,
     useEffect,
@@ -8,6 +8,7 @@ import {
 } from 'react'
 
 import { Button } from '@/shared/ui/button'
+import { FormAlert } from '@/shared/ui/form-message'
 import { Input } from '@/shared/ui/input'
 import { Label } from '@/shared/ui/label'
 import { cn } from '@/shared/lib/utils'
@@ -287,12 +288,9 @@ export function EmailVerificationForm({
                 ) : null}
 
                 {errorMessage ? (
-                    <p
-                        role="alert"
-                        className="rounded-xl border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-                    >
+                    <FormAlert>
                         {errorMessage}
-                    </p>
+                    </FormAlert>
                 ) : null}
 
                 {infoMessage ? (
@@ -303,13 +301,11 @@ export function EmailVerificationForm({
 
                 <Button
                     type="submit"
-                    variant="brand"
+                    variant="default"
+                    size="lg"
                     className="w-full"
-                    disabled={isSubmitting}
+                    loading={isSubmitting}
                 >
-                    {isSubmitting ? (
-                        <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
-                    ) : null}
                     Validar correo y continuar
                 </Button>
 
@@ -318,17 +314,10 @@ export function EmailVerificationForm({
                         type="button"
                         variant="outline"
                         className="w-full"
-                        disabled={isResending}
+                        loading={isResending}
                         onClick={handleResendCode}
                     >
-                        {isResending ? (
-                            <LoaderCircle
-                                className="size-4 animate-spin"
-                                aria-hidden="true"
-                            />
-                        ) : (
-                            <RefreshCw className="size-4" aria-hidden="true" />
-                        )}
+                        <RefreshCw data-icon="inline-start" aria-hidden="true" />
                         Reenviar código
                     </Button>
                     <Button

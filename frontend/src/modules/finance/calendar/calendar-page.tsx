@@ -58,8 +58,8 @@ function SpendLine({ item }: { item: DaySpend }) {
     return (
         <li className="flex min-h-12 items-center justify-between gap-3 border-b border-ft-line-soft last:border-b-0">
             <div className="min-w-0 py-2">
-                <p className="truncate font-semibold text-ft-ink">{item.concept}</p>
-                <p className="truncate text-[12.5px] text-ft-ink-3">{item.spend.note ?? 'Gasto de bolsillo'}</p>
+                <p className="font-semibold break-words text-ft-ink">{item.concept}</p>
+                <p className="text-[12.5px] break-words text-ft-ink-3">{item.spend.note ?? 'Gasto de bolsillo'}</p>
             </div>
             <span className="font-semibold text-ft-ink tabular">{formatMoney(item.spend.amount)}</span>
         </li>
@@ -85,8 +85,9 @@ function EntryLine({
         <li className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-b border-ft-line-soft last:border-b-0">
             <PaidCheck concept={entry.concept} isPaid={entry.isPaid} onToggle={onToggle} />
             <div className="min-w-0 py-2">
-                <p className="truncate font-semibold text-ft-ink">{entry.concept}</p>
-                <p className={cn('truncate text-[12.5px]', late ? 'font-medium text-ft-neg' : 'text-ft-ink-3')}>
+                {/* Sin truncar: en la columna estrecha el nombre y el detalle pasan a otra línea. */}
+                <p className="font-semibold break-words text-ft-ink">{entry.concept}</p>
+                <p className={cn('text-[12.5px] break-words', late ? 'font-medium text-ft-neg' : 'text-ft-ink-3')}>
                     {late ? `Vencido · día ${entry.dueDay}` : dayText} · {accountName} · {CATEGORY_LABELS[entry.category]}
                 </p>
             </div>
@@ -161,7 +162,7 @@ function CalendarView({ accounts, entries, today, yearMonth }: {
                                             disabled={!day.inMonth}
                                             onClick={() => setSelectedIso(day.iso)}
                                             className={cn(
-                                                'flex min-h-[124px] cursor-pointer flex-col gap-1 border-r border-b border-ft-line-soft p-2 text-left outline-none transition-colors duration-150 last:border-r-0 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ft-focus',
+                                                'flex min-h-[124px] cursor-pointer flex-col gap-1 border-r border-b border-ft-line-soft p-2 text-left transition-colors duration-150 last:border-r-0 focus-ring-inset',
                                                 day.inMonth ? 'bg-white hover:bg-ft-hover' : 'cursor-default bg-[#fcfcfd] text-ft-ink-4',
                                                 selected && 'shadow-[inset_0_0_0_2px_var(--ft-primary)]',
                                             )}
@@ -189,15 +190,18 @@ function CalendarView({ accounts, entries, today, yearMonth }: {
                                                         key={entry.id}
                                                         title={`${entry.concept} · ${CATEGORY_LABELS[entry.category]} · ${entry.amount === null ? 'sin valor' : formatMoney(entry.amount)}`}
                                                         className={cn(
-                                                            'flex h-6 min-w-0 items-center gap-1.5 rounded-md px-1.5 text-xs font-medium',
+                                                            // Dos líneas: el concepto usa todo el ancho de la celda y el monto va debajo.
+                                                            'flex min-w-0 flex-col items-stretch rounded-md px-1.5 py-1 text-xs leading-4 font-medium',
                                                             CATEGORY_STYLES[entry.category].pill,
                                                             late && 'shadow-[inset_0_0_0_1.5px_var(--ft-neg-dot)]',
                                                         )}
                                                     >
                                                         {/* Pagado: icono + tachado con la tinta de la categoría intacta (F-UI-03). */}
-                                                        {entry.isPaid ? <Check className="size-3 flex-none" aria-hidden="true" /> : null}
-                                                        <span className={cn('min-w-0 flex-1 truncate', entry.isPaid && 'line-through')}>
-                                                            {entry.concept}
+                                                        <span className="flex min-w-0 items-center gap-1">
+                                                            {entry.isPaid ? <Check className="size-3 flex-none" aria-hidden="true" /> : null}
+                                                            <span className={cn('min-w-0 flex-1 truncate', entry.isPaid && 'line-through')}>
+                                                                {entry.concept}
+                                                            </span>
                                                         </span>
                                                         <span className="tabular">
                                                             {entry.amount === null ? '—' : formatCompactMoney(entry.amount)}
@@ -247,7 +251,7 @@ function CalendarView({ accounts, entries, today, yearMonth }: {
                                         disabled={!day.inMonth}
                                         onClick={() => setSelectedIso(day.iso)}
                                         className={cn(
-                                            'flex min-h-14 flex-col items-center gap-1 py-1.5 outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ft-focus',
+                                            'flex min-h-14 flex-col items-center gap-1 py-1.5 focus-ring-inset',
                                             !day.inMonth && 'text-ft-ink-4',
                                             day.iso === selectedIso && 'bg-ft-primary-soft',
                                         )}

@@ -1,15 +1,17 @@
 'use client'
 
 import { zodResolver } from '@hookform/resolvers/zod'
-import { Eye, EyeOff, LoaderCircle, Mail, UserRound } from 'lucide-react'
+import { Mail, UserPlus, UserRound } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 
 import { APP_ROUTES } from '@/shared/config/routes'
 import { Button } from '@/shared/ui/button'
+import { FieldError, FormAlert } from '@/shared/ui/form-message'
 import { Input } from '@/shared/ui/input'
 import { Label } from '@/shared/ui/label'
+import { PasswordToggle } from '@/shared/ui/password-toggle'
 import { AuthApiError, registerWithEmail } from '../auth.api'
 import { EmailVerificationForm } from '../email-verification-form'
 import {
@@ -133,12 +135,9 @@ export function RegisterForm() {
             <AuthSocialButtons intent="register" />
 
             {serverErrorMessage ? (
-                <p
-                    role="alert"
-                    className="rounded-xl border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-                >
+                <FormAlert>
                     {serverErrorMessage}
-                </p>
+                </FormAlert>
             ) : null}
 
             <div className="grid gap-5 sm:grid-cols-2">
@@ -163,9 +162,9 @@ export function RegisterForm() {
                         />
                     </div>
                     {errors.firstName ? (
-                        <p id="first-name-error" className="text-sm text-destructive">
+                        <FieldError id="first-name-error">
                             {errors.firstName.message}
-                        </p>
+                        </FieldError>
                     ) : null}
                 </div>
 
@@ -183,9 +182,9 @@ export function RegisterForm() {
                         {...register('lastName')}
                     />
                     {errors.lastName ? (
-                        <p id="last-name-error" className="text-sm text-destructive">
+                        <FieldError id="last-name-error">
                             {errors.lastName.message}
-                        </p>
+                        </FieldError>
                     ) : null}
                 </div>
             </div>
@@ -209,9 +208,9 @@ export function RegisterForm() {
                     />
                 </div>
                 {errors.email ? (
-                    <p id="email-error" className="text-sm text-destructive">
+                    <FieldError id="email-error">
                         {errors.email.message}
-                    </p>
+                    </FieldError>
                 ) : null}
             </div>
 
@@ -231,29 +230,12 @@ export function RegisterForm() {
                             className="pr-12"
                             {...register('password')}
                         />
-                        <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="absolute right-0 top-1/2 size-11 -translate-y-1/2"
-                            aria-label={
-                                showPassword
-                                    ? 'Ocultar contraseña'
-                                    : 'Mostrar contraseña'
-                            }
-                            onClick={() => setShowPassword((current) => !current)}
-                        >
-                            {showPassword ? (
-                                <EyeOff className="size-4" aria-hidden="true" />
-                            ) : (
-                                <Eye className="size-4" aria-hidden="true" />
-                            )}
-                        </Button>
+                        <PasswordToggle visible={showPassword} hideLabel="Ocultar contraseña" showLabel="Mostrar contraseña" onToggle={() => setShowPassword((current) => !current)} />
                     </div>
                     {errors.password ? (
-                        <p id="password-error" className="text-sm text-destructive">
+                        <FieldError id="password-error">
                             {errors.password.message}
-                        </p>
+                        </FieldError>
                     ) : null}
                 </div>
 
@@ -274,47 +256,24 @@ export function RegisterForm() {
                             className="pr-12"
                             {...register('confirmPassword')}
                         />
-                        <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="absolute right-0 top-1/2 size-11 -translate-y-1/2"
-                            aria-label={
-                                showConfirmPassword
-                                    ? 'Ocultar confirmación de contraseña'
-                                    : 'Mostrar confirmación de contraseña'
-                            }
-                            onClick={() =>
-                                setShowConfirmPassword((current) => !current)
-                            }
-                        >
-                            {showConfirmPassword ? (
-                                <EyeOff className="size-4" aria-hidden="true" />
-                            ) : (
-                                <Eye className="size-4" aria-hidden="true" />
-                            )}
-                        </Button>
+                        <PasswordToggle visible={showConfirmPassword} hideLabel="Ocultar confirmación de contraseña" showLabel="Mostrar confirmación de contraseña" onToggle={() => setShowConfirmPassword((current) => !current)} />
                     </div>
                     {errors.confirmPassword ? (
-                        <p
-                            id="confirm-password-error"
-                            className="text-sm text-destructive"
-                        >
+                        <FieldError id="confirm-password-error">
                             {errors.confirmPassword.message}
-                        </p>
+                        </FieldError>
                     ) : null}
                 </div>
             </div>
 
             <Button
                 type="submit"
-                variant="brand"
+                variant="default"
+                size="lg"
                 className="w-full"
-                disabled={isSubmitting}
+                loading={isSubmitting}
             >
-                {isSubmitting ? (
-                    <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
-                ) : null}
+                <UserPlus data-icon="inline-start" aria-hidden="true" />
                 Crear cuenta en FinTrack OS
             </Button>
         </form>

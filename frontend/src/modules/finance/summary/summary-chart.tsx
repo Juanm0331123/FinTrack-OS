@@ -176,7 +176,7 @@ export function SummaryChart({ cushion, rows, year }: { cushion: number; rows: r
                                             tabIndex={0}
                                             role="img"
                                             aria-label={`${monthLabel(yearMonth)}, ${SERIES[bar.series].label.toLowerCase()}: ${formatMoney(bar.value)}`}
-                                            className="cursor-default outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ft-focus"
+                                            className="cursor-default focus-ring"
                                             opacity={hovered && (hovered.yearMonth !== yearMonth || hovered.series !== bar.series) ? 0.55 : 1}
                                             onMouseEnter={() => setHovered({ ...bar, x: bar.x + BAR_WIDTH / 2, y: barTop, yearMonth })}
                                             onFocus={() => setHovered({ ...bar, x: bar.x + BAR_WIDTH / 2, y: barTop, yearMonth })}

@@ -209,7 +209,7 @@ export function PocketSpends({ entry, yearMonth }: { entry: MonthEntry; yearMont
                                         type="button"
                                         onClick={() => setEditingId(spend.id)}
                                         aria-label={`Editar gasto de ${formatMoney(spend.amount)} del ${longDayLabel(spend.spentOn).toLowerCase()}${spend.note ? `: ${spend.note}` : ''}`}
-                                        className="flex min-h-12 w-full cursor-pointer items-center justify-between gap-3 rounded-md px-1.5 py-1.5 text-left transition-colors duration-150 outline-none hover:bg-ft-hover focus-visible:outline-2 focus-visible:outline-ft-focus"
+                                        className="flex min-h-12 w-full cursor-pointer items-center justify-between gap-3 rounded-md px-1.5 py-1.5 text-left transition-colors duration-150 hover:bg-ft-hover focus-ring"
                                     >
                                         <span className="min-w-0">
                                             <span className="block text-sm font-medium text-ft-ink">
