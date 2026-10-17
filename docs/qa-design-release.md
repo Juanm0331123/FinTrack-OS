@@ -68,6 +68,8 @@ El log final del smoke sobrevivió a una interrupción de créditos. Se verific�
 
 ## Hallazgos cerrados en esta ronda
 
+La primera CI (`39000680509`, SHA `6be2ef8`) detectó TS2307 al importar el logo PNG en un checkout limpio. Localmente `next-env.d.ts`, generado e ignorado, cargaba los tipos de imagen. Se reprodujo el fallo con un `git archive` sin archivos generados y se añadió una referencia versionada a los tipos oficiales `next/image-types/global` en `shared/brand/static-images.d.ts`; no se usó `any` ni se cambió la comprobación de CI. La misma copia limpia aprobó después. Los resultados de las corridas siguientes se consultan por SHA en Actions.
+
 | Importancia | Hallazgo | Reproducción / observado | Corrección y criterio de cierre |
 | --- | --- | --- | --- |
 | Media | Escena del hero se movía sin control funcional sin JavaScript y no se pausaba al salir del viewport | Desactivar JS o bajar hasta FAQ; los keyframes seguían en ejecución | Mejora progresiva con marcadores de visibilidad y control hidratado; pausa manual/automática, reduced motion y cleanup comprobados |
