@@ -1,5 +1,11 @@
 # FinTrack OS — Tareas de diseño
 
+## Alcance actual: beta privada — 2026-10-17
+
+El Owner decide que, por ahora, FinTrack OS será únicamente para familiares y amigos, sin cobro. **Aplaza el trabajo legal hasta considerar la monetización.** No continuar la redacción, publicación o implementación de ese frente por la autorización anterior. L-01…L-04 quedan aplazados y sin resolver; no se convierten en requisitos cumplidos ni se presume una exención por gratuidad o por tratarse de conocidos.
+
+El siguiente frente técnico es preparar el despliegue de la beta privada. El Owner decide mantener el registro abierto (correo, Google y GitHub) sin lista de invitados ni códigos: el acceso se apoya en los controles de autenticación existentes (verificación de correo, límites de intentos y sesiones con cookies). El plan sigue en [`despliegue.md`](despliegue.md); el diseño aprobado, QA y CI se conservan cerrados en su alcance.
+
 ## Estado vigente del cierre — 2026-10-17
 
 **Cuatro secciones independientes y `ProductMotion` implementados; QA local final aprobado.** El Owner aprobó las nuevas secciones: «AHORA SI ME ENCANTO LOS SECTIONS QUE LINDOOOO!!!». El hero SkyElite aprobado permanece intacto, con nubes exclusivamente en el hero.
@@ -10,7 +16,7 @@ No se usa un porcentaje global para confundir implementación, revisión visual,
 
 | # | Tarea | Estado vigente | Cierre y pendientes |
 |---|---|---|---|
-| 1 | Cerrar el contenido de la landing | Copy aprobado; cierre legal bloqueado | Textos y procedimiento consolidados, no publicados. L-01…L-04 siguen abiertos; no habilitar enlaces/políticas incompletos. |
+| 1 | Cerrar el contenido de la landing | Copy aprobado; frente legal aplazado por el Owner | Beta privada familiar/amigos por ahora. Borradores no publicados y L-01…L-04 sin resolver; no continuar este frente hasta nueva instrucción. |
 | 2 | Aprobar la dirección visual | Hero y nuevas secciones aprobados | Aprobación nueva del Owner registrada; el showroom anterior queda sustituido. |
 | 3 | Definir el sistema visual de toda la app | Implementada y validada en su alcance | Tokens y reglas documentados; se conserva la escala funcional del workspace y las excepciones del hero. |
 | 4 | Finalizar e integrar el logo | Implementada y validada en su alcance | Marca oficial local, variantes, usos y assets; los pendientes de dominio/compartir conservan su tratamiento antes de desplegar. |
