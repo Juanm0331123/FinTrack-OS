@@ -1,40 +1,46 @@
 # FinTrack OS — Tareas de diseño
 
-## Estado vigente del cierre — 2026-10-16
+## Estado vigente del cierre — 2026-10-17
 
-**Implementación terminada y QA técnico local aprobado; revisión visual nueva del Owner pendiente.** El hero SkyElite ya aprobado permanece intacto. El producto y las secciones inferiores se han rehecho como showroom y composición editorial, con nubes exclusivamente en el hero.
+**Cuatro secciones independientes y `ProductMotion` implementados; QA local final aprobado.** El Owner aprobó las nuevas secciones: «AHORA SI ME ENCANTO LOS SECTIONS QUE LINDOOOO!!!». El hero SkyElite aprobado permanece intacto, con nubes exclusivamente en el hero.
+
+El corte anterior de showroom y QA local queda **sustituido para producto**. Su evidencia de autenticación, finanzas y Deudas se conserva con el alcance y SHA originales; los resultados actuales se registran por separado.
 
 No se usa un porcentaje global para confundir implementación, revisión visual, legales y despliegue. Los porcentajes que aparecen al desplegar el historial corresponden a sus cortes antiguos y no describen este estado.
 
 | # | Tarea | Estado vigente | Cierre y pendientes |
 |---|---|---|---|
 | 1 | Cerrar el contenido de la landing | Copy aprobado; cierre legal bloqueado | Textos y procedimiento consolidados, no publicados. L-01…L-04 siguen abiertos; no habilitar enlaces/políticas incompletos. |
-| 2 | Aprobar la dirección visual | Dirección elegida; hero aprobado | Hero SkyElite vigente. La nueva composición inferior implementada conserva su revisión visual pendiente; no hay una aprobación estética nueva por deducción. |
+| 2 | Aprobar la dirección visual | Hero y nuevas secciones aprobados | Aprobación nueva del Owner registrada; el showroom anterior queda sustituido. |
 | 3 | Definir el sistema visual de toda la app | Implementada y validada en su alcance | Tokens y reglas documentados; se conserva la escala funcional del workspace y las excepciones del hero. |
 | 4 | Finalizar e integrar el logo | Implementada y validada en su alcance | Marca oficial local, variantes, usos y assets; los pendientes de dominio/compartir conservan su tratamiento antes de desplegar. |
 | 5 | Unificar los componentes | Implementada y validada en su alcance | Controles coherentes, estados y foco; envíos principales de autenticación azules. |
 | 6 | Aplicar el diseño al producto | Implementada y validada localmente | Auth y finanzas conservan sus regresiones. Deudas incluye búsqueda/ordenación con 11 pruebas puras y cuatro escenarios de navegador. |
-| 7 | Construir la landing completa y responsive | Implementación terminada; QA local aprobado | Hero intacto, showroom y secciones editoriales inferiores. Revisión visual nueva del Owner pendiente; legales no publicados. |
-| 8 | Añadir la experiencia de movimiento | Implementación terminada; QA local aprobado | Historia reversible, reload/reduced motion/sin JS verificados; pausa del hero. Nubes solo en hero, sin partículas ni WebGL. |
-| 9 | Hacer QA del diseño y regresiones | Cierre técnico local | Resultados y cobertura reales en `qa-design-release.md`; no equivale a CI futura, staging ni garantías absolutas. |
-| 10 | Revisión final y versionamiento | Autorizado y en curso; CI/main pendientes | Rama `feat/design-qa-release`, cinco commits creados en este corte; faltan QA/documentación, push, checks, integración y CI de main. Revisión visual nueva pendiente; sin despliegue. |
+| 7 | Construir la landing completa y responsive | Implementada y aprobada por el Owner | Cuatro secciones independientes: hoja mensual ancha, bolsillos como carpeta/recibos distribuidos, colchón como ecuación abierta y gráfica panorámica sin marco. Hero intacto. |
+| 8 | Añadir la experiencia de movimiento | Implementada y confirmada localmente | `ProductMotion` sustituye `StoryMotion` y sus tres archivos antiguos. Siete anchos, reversibilidad, recarga, reduced motion y sin JS aprobados; nubes solo en hero. |
+| 9 | Hacer QA del diseño y regresiones | QA local final aprobado | Lint, typecheck, build, 246/246 pruebas y 4/4 regresiones visuales integradas aprobados. Confirmación final de navegador exit 0. |
+| 10 | Revisión final y versionamiento | Autorizado y en curso | Código nuevo en `4dcafee`, pendiente de push/CI/main. CI anterior `39000831658` aprobada para `5b711f5`; consultar Actions por cada SHA enviado e integrado. |
 
-### Resultado actual y evidencias
+### Composición vigente y evidencia del corte anterior
 
-- Frontend: **252/252 pruebas**, lint, typecheck y build aislado aprobados.
-- Landing final: siete anchos, reversibilidad, recarga a mitad, movimiento reducido y contenido sin JavaScript aprobados en el QA local actual. La escala inferior se contiene en H2 hasta 40px desktop y 28px móvil.
+- **Producto implementado:** una hoja mensual ancha como única gran tarjeta; bolsillos con carpeta y recibos distribuidos; colchón/deudas mediante ecuación abierta; resumen como gráfica panorámica sin marco. Cada sección tiene espacio y movimiento propios, sin reutilizar el mismo panel con datos diferentes.
+- `ProductMotion` ya sustituye el control compartido de producto. Lint, typecheck y build aprobados; **246/246 pruebas en 25 archivos**. La diferencia frente a 252 corresponde a seis pruebas retiradas con el motor sustituido, no a seis pruebas omitidas.
+- **4/4 regresiones visuales integradas aprobadas.** Se corrigió un primer recorte móvil de 24px en reserva ajustando su ancho al 2%. Confirmación final exit 0: siete anchos 320–1440 sin cajas fuera de pantalla, overflow horizontal, imágenes rotas ni nubes bajo el hero; reverse/reload correctos, reduced motion con cero animaciones, sin JS cuatro secciones y cero ocultas, sin excepciones.
+
+- Corte anterior: frontend **252/252 pruebas**, lint, typecheck y build aislado aprobados; conservar su alcance original.
+- Landing del corte sustituido: siete anchos, reversibilidad, recarga a mitad, movimiento reducido y contenido sin JavaScript comprobados. Repetir las comprobaciones pertinentes sobre las nuevas secciones antes de declarar su cierre. La escala inferior mantiene H2 hasta 40px desktop y 28px móvil.
 - Hero SkyElite aprobado: H1 96/72/60/48px según ancho, texto y degradado intactos; nubes y escena SVG/CSS exclusivamente en el hero. Las superficies inferiores no reciben esas nubes.
 - Deudas: once regresiones puras y cuatro de navegador, sin cambiar las prioridades, pagos o totales del plan al ordenar/filtrar.
 - El selector de teclado de la FAQ elegía el `summary` del menú. Se corrigió el selector del arnés; no era un defecto de la FAQ de la app.
 - Los cortes de backend, Docker y del recorrido integrado, sus comandos y límites se consultan en [el informe de cierre](qa-design-release.md). No presentar comprobaciones anteriores como nuevas ni el smoke Linux como la integración Windows omitida.
 - Safari/Firefox, dispositivos físicos, lectores de pantalla, Lighthouse, staging, proveedores reales y configuración operativa de Neon mantienen los límites del informe.
-- **No hay una nueva aprobación visual del Owner sobre las secciones inferiores. No se desplegó.**
+- **Nuevas secciones aprobadas visualmente por el Owner. No se desplegó.**
 
 ### Versionamiento autorizado activo
 
-Al preparar este registro, `feat/design-qa-release` contiene cinco commits: `8e37c7e` (almacén local de pnpm), `76acc4f` (privacidad de errores), `2b9fca6` (sistema visual), `615d360` (landing) y `821327d` (Deudas). Restan QA/documentación, push, CI de rama, integración no interactiva en main, push y CI de main según `AGENTS.md`. Los checks de un SHA previo no validan este corte. No se usan amend, force push ni atribuciones a agentes.
+El corte anterior subido de `feat/design-qa-release` tiene siete commits hasta `5b711f5`, con CI `39000831658` en success. El código nuevo ya está en `4dcafee`; siguen push, CI de rama, integración y CI de main conforme a `AGENTS.md`. Consultar Actions por cada SHA nuevo; el último main registrado es `91d42bd`. QA local y aprobación visual del Owner ya están confirmados. No se usan amend, force push ni atribuciones a agentes.
 
-La autorización para versionar permanece activa. El proceso no despliega ni publica los borradores legales; tampoco convierte la revisión visual pendiente en una aprobación.
+La autorización para versionar permanece activa. El proceso no despliega ni publica los borradores legales L-01…L-04.
 
 ### Fuentes actuales
 

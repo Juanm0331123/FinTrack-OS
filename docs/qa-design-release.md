@@ -10,7 +10,19 @@ Fecha local: 2026-10-16. Base: `91d42bd` más los cambios locales de diseño, la
 
 ## Validaciones ejecutadas
 
-### Refinamiento posterior de las secciones inferiores
+### Composiciones independientes — 2026-10-17
+
+El Owner rechazó el panel compartido, por lo que este corte sustituye la composición de producto de las rondas anteriores. Ahora hay cuatro secciones reales en flujo: hoja mensual ancha, carpeta y recibos distribuidos, reserva y ecuación abiertas, y gráfica anual panorámica. Se conserva el hero aprobado; no hay nubes en estas secciones.
+
+Lint, typecheck, build aislado y **246/246 pruebas en 25 archivos** aprobados. Se retiraron las seis pruebas del motor `StoryMotion` eliminado junto con ese motor y su helper; no se retiraron regresiones de autenticación, finanzas, Deudas ni del ejecutor. `ProductMotion` solo aplica desplazamientos/giros reversibles por sección, sin ocultar texto ni interpolar cifras.
+
+La primera medición detectó texto de la reserva fuera del ancho móvil cuando el desplazamiento fijo de 24px se aplicaba a una pieza que ocupaba toda la sección. Se cambió a un desplazamiento proporcional del 2% del ancho de la pieza. Las regresiones integradas `F-UI-14`, `CABECERAS`, `RENDIMIENTO` y `BARRIDO` aprobaron **4/4** contra esta estructura. La confirmación del ajuste visual y de movimiento queda en `.local/qa-release/product-independent/`; las cuatro regresiones, en `.local/qa-release/product-regression/`.
+
+Las mediciones anteriores del escenario sticky no son pruebas de este motor nuevo. Los apartados y la tabla siguientes conservan los resultados de cada corte con su alcance original.
+
+**Confirmación final:** siete tamaños desde 320 hasta 1440px sin textos fuera del ancho, overflow de página, imágenes rotas ni nubes fuera del hero. Doce posiciones de scroll de escritorio reproducen el mismo estado al bajar/subir; recarga conserva posición/estado. Reduced motion deja cero animaciones de producto y sin JavaScript las cuatro secciones siguen visibles. Cero excepciones. El Owner aprobó expresamente estas secciones el 2026-10-17; esta aprobación sustituye el rechazo del escenario compartido.
+
+### Corte sustituido: refinamiento del escenario compartido
 
 Después del corte integrado de 43 escenarios, el Owner pidió elevar las secciones inferiores al nivel del hero y mantener las nubes solo en este. Se rehízo la composición de producto, pasos, acceso, FAQ y cierre. El hero aprobado quedó intacto.
 
