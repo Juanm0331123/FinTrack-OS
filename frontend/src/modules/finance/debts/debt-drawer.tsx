@@ -11,7 +11,7 @@ import { createId } from '../store/create-id'
 import { useWorkbookActions, useWorkbookState } from '../store/workbook-context'
 import { FtButton } from '../ui/button'
 import { ConfirmDialog, Drawer } from '../ui/drawer'
-import { Field, FieldError, inputClassName, MoneyInput, PercentInput, SELECT_CHEVRON_STYLE, Segmented, selectClassName, Switch } from '../ui/fields'
+import { affixBoxClassName, affixInputClassName, Field, FieldError, inputClassName, MoneyInput, PercentInput, SELECT_CHEVRON_STYLE, Segmented, selectClassName, Switch } from '../ui/fields'
 
 export type DebtEditorTarget = { debtId: string; mode: 'edit' } | { mode: 'new' }
 
@@ -50,13 +50,13 @@ function SharedPercentInput({ onValueChange, value }: { onValueChange: (value: n
     const [draft, setDraft] = useState(() => String(value).replace('.', ','))
 
     return (
-        <div className="flex h-11 items-center gap-1.5 rounded-lg border border-ft-line bg-white px-3 transition-[border-color,box-shadow] lg:h-10 duration-150 focus-within:border-ft-focus focus-within:ring-[3px] focus-within:ring-ft-focus-soft">
+        <div className={affixBoxClassName}>
             <input
                 id="debt-shared-percent"
                 type="text"
                 inputMode="decimal"
                 autoComplete="off"
-                className="h-full min-w-0 flex-1 bg-transparent text-sm font-medium text-ft-ink outline-none tabular"
+                className={affixInputClassName}
                 value={draft}
                 onChange={(event) => {
                     setDraft(event.target.value)
@@ -370,8 +370,8 @@ function NewDebtContent({ onClose }: { onClose: () => void }) {
                 <FtButton type="button" variant="secondary" onClick={onClose}>
                     Cancelar
                 </FtButton>
-                <FtButton type="submit" variant="primary" disabled={!canSave}>
-                    {busy ? 'Guardando…' : 'Guardar deuda'}
+                <FtButton type="submit" variant="primary" disabled={!canSave} loading={busy} loadingLabel="Guardando…">
+                    Guardar deuda
                 </FtButton>
             </div>
         </form>

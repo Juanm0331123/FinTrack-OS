@@ -6,44 +6,22 @@ import { useMemo, useState } from 'react'
 
 import { APP_ROUTES } from '@/shared/config/routes'
 import { cn } from '@/shared/lib/utils'
-import { computeDebtPlan, type DebtAction, type DebtPlan, type DebtPlanRow } from '../domain/debt-plan'
+import { computeDebtPlan, type DebtPlan, type DebtPlanRow } from '../domain/debt-plan'
 import { monthLabel, monthName } from '../domain/year-month'
 import { useSelectedMonth } from '../hooks/use-selected-month'
 import { useDebts, useMonthSummary, useSettings, useSheet } from '../hooks/use-workbook-data'
 import { formatMoney, formatPercent } from '../lib/format'
 import { useWorkbookActions } from '../store/workbook-context'
-import { FtButton } from '../ui/button'
+import { FtButton, ftInlineActionClassName } from '../ui/button'
 import { Segmented, Switch } from '../ui/fields'
 import { EmptyState, PageHeader } from '../ui/layout-parts'
 import { Panel } from '../ui/panel'
 import { DebtDrawer, type DebtEditorTarget } from './debt-drawer'
+import { DebtListControls } from './debt-list-controls'
+import { getVisibleDebtRows, type DebtViewSort } from './debt-list-view'
+import { ACTION_LABELS, ACTION_STYLES, monthsText } from './debt-presentation'
 import { STRATEGY_HINTS, STRATEGY_NAMES, STRATEGY_OPTIONS, strategyReason } from './debt-strategy'
-
-const ACTION_LABELS: Record<DebtAction, string> = {
-    AT_CAP: 'Al tope acordado',
-    BASE_ONLY: 'Solo pago base',
-    EXTRA: 'Abonar extra',
-    KILL_FIRST: 'Matar primero',
-}
-
-const ACTION_STYLES: Record<DebtAction, string> = {
-    AT_CAP: 'bg-ft-primary-soft text-ft-primary',
-    BASE_ONLY: 'bg-ft-muted text-ft-ink-2',
-    EXTRA: 'bg-ft-warn-soft text-ft-warn',
-    KILL_FIRST: 'bg-ft-neg-soft text-ft-neg',
-}
-
-function monthsText(row: DebtPlanRow) {
-    if (row.monthsRemaining === null) {
-        return 'Pago insuficiente: no cubre los intereses'
-    }
-
-    if (row.monthsRemaining === 0) {
-        return 'Saldo en cero'
-    }
-
-    return `Terminas en ${row.monthsRemaining} ${row.monthsRemaining === 1 ? 'mes' : 'meses'}`
-}
+import { DebtTable } from './debt-table'
 
 function StrategyCard({ hasSheet, plan, yearMonth }: { hasSheet: boolean; plan: DebtPlan; yearMonth: string }) {
     const actions = useWorkbookActions()
@@ -77,7 +55,8 @@ function StrategyCard({ hasSheet, plan, yearMonth }: { hasSheet: boolean; plan: 
     return (
         <Panel aria-labelledby="strategy-title" className="grid grid-cols-1 overflow-hidden lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
             <div className="flex flex-col items-start gap-2 border-b border-ft-line-soft px-5 py-5 lg:border-r lg:border-b-0">
-                {first ? (
+                {/* La píldora solo informa cuando el titular no la repite (p. ej. aviso de colchón). */}
+                {first && headline !== `Prioridad 1: ${first.debt.name}` ? (
                     <span className="inline-flex h-[26px] items-center rounded-full bg-ft-neg-soft px-2.5 text-[12.5px] font-semibold text-ft-neg">
                         Prioridad 1 · {first.debt.name}
                     </span>
@@ -116,7 +95,7 @@ function StrategyCard({ hasSheet, plan, yearMonth }: { hasSheet: boolean; plan: 
                     { label: 'Bolsa extra', tone: 'pos', value: formatMoney(plan.pool) },
                     { label: 'Te queda después de pagar', value: formatMoney(plan.availableAfterRecommended) },
                 ].map((item) => (
-                    <div key={item.label} className="flex flex-col justify-between gap-1 bg-white px-5 py-4">
+                    <div key={item.label} className="flex flex-col justify-start gap-1 bg-white px-5 py-4">
                         <dt className="text-[12.5px] text-ft-ink-3">{item.label}</dt>
                         <dd className={cn('text-xl font-semibold text-ft-ink tabular', item.tone === 'pos' && 'text-ft-pos')}>
                             {item.value}
@@ -149,7 +128,7 @@ function DebtCard({ onOpen, row }: { onOpen: (id: string) => void; row: DebtPlan
                         <button
                             type="button"
                             onClick={() => onOpen(row.debt.id)}
-                            className="cursor-pointer rounded text-left outline-none after:absolute after:inset-0 after:rounded-xl focus-visible:outline-2 focus-visible:outline-ft-focus"
+                            className="cursor-pointer rounded text-left after:absolute after:inset-0 after:rounded-xl focus-ring"
                         >
                             {row.debt.name}
                         </button>
@@ -227,6 +206,8 @@ export function DebtsPage() {
     const summary = useMonthSummary(yearMonth)
     const actions = useWorkbookActions()
     const [drawer, setDrawer] = useState<{ open: boolean; target: DebtEditorTarget | null }>({ open: false, target: null })
+    const [query, setQuery] = useState('')
+    const [sort, setSort] = useState<DebtViewSort>({ key: 'strategy', direction: 'asc' })
 
     const plan = useMemo(
         () =>
@@ -244,6 +225,7 @@ export function DebtsPage() {
         [debts, settings, sheet, summary],
     )
     const paidDebts = useMemo(() => (debts ?? []).filter((debt) => debt.status === 'PAID'), [debts])
+    const visibleRows = useMemo(() => getVisibleDebtRows(plan?.rows ?? [], { query, sort }), [plan, query, sort])
 
     if (!yearMonth || !plan) {
         return null
@@ -269,18 +251,33 @@ export function DebtsPage() {
                     <StrategyCard hasSheet={sheet !== null} plan={plan} yearMonth={yearMonth} />
                     {sheet === null ? (
                         <p className="text-sm text-ft-ink-2">
-                            <Link href={`${APP_ROUTES.dashboard}?month=${yearMonth}`} className="font-semibold text-ft-primary hover:underline">
+                            <Link href={`${APP_ROUTES.dashboard}?month=${yearMonth}`} className={cn(ftInlineActionClassName, 'font-semibold')}>
                                 Crear la hoja de {monthName(yearMonth)}
                             </Link>{' '}
                             para usar su disponible y sus pagos en el plan.
                         </p>
                     ) : null}
-                    <div className="flex flex-col gap-3">
-                        {plan.rows.map((row) => (
-                            <DebtCard key={row.debt.id} row={row} onOpen={openDebt} />
-                        ))}
-                    </div>
-                    <dl className="flex flex-wrap gap-x-7 gap-y-2 rounded-xl border border-ft-line bg-white px-5 py-3.5 text-[13px] text-ft-ink-2">
+                    <DebtListControls query={query} onQueryChange={setQuery} sort={sort} onSortChange={setSort} shown={visibleRows.length} total={plan.rows.length} />
+                    {visibleRows.length > 0 ? (
+                        <>
+                            <DebtTable
+                                rows={visibleRows}
+                                sort={sort}
+                                onSort={(key) => setSort((current) => ({ key, direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc' }))}
+                                onOpen={openDebt}
+                            />
+                            <div className="flex flex-col gap-3 lg:hidden">
+                                {visibleRows.map((row) => <DebtCard key={row.debt.id} row={row} onOpen={openDebt} />)}
+                            </div>
+                        </>
+                    ) : (
+                        <Panel>
+                            <EmptyState title="No encontramos deudas con esa búsqueda" action={<FtButton type="button" variant="secondary" onClick={() => setQuery('')}>Limpiar búsqueda</FtButton>}>
+                                Prueba otro nombre o entidad. Las deudas de tu plan siguen guardadas.
+                            </EmptyState>
+                        </Panel>
+                    )}
+                    <dl aria-label="Totales del plan completo" className="flex flex-wrap gap-x-7 gap-y-2 rounded-xl border border-ft-line bg-white px-5 py-3.5 text-[13px] text-ft-ink-2">
                         {[
                             { label: 'Saldo total', value: plan.totalBalance },
                             { label: 'Mi saldo', value: plan.myBalanceTotal },
@@ -325,7 +322,7 @@ export function DebtsPage() {
                                 <button
                                     type="button"
                                     onClick={() => openDebt(debt.id)}
-                                    className="cursor-pointer text-left font-medium text-ft-ink hover:underline"
+                                    className="cursor-pointer rounded-sm text-left font-medium text-ft-ink hover:underline focus-ring"
                                 >
                                     {debt.name}
                                 </button>
