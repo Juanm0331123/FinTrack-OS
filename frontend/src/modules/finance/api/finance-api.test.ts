@@ -64,6 +64,72 @@ function sessionFor(id: string, refreshAs = id) {
     return session
 }
 
+describe('financial server errors shown to the user', () => {
+    it('does not show database diagnostics from a temporary server failure', async () => {
+        const diagnostic = 'Raw query failed. Code: 42P01. relation "rate_limit_buckets" does not exist'
+        const server = fakeServer(() => json(503, {
+            code: 'DATABASE_UNAVAILABLE',
+            errors: [{ field: 'amount', message: diagnostic }],
+            message: diagnostic,
+            success: false,
+        }))
+        const api = createFinanceApi({ fetch: server.fetch, session: sessionFor('A'), userId: 'A' })
+
+        await expect(api.updateSettings({ cushionAmount: 5 })).rejects.toMatchObject({
+            code: 'DATABASE_UNAVAILABLE',
+            message: 'El servicio no está disponible en este momento. Intenta de nuevo en unos segundos.',
+            status: 503,
+        })
+    })
+
+    it.each([200, 500, 502, 503])('hides raw server messages received with HTTP %s', async (status) => {
+        const server = fakeServer(() => json(status, {
+            message: 'Invalid prisma.monthSheet.findMany() invocation at C:\\private\\server.ts',
+            success: false,
+        }))
+        const api = createFinanceApi({ fetch: server.fetch, session: sessionFor('A'), userId: 'A' })
+
+        await expect(api.getWorkbook()).rejects.toMatchObject({
+            message: 'El servicio no está disponible en este momento. Intenta de nuevo en unos segundos.',
+            status,
+        })
+    })
+
+    it('preserves financial validation messages and business error codes', async () => {
+        const server = fakeServer(() => json(422, {
+            code: 'VALIDATION_ERROR',
+            errors: [{ field: 'amount', message: 'El monto debe ser mayor o igual a cero.' }],
+            message: 'Revisa los campos indicados.',
+            success: false,
+        }))
+        const api = createFinanceApi({ fetch: server.fetch, session: sessionFor('A'), userId: 'A' })
+
+        await expect(api.updateSettings({ cushionAmount: -1 })).rejects.toMatchObject({
+            code: 'VALIDATION_ERROR',
+            message: 'El monto debe ser mayor o igual a cero.',
+            status: 422,
+        })
+    })
+
+    it('keeps session-unavailable failures retryable without sending another account request', async () => {
+        const session = createSessionManager({
+            hint: { get: () => true, set: () => undefined },
+            now: () => Date.now(),
+            refresh: async () => { throw new Error('temporary refresh unavailable') },
+            sleep: async () => undefined,
+        })
+        const server = fakeServer()
+        const api = createFinanceApi({ fetch: server.fetch, session, userId: 'A' })
+
+        await expect(api.getWorkbook()).rejects.toMatchObject({
+            code: 'SESSION_UNAVAILABLE',
+            message: 'No pudimos renovar tu sesión ahora. Reintenta en unos segundos.',
+            status: 503,
+        })
+        expect(server.calls).toEqual([])
+    })
+})
+
 describe('finance requests stay bound to the account that started them (RCLIENT-03)', () => {
     it('does not resend an operation started as A with B’s identity after a 401', async () => {
         const session = sessionFor('A', 'B')

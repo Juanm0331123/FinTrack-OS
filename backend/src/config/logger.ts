@@ -96,7 +96,8 @@ export function describeError(error: unknown) {
     // Prisma puede incluir argumentos de la consulta en el mensaje: solo se registra el código.
     const isPrismaError = error.name.startsWith('PrismaClient')
     const errorCode = (error as { code?: unknown }).code
-    const frames = error.stack?.split('\n').slice(1, 8).join('\n')
+    // Los mensajes multilínea preceden los frames de V8; no son parte del stack seguro.
+    const frames = error.stack?.split('\n').filter((line) => /^\s+at\s/.test(line)).slice(0, 7).join('\n')
 
     return {
         errorName: error.name,

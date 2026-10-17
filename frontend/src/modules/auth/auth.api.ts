@@ -1,5 +1,6 @@
 import { publicEnv } from '@/shared/config/env'
 import { combineSignals } from '@/shared/lib/abort-signals'
+import { serverFailureMessage } from '@/shared/lib/api-error-message'
 import type {
     AuthenticatedResponse,
     AuthErrorPayload,
@@ -29,10 +30,11 @@ export class AuthApiError extends Error {
     readonly status: number
 
     constructor(status: number, payload: AuthErrorPayload, retryAfterSeconds?: number) {
-        super(payload.message)
-        this.code = payload.code
-        this.details = payload.details
-        this.errors = payload.errors
+        const serverMessage = serverFailureMessage(status)
+        super(serverMessage ?? payload.message)
+        this.code = serverMessage ? undefined : payload.code
+        this.details = serverMessage ? undefined : payload.details
+        this.errors = serverMessage ? undefined : payload.errors
         this.name = 'AuthApiError'
         this.retryAfterSeconds = retryAfterSeconds
         this.status = status
