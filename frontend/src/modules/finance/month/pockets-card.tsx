@@ -28,7 +28,7 @@ function PocketRow({
             <button
                 type="button"
                 onClick={() => onSpend(pocket.entryId)}
-                className={`grid w-full cursor-pointer items-center gap-x-5 gap-y-2 px-4 py-3 text-left transition-colors duration-150 outline-none hover:bg-ft-hover focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ft-focus sm:px-[18px] ${ROW_LAYOUT}`}
+                className={`grid w-full cursor-pointer items-center gap-x-5 gap-y-2 px-4 py-3 text-left transition-colors duration-150 hover:bg-ft-hover focus-ring-inset sm:px-[18px] ${ROW_LAYOUT}`}
             >
                 {/* El nombre no se trunca: si no cabe junto al estado, el estado baja a la línea siguiente. */}
                 <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 [grid-area:name]">

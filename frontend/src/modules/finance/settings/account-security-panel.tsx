@@ -129,7 +129,7 @@ function PasswordForm({ security }: { security: AccountSecurity }) {
                 </Field>
             </div>
             <FeedbackMessage feedback={feedback} />
-            <FtButton type="submit" variant="secondary" className="self-start" disabled={busy || !currentPassword || !newPassword}>
+            <FtButton type="submit" variant="secondary" className="self-start" disabled={!currentPassword || !newPassword} loading={busy}>
                 Actualizar contraseña
             </FtButton>
         </form>
@@ -223,7 +223,7 @@ function EmailForm({ currentEmail, security }: { currentEmail: string; security:
                 </Field>
                 <FeedbackMessage feedback={feedback} />
                 <div className="flex flex-wrap gap-2">
-                    <FtButton type="submit" variant="secondary" disabled={busy || code.length !== 6}>
+                    <FtButton type="submit" variant="secondary" disabled={code.length !== 6} loading={busy}>
                         Confirmar correo
                     </FtButton>
                     <FtButton
@@ -274,7 +274,7 @@ function EmailForm({ currentEmail, security }: { currentEmail: string; security:
                 </Field>
             </div>
             <FeedbackMessage feedback={feedback} />
-            <FtButton type="submit" variant="secondary" className="self-start" disabled={busy || !newEmail.trim() || !currentPassword}>
+            <FtButton type="submit" variant="secondary" className="self-start" disabled={!newEmail.trim() || !currentPassword} loading={busy}>
                 Enviar código
             </FtButton>
         </form>

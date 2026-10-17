@@ -13,7 +13,7 @@ import { APP_ROUTES } from '@/shared/config/routes'
 import { useSelectedMonth } from '../hooks/use-selected-month'
 import { WorkbookProvider, useWorkbookActions, useWorkbookState } from '../store/workbook-context'
 import { FtButton } from '../ui/button'
-import { MAIN_CONTENT_ID } from '../ui/drawer'
+import { CONFIRM_DIALOG_CLASS, DIALOG_OVERLAY_CLASS, MAIN_CONTENT_ID, useReturnFocus } from '../ui/drawer'
 import { Panel } from '../ui/panel'
 import { MobileTabBar, MobileTopBar } from './mobile-bars'
 import { SaveErrorNotice } from './save-indicator'
@@ -148,11 +148,18 @@ function UnsavedLogoutDialog({
     open: boolean
     retrying: boolean
 }) {
+    // Sin Trigger de Radix: se recuerda quién abrió el aviso para devolverle el foco al cancelar.
+    const focus = useReturnFocus()
+
     return (
         <AlertDialog.Root open={open} onOpenChange={(next) => (next ? undefined : onCancel())}>
             <AlertDialog.Portal>
-                <AlertDialog.Overlay className="ft-overlay finance-theme fixed inset-0 z-50 bg-[rgba(15,23,42,0.32)]" />
-                <AlertDialog.Content className="finance-theme fixed top-1/2 left-1/2 z-50 w-[calc(100vw-32px)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl border border-ft-line bg-ft-card p-5 shadow-[0_20px_48px_-16px_rgba(16,24,40,0.28)] outline-none">
+                <AlertDialog.Overlay className={DIALOG_OVERLAY_CLASS} />
+                <AlertDialog.Content
+                    onOpenAutoFocus={focus.onOpenAutoFocus}
+                    onCloseAutoFocus={focus.onCloseAutoFocus}
+                    className={CONFIRM_DIALOG_CLASS}
+                >
                     <AlertDialog.Title className="text-lg font-semibold text-ft-ink">Hay cambios sin guardar</AlertDialog.Title>
                     <AlertDialog.Description className="mt-1.5 text-sm leading-6 text-ft-ink-2">
                         No pudimos guardar tus últimos cambios. Si cierras sesión ahora se pierden: reintenta guardarlos o
@@ -165,9 +172,9 @@ function UnsavedLogoutDialog({
                         <FtButton variant="danger" onClick={onDiscard}>
                             Salir sin guardar
                         </FtButton>
-                        <FtButton variant="primary" disabled={retrying} onClick={onRetry}>
-                            <RotateCw aria-hidden="true" />
-                            {retrying ? 'Guardando…' : 'Reintentar y salir'}
+                        <FtButton variant="primary" loading={retrying} loadingLabel="Guardando…" onClick={onRetry}>
+                            <RotateCw data-icon="inline-start" aria-hidden="true" />
+                            Reintentar y salir
                         </FtButton>
                     </div>
                 </AlertDialog.Content>

@@ -3,10 +3,7 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import {
     CheckCircle2,
-    Eye,
-    EyeOff,
     KeyRound,
-    LoaderCircle,
     LockKeyhole,
     Mail,
     RotateCcw,
@@ -19,8 +16,10 @@ import { useForm } from 'react-hook-form'
 import { APP_ROUTES } from '@/shared/config/routes'
 import { cn } from '@/shared/lib/utils'
 import { Button } from '@/shared/ui/button'
+import { FieldError, FormAlert } from '@/shared/ui/form-message'
 import { Input } from '@/shared/ui/input'
 import { Label } from '@/shared/ui/label'
+import { PasswordToggle } from '@/shared/ui/password-toggle'
 import { Progress } from '@/shared/ui/progress'
 import {
     AuthApiError,
@@ -123,23 +122,25 @@ function StepRail({ step }: { step: StepId }) {
                     return (
                         <div
                             key={item.id}
-                            className="flex min-w-0 flex-1 items-center gap-3"
+                            aria-current={status === 'current' ? 'step' : undefined}
+                            className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3"
                         >
                             <div
                                 className={cn(
-                                    'flex size-9 shrink-0 items-center justify-center rounded-full border text-sm font-semibold transition',
+                                    'flex size-8 shrink-0 items-center justify-center rounded-full border text-sm font-semibold transition sm:size-9',
                                     status === 'complete' &&
                                         'border-primary bg-primary text-primary-foreground',
                                     status === 'current' &&
-                                        'border-primary/30 bg-primary/10 text-primary',
+                                        'border-primary bg-blue-wash text-primary',
                                     status === 'upcoming' &&
-                                        'border-border bg-background text-muted-foreground',
+                                        'border-input bg-card text-muted-foreground',
                                 )}
                             >
                                 {index + 1}
                             </div>
                             <div className="min-w-0">
-                                <p className="truncate text-sm font-medium text-foreground">
+                                {/* Sin truncar: «Nueva contraseña» pasa a dos líneas si no cabe. */}
+                                <p className="text-[13px] leading-tight font-medium text-foreground sm:text-sm">
                                     {item.label}
                                 </p>
                             </div>
@@ -484,7 +485,7 @@ export function ForgotPasswordFlow() {
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">
-                    <Button asChild variant="brand" className="w-full">
+                    <Button asChild variant="access" size="lg" className="w-full">
                         <Link href={APP_ROUTES.login}>Volver a iniciar sesión</Link>
                     </Button>
                     <Button
@@ -536,12 +537,9 @@ export function ForgotPasswordFlow() {
                         noValidate
                     >
                         {requestError ? (
-                            <p
-                                role="alert"
-                                className="rounded-xl border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-                            >
+                            <FormAlert>
                                 {requestError}
-                            </p>
+                            </FormAlert>
                         ) : null}
 
                         {requestInfo ? (
@@ -575,12 +573,9 @@ export function ForgotPasswordFlow() {
                                 />
                             </div>
                             {emailForm.formState.errors.email ? (
-                                <p
-                                    id="forgot-password-email-error"
-                                    className="text-sm text-destructive"
-                                >
+                                <FieldError id="forgot-password-email-error">
                                     {emailForm.formState.errors.email.message}
-                                </p>
+                                </FieldError>
                             ) : (
                                 <p
                                     id="forgot-password-email-help"
@@ -594,18 +589,12 @@ export function ForgotPasswordFlow() {
 
                         <Button
                             type="submit"
-                            variant="brand"
+                            variant="default"
+                            size="lg"
                             className="w-full"
-                            disabled={emailForm.formState.isSubmitting}
+                            loading={emailForm.formState.isSubmitting}
                         >
-                            {emailForm.formState.isSubmitting ? (
-                                <LoaderCircle
-                                    className="size-4 animate-spin"
-                                    aria-hidden="true"
-                                />
-                            ) : (
-                                <KeyRound className="size-4" aria-hidden="true" />
-                            )}
+                            <KeyRound data-icon="inline-start" aria-hidden="true" />
                             Enviar código de recuperación
                         </Button>
                     </form>
@@ -650,13 +639,9 @@ export function ForgotPasswordFlow() {
                     </div>
 
                     {requestError ? (
-                        <p
-                            id="forgot-password-code-error"
-                            role="alert"
-                            className="rounded-xl border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-                        >
+                        <FormAlert id="forgot-password-code-error">
                             {requestError}
-                        </p>
+                        </FormAlert>
                     ) : null}
 
                     {requestInfo ? (
@@ -685,32 +670,22 @@ export function ForgotPasswordFlow() {
                     <div className="grid gap-3 sm:grid-cols-2">
                         <Button
                             type="button"
-                            variant="brand"
+                            variant="default"
+                            size="lg"
                             className="w-full"
-                            disabled={!isCompleteCode(code, CODE_LENGTH) || isVerifyingCode}
+                            disabled={!isCompleteCode(code, CODE_LENGTH)}
+                            loading={isVerifyingCode}
                             onClick={handleVerifyCode}
                         >
-                            {isVerifyingCode ? (
-                                <LoaderCircle
-                                    className="size-4 animate-spin"
-                                    aria-hidden="true"
-                                />
-                            ) : null}
                             Validar código
                         </Button>
                         <Button
                             type="button"
                             variant="outline"
                             className="w-full"
-                            disabled={isResendingCode}
+                            loading={isResendingCode}
                             onClick={handleResendCode}
                         >
-                            {isResendingCode ? (
-                                <LoaderCircle
-                                    className="size-4 animate-spin"
-                                    aria-hidden="true"
-                                />
-                            ) : null}
                             Solicitar código nuevo
                         </Button>
                     </div>
@@ -771,12 +746,9 @@ export function ForgotPasswordFlow() {
                     </div>
 
                     {resetError ? (
-                        <p
-                            role="alert"
-                            className="rounded-xl border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-                        >
+                        <FormAlert>
                             {resetError}
-                        </p>
+                        </FormAlert>
                     ) : null}
 
                     {resetInfo ? (
@@ -811,34 +783,12 @@ export function ForgotPasswordFlow() {
                                     className="pr-12"
                                     {...passwordForm.register('password')}
                                 />
-                                <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="icon"
-                                    className="absolute right-0 top-1/2 size-11 -translate-y-1/2"
-                                    aria-label={
-                                        showPassword
-                                            ? 'Ocultar contraseña'
-                                            : 'Mostrar contraseña'
-                                    }
-                                    onClick={() =>
-                                        setShowPassword((current) => !current)
-                                    }
-                                >
-                                    {showPassword ? (
-                                        <EyeOff className="size-4" aria-hidden="true" />
-                                    ) : (
-                                        <Eye className="size-4" aria-hidden="true" />
-                                    )}
-                                </Button>
+                                <PasswordToggle visible={showPassword} hideLabel="Ocultar contraseña" showLabel="Mostrar contraseña" onToggle={() => setShowPassword((current) => !current)} />
                             </div>
                             {passwordForm.formState.errors.password ? (
-                                <p
-                                    id="forgot-password-new-password-error"
-                                    className="text-sm text-destructive"
-                                >
+                                <FieldError id="forgot-password-new-password-error">
                                     {passwordForm.formState.errors.password.message}
-                                </p>
+                                </FieldError>
                             ) : (
                                 <p
                                     id="forgot-password-new-password-help"
@@ -872,68 +822,35 @@ export function ForgotPasswordFlow() {
                                     className="pr-12"
                                     {...passwordForm.register('confirmPassword')}
                                 />
-                                <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="icon"
-                                    className="absolute right-0 top-1/2 size-11 -translate-y-1/2"
-                                    aria-label={
-                                        showConfirmPassword
-                                            ? 'Ocultar confirmación de contraseña'
-                                            : 'Mostrar confirmación de contraseña'
-                                    }
-                                    onClick={() =>
-                                        setShowConfirmPassword((current) => !current)
-                                    }
-                                >
-                                    {showConfirmPassword ? (
-                                        <EyeOff className="size-4" aria-hidden="true" />
-                                    ) : (
-                                        <Eye className="size-4" aria-hidden="true" />
-                                    )}
-                                </Button>
+                                <PasswordToggle visible={showConfirmPassword} hideLabel="Ocultar confirmación de contraseña" showLabel="Mostrar confirmación de contraseña" onToggle={() => setShowConfirmPassword((current) => !current)} />
                             </div>
                             {passwordForm.formState.errors.confirmPassword ? (
-                                <p
-                                    id="forgot-password-confirm-password-error"
-                                    className="text-sm text-destructive"
-                                >
+                                <FieldError id="forgot-password-confirm-password-error">
                                     {
                                         passwordForm.formState.errors.confirmPassword
                                             .message
                                     }
-                                </p>
+                                </FieldError>
                             ) : null}
                         </div>
 
                         <div className="grid gap-3 sm:grid-cols-2">
                             <Button
                                 type="submit"
-                                variant="brand"
+                                variant="default"
+                                size="lg"
                                 className="w-full"
-                                disabled={passwordForm.formState.isSubmitting}
+                                loading={passwordForm.formState.isSubmitting}
                             >
-                                {passwordForm.formState.isSubmitting ? (
-                                    <LoaderCircle
-                                        className="size-4 animate-spin"
-                                        aria-hidden="true"
-                                    />
-                                ) : null}
                                 Guardar nueva contraseña
                             </Button>
                             <Button
                                 type="button"
                                 variant="outline"
                                 className="w-full"
-                                disabled={isResendingCode}
+                                loading={isResendingCode}
                                 onClick={handleResendCode}
                             >
-                                {isResendingCode ? (
-                                    <LoaderCircle
-                                        className="size-4 animate-spin"
-                                        aria-hidden="true"
-                                    />
-                                ) : null}
                                 Solicitar código nuevo
                             </Button>
                         </div>

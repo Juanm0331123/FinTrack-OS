@@ -174,12 +174,14 @@ function MonthSheetView({ sheet, yearMonth }: { sheet: MonthSheet; yearMonth: st
                         <MonthNavigation yearMonth={yearMonth} />
                         <FtButton
                             variant="secondary"
-                            disabled={!previous || copying}
+                            disabled={!previous}
+                            loading={copying}
+                            loadingLabel="Copiando…"
                             title={previous ? undefined : 'No hay un mes anterior para copiar'}
                             onClick={() => (sheet.entries.length > 0 ? setConfirmCopy(true) : void copyPrevious())}
                         >
-                            <Copy aria-hidden="true" />
-                            {copying ? 'Copiando…' : 'Copiar mes anterior'}
+                            <Copy data-icon="inline-start" aria-hidden="true" />
+                            Copiar mes anterior
                         </FtButton>
                         <FtButton variant="primary" className="hidden md:inline-flex" onClick={openNew}>
                             <Plus aria-hidden="true" />

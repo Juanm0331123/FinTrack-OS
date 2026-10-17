@@ -6,6 +6,7 @@ import type { IncomeBreakdown } from '../domain/month-sheet'
 import type { LeftoverDestination, MonthSheet } from '../domain/types'
 import { formatAmount, formatMoney, formatPercent } from '../lib/format'
 import { useWorkbookActions } from '../store/workbook-context'
+import { ftInlineActionClassName } from '../ui/button'
 import { Field, MoneyInput, Segmented } from '../ui/fields'
 import { Panel, PanelHeader } from '../ui/panel'
 
@@ -65,7 +66,7 @@ export function IncomeCard({
                                     setAdjustingBenefits(false)
                                     update({ benefitsOverride: null })
                                 }}
-                                className="cursor-pointer font-medium text-ft-primary hover:underline"
+                                className={ftInlineActionClassName}
                             >
                                 Volver al {rateLabel} del salario
                             </button>
@@ -73,7 +74,7 @@ export function IncomeCard({
                             <button
                                 type="button"
                                 onClick={() => setAdjustingBenefits(true)}
-                                className="cursor-pointer font-medium text-ft-primary hover:underline"
+                                className={ftInlineActionClassName}
                             >
                                 Ajustar a mano
                             </button>
@@ -137,7 +138,7 @@ export function IncomeCard({
                                 <button
                                     type="button"
                                     onClick={() => update({ previousLeftover: pocketLeftover.amount })}
-                                    className="cursor-pointer font-medium text-ft-primary hover:underline"
+                                    className={ftInlineActionClassName}
                                 >
                                     Usar ese valor
                                 </button>

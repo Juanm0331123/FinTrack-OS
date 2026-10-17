@@ -1,5 +1,7 @@
+import { cn } from '@/shared/lib/utils'
+
 function Block({ className }: { className: string }) {
-    return <div className={`animate-pulse rounded-lg bg-ft-muted ${className}`} />
+    return <div className={cn('animate-pulse rounded-lg bg-ft-muted motion-reduce:animate-none', className)} />
 }
 
 export function ContentSkeleton() {
@@ -24,11 +26,12 @@ export function ContentSkeleton() {
 export function ShellSkeleton() {
     return (
         <div className="finance-theme min-h-dvh lg:flex">
-            <div className="hidden h-dvh w-[252px] flex-none flex-col gap-6 border-r border-ft-line bg-ft-card px-3.5 py-5 lg:flex">
-                <Block className="h-8 w-36" />
+            {/* Misma superficie Panel que la barra lateral real: la carga no salta de tono. */}
+            <div className="hidden h-dvh w-[252px] flex-none flex-col gap-6 bg-ft-panel px-3.5 py-5 lg:flex">
+                <Block className="h-8 w-36 bg-ft-panel-strong" />
                 <div className="flex flex-col gap-2">
                     {Array.from({ length: 5 }, (_, index) => (
-                        <Block key={index} className="h-9 w-full" />
+                        <Block key={index} className="h-9 w-full bg-ft-panel-strong" />
                     ))}
                 </div>
             </div>

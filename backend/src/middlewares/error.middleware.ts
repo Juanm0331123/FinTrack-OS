@@ -1,6 +1,5 @@
 import type { NextFunction, Request, Response } from 'express'
 import { classifyDatabaseError } from '../config/database-errors.ts'
-import { env } from '../config/env.ts'
 import { describeError, logger } from '../config/logger.ts'
 import { metrics } from '../config/metrics.ts'
 import { ApiResponse } from '../utils/api-response.ts'
@@ -168,11 +167,5 @@ export function errorMiddleware(error: unknown, req: Request, res: Response, _ne
 
     logger.error('unhandled_error', describeError(error))
 
-    return send(res, {
-        ...INTERNAL_ERROR,
-        message:
-            env.NODE_ENV === 'development' && error instanceof Error
-                ? `${INTERNAL_ERROR.message} (${error.message})`
-                : INTERNAL_ERROR.message,
-    })
+    return send(res, INTERNAL_ERROR)
 }

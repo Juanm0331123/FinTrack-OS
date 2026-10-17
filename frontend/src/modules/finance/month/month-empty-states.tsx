@@ -60,18 +60,26 @@ export function CreateMonthState({ yearMonth }: { yearMonth: string }) {
                 action={
                     <>
                         {previous ? (
-                            <FtButton variant="primary" disabled={busy !== null} onClick={() => void create('PREVIOUS')}>
-                                <Copy aria-hidden="true" />
-                                {busy === 'PREVIOUS' ? 'Copiando…' : `Copiar ${monthName(previous.yearMonth)}`}
+                            <FtButton
+                                variant="primary"
+                                disabled={busy !== null}
+                                loading={busy === 'PREVIOUS'}
+                                loadingLabel="Copiando…"
+                                onClick={() => void create('PREVIOUS')}
+                            >
+                                <Copy data-icon="inline-start" aria-hidden="true" />
+                                {`Copiar ${monthName(previous.yearMonth)}`}
                             </FtButton>
                         ) : null}
                         <FtButton
                             variant={previous ? 'secondary' : 'primary'}
                             disabled={busy !== null}
+                            loading={busy === 'NONE'}
+                            loadingLabel="Creando…"
                             onClick={() => void create('NONE')}
                         >
-                            <FilePlus2 aria-hidden="true" />
-                            {busy === 'NONE' ? 'Creando…' : 'Crear hoja vacía'}
+                            <FilePlus2 data-icon="inline-start" aria-hidden="true" />
+                            Crear hoja vacía
                         </FtButton>
                     </>
                 }
@@ -148,7 +156,7 @@ export function FirstRunSetup({ yearMonth }: { yearMonth: string }) {
     return (
         <Panel aria-labelledby="setup-title" className="mx-auto max-w-2xl">
             <div className="border-b border-ft-line px-5 py-5 sm:px-6">
-                <h1 id="setup-title" className="text-2xl font-semibold tracking-[-0.02em] text-ft-ink">
+                <h1 id="setup-title" className="text-[1.375rem] font-semibold tracking-[-0.02em] text-ft-ink sm:text-2xl">
                     Configura tu primer mes
                 </h1>
                 <p className="mt-1.5 text-sm leading-6 text-ft-ink-2">
@@ -234,8 +242,8 @@ export function FirstRunSetup({ yearMonth }: { yearMonth: string }) {
                 ) : null}
             </div>
             <div className="flex justify-end border-t border-ft-line px-5 py-4 sm:px-6">
-                <FtButton variant="primary" disabled={busy} onClick={() => void start()}>
-                    {busy ? 'Creando…' : `Crear la hoja de ${monthName(startMonth)}`}
+                <FtButton variant="primary" loading={busy} loadingLabel="Creando…" onClick={() => void start()}>
+                    {`Crear la hoja de ${monthName(startMonth)}`}
                 </FtButton>
             </div>
         </Panel>

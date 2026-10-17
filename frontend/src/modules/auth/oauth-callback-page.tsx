@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useState, useSyncExternalStore } from 'react'
 
 import { APP_ROUTES } from '@/shared/config/routes'
+import { BrandLogo } from '@/shared/ui/brand-logo'
 import { Button } from '@/shared/ui/button'
 import { clearPendingVerification, savePendingVerification } from './auth.storage'
 import { getBrowserSession } from './browser-session'
@@ -90,8 +91,11 @@ export function OAuthCallbackPage() {
     ) {
         return (
             <main className="bg-auth-soft flex min-h-dvh items-center justify-center px-5">
-                <div className="flex max-w-sm items-center gap-3 rounded-2xl border border-border/70 bg-card/95 px-5 py-4 shadow-[0_24px_60px_-28px_oklch(0.58_0.19_252/0.24)]">
-                    <LoaderCircle className="size-5 animate-spin text-primary" />
+                <div
+                    role="status"
+                    className="flex max-w-sm items-center gap-3 rounded-2xl border border-border bg-card px-5 py-4 shadow-[0_24px_60px_-28px_oklch(0.58_0.19_252/0.24)]"
+                >
+                    <LoaderCircle className="size-5 animate-spin text-primary motion-reduce:animate-none" aria-hidden="true" />
                     <p className="text-sm text-foreground">
                         Terminando el acceso con tu proveedor...
                     </p>
@@ -102,21 +106,23 @@ export function OAuthCallbackPage() {
 
     return (
         <main className="bg-auth-soft flex min-h-dvh items-center justify-center px-5">
-            <div className="w-full max-w-md rounded-[20px] border border-border/70 bg-card/95 p-6 shadow-[0_24px_60px_-28px_oklch(0.58_0.19_252/0.24)]">
-                <div className="mb-4 flex size-11 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+            <div className="w-full max-w-md rounded-[20px] border border-border bg-card p-6 shadow-[0_24px_60px_-28px_oklch(0.58_0.19_252/0.24)] sm:p-8">
+                <BrandLogo variant="full" size="sm" className="mb-6" />
+                <div className="mb-4 flex size-11 items-center justify-center rounded-full bg-[var(--negative-wash)] text-destructive">
                     <TriangleAlert className="size-5" aria-hidden="true" />
                 </div>
-                <h1 className="text-2xl font-semibold tracking-[-0.02em] text-foreground">
+                <h1 className="text-[1.375rem] font-semibold tracking-[-0.02em] text-foreground sm:text-2xl">
                     OAuth no pudo completarse
                 </h1>
                 <p className="mt-3 text-sm leading-6 text-muted-foreground">
                     {result.message}
                 </p>
-                <div className="mt-6 flex gap-3">
-                    <Button asChild variant="brand" className="flex-1">
+                {/* Acceso principal claro y una salida discreta: dos botones iguales no indican el siguiente paso. */}
+                <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:gap-3">
+                    <Button asChild variant="access" className="sm:flex-1">
                         <Link href={APP_ROUTES.login}>Volver a iniciar sesión</Link>
                     </Button>
-                    <Button asChild variant="outline" className="flex-1">
+                    <Button asChild variant="ghost" className="sm:flex-1">
                         <Link href={APP_ROUTES.register}>Crear cuenta</Link>
                     </Button>
                 </div>

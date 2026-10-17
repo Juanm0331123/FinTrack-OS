@@ -33,29 +33,30 @@ export function AuthSocialButtons({ intent }: AuthSocialButtonsProps) {
                         key={provider.key}
                         asChild
                         variant="outline"
-                        className="h-12 w-full justify-between bg-card text-left hover:bg-muted/72"
+                        className="h-auto min-h-14 w-full justify-between gap-3 py-2.5 text-left whitespace-normal"
                     >
                         <a href={getOAuthStartUrl(provider.key, intent)}>
                             <span className="flex min-w-0 items-center gap-3">
-                                <span className="flex size-9 items-center justify-center rounded-full bg-muted/80 text-foreground ring-1 ring-border/70">
+                                <span className="flex size-9 flex-none items-center justify-center rounded-full bg-muted-fill text-foreground ring-1 ring-border">
                                     <AuthProviderIcon
                                         provider={provider.key}
                                         className="size-4.5"
                                     />
                                 </span>
                                 <span className="min-w-0">
-                                    <span className="block truncate text-sm font-medium">
+                                    <span className="block text-sm font-medium">
                                         {actionCopy}{' '}
                                         {provider.key === 'google'
                                             ? 'Google'
                                             : 'GitHub'}
                                     </span>
-                                    <span className="block truncate text-xs text-muted-foreground">
+                                    {/* Sin truncar: en móvil la descripción ocupa dos líneas en lugar de cortarse. */}
+                                    <span className="block text-xs leading-5 text-muted-foreground">
                                         {provider.description}
                                     </span>
                                 </span>
                             </span>
-                            <ArrowUpRight className="size-4 text-muted-foreground" />
+                            <ArrowUpRight className="size-4 flex-none text-muted-foreground" aria-hidden="true" />
                         </a>
                     </Button>
                 ))}

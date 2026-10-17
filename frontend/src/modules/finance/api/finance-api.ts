@@ -2,6 +2,7 @@ import { getBrowserSession } from '@/modules/auth/browser-session'
 import { SessionChangedError, SessionUnavailableError, type SessionManager } from '@/modules/auth/session-manager'
 import { publicEnv } from '@/shared/config/env'
 import { combineSignals } from '@/shared/lib/abort-signals'
+import { serverFailureMessage } from '@/shared/lib/api-error-message'
 import type {
     Debt,
     EntryCategory,
@@ -36,6 +37,12 @@ export class FinanceApiError extends Error {
 }
 
 function messageFor(status: number, payload: ErrorPayload | null) {
+    const serverMessage = serverFailureMessage(status)
+
+    if (serverMessage) {
+        return serverMessage
+    }
+
     const fieldMessage = payload?.errors?.[0]?.message
 
     if (fieldMessage) {
@@ -46,11 +53,7 @@ function messageFor(status: number, payload: ErrorPayload | null) {
         return 'Tu sesión expiró. Vuelve a iniciar sesión.'
     }
 
-    if (status === 503 && payload?.message) {
-        return payload.message
-    }
-
-    if (status >= 500 || !payload?.message) {
+    if (!payload?.message) {
         return 'Algo falló en el servidor. Reintenta en un momento.'
     }
 

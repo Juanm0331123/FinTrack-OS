@@ -5,6 +5,7 @@ import Link from 'next/link'
 
 import { APP_ROUTES } from '@/shared/config/routes'
 import { cn } from '@/shared/lib/utils'
+import { BrandLogo } from '@/shared/ui/brand-logo'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/ui/tooltip'
 import { isYearMonth, monthName, shiftYearMonth, yearOf } from '../domain/year-month'
 import { monthHref, useSelectedMonth } from '../hooks/use-selected-month'
@@ -21,25 +22,11 @@ export type ShellUser = {
 const DOT_CLASSES: Record<MonthStatus, string> = {
     below: 'bg-ft-neg-dot',
     met: 'bg-ft-pos-dot',
-    planned: 'bg-transparent shadow-[inset_0_0_0_1.5px_var(--ft-ink-4)]',
+    planned: 'bg-transparent shadow-[inset_0_0_0_1.5px_var(--ft-control)]',
 }
 
 function capitalize(value: string) {
     return value.charAt(0).toUpperCase() + value.slice(1)
-}
-
-export function BrandMark({ className }: { className?: string }) {
-    return (
-        <span
-            aria-hidden="true"
-            className={cn(
-                'grid size-[30px] flex-none place-items-center rounded-lg bg-ft-primary text-[13px] font-extrabold text-white',
-                className,
-            )}
-        >
-            FT
-        </span>
-    )
 }
 
 export function Sidebar({ onLogout, user }: { onLogout: () => void; user: ShellUser }) {
@@ -53,14 +40,10 @@ export function Sidebar({ onLogout, user }: { onLogout: () => void; user: ShellU
     const showNextMonth = nextMonth !== null && year !== null && yearOf(nextMonth) === year
 
     return (
-        <aside className="sticky top-0 hidden h-dvh w-[252px] flex-none flex-col gap-[22px] border-r border-ft-line bg-ft-card px-3.5 py-5 lg:flex">
-            <Link
-                href={navHref(NAV_ITEMS[0], yearMonth)}
-                className="flex items-center gap-2.5 rounded-lg px-2 py-0.5 text-base font-bold text-ft-ink outline-none focus-visible:outline-2 focus-visible:outline-ft-focus"
-            >
-                <BrandMark />
-                FinTrack OS
-            </Link>
+        // Superficie Panel (DESIGN.md › Navigation): el cromo del espacio de trabajo se separa del suelo por tono.
+        // Sobre Panel solo va tinta secundaria o más oscura; la tinta terciaria no alcanza 4,5:1.
+        <aside className="sticky top-0 hidden h-dvh w-[252px] flex-none flex-col gap-[22px] bg-ft-panel px-3.5 py-5 lg:flex">
+            <BrandLogo variant="full" size="sm" href={navHref(NAV_ITEMS[0], yearMonth)} className="self-start" />
 
             <nav aria-label="Navegación principal" className="flex flex-col gap-0.5">
                 {NAV_ITEMS.map((item) => {
@@ -72,10 +55,10 @@ export function Sidebar({ onLogout, user }: { onLogout: () => void; user: ShellU
                             href={navHref(item, yearMonth)}
                             aria-current={active ? 'page' : undefined}
                             className={cn(
-                                'flex h-10 items-center gap-2.5 rounded-lg px-2.5 text-sm font-medium outline-none transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-ft-focus',
+                                'flex h-10 items-center gap-2.5 rounded-lg px-2.5 text-sm font-medium transition-colors duration-150 focus-ring',
                                 active
                                     ? 'bg-ft-primary-soft font-semibold text-ft-primary'
-                                    : 'text-ft-ink-2 hover:bg-ft-muted hover:text-ft-ink',
+                                    : 'text-ft-ink-2 hover:bg-ft-panel-strong hover:text-ft-ink',
                             )}
                         >
                             <item.icon className="size-[18px]" aria-hidden="true" />
@@ -87,7 +70,7 @@ export function Sidebar({ onLogout, user }: { onLogout: () => void; user: ShellU
 
             {year !== null ? (
                 <div className="flex min-h-0 flex-1 flex-col">
-                    <p className="mb-1 px-2.5 text-xs font-semibold text-ft-ink-3">Meses de {year}</p>
+                    <p className="mb-1 px-2.5 text-xs font-semibold text-ft-ink-2">Meses de {year}</p>
                     <div className="flex min-h-0 flex-col gap-0.5 overflow-y-auto">
                         {months.map((month) => {
                             const active = month.yearMonth === yearMonth && pathname !== APP_ROUTES.dashboardSummary
@@ -98,8 +81,8 @@ export function Sidebar({ onLogout, user }: { onLogout: () => void; user: ShellU
                                     href={monthHref(pathname, month.yearMonth)}
                                     aria-current={active ? 'true' : undefined}
                                     className={cn(
-                                        'flex h-9 flex-none items-center justify-between rounded-lg px-2.5 text-[13.5px] outline-none transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-ft-focus',
-                                        active ? 'bg-ft-muted font-semibold text-ft-ink' : 'text-ft-ink-2 hover:bg-ft-muted',
+                                        'flex h-9 flex-none items-center justify-between rounded-lg px-2.5 text-[13.5px] transition-colors duration-150 focus-ring',
+                                        active ? 'bg-ft-card font-semibold text-ft-ink shadow-[0_1px_2px_rgba(16,24,40,0.06)]' : 'text-ft-ink-2 hover:bg-ft-panel-strong hover:text-ft-ink',
                                     )}
                                 >
                                     {capitalize(monthName(month.yearMonth))}
@@ -114,14 +97,14 @@ export function Sidebar({ onLogout, user }: { onLogout: () => void; user: ShellU
                         {showNextMonth && nextMonth ? (
                             <Link
                                 href={monthHref(APP_ROUTES.dashboard, nextMonth)}
-                                className="flex h-9 flex-none items-center gap-2 rounded-lg px-2.5 text-[13.5px] font-medium text-ft-primary outline-none hover:bg-ft-primary-soft focus-visible:outline-2 focus-visible:outline-ft-focus"
+                                className="flex h-9 flex-none items-center gap-2 rounded-lg px-2.5 text-[13.5px] font-medium text-ft-primary hover:bg-ft-primary-soft focus-ring"
                             >
                                 <Plus className="size-4" aria-hidden="true" />
                                 Crear {monthName(nextMonth)}
                             </Link>
                         ) : null}
                         {months.length === 0 && !showNextMonth ? (
-                            <p className="px-2.5 text-[13px] text-ft-ink-3">Aún no hay hojas este año.</p>
+                            <p className="px-2.5 text-[13px] text-ft-ink-2">Aún no hay hojas este año.</p>
                         ) : null}
                     </div>
                 </div>
@@ -145,7 +128,7 @@ export function Sidebar({ onLogout, user }: { onLogout: () => void; user: ShellU
                                 type="button"
                                 aria-label="Cerrar sesión"
                                 onClick={onLogout}
-                                className="grid size-9 cursor-pointer place-items-center rounded-lg text-ft-ink-3 outline-none hover:bg-ft-muted hover:text-ft-ink focus-visible:outline-2 focus-visible:outline-ft-focus"
+                                className="grid size-9 cursor-pointer place-items-center rounded-lg text-ft-ink-2 hover:bg-ft-panel-strong hover:text-ft-ink focus-ring"
                             >
                                 <LogOut className="size-[18px]" aria-hidden="true" />
                             </button>

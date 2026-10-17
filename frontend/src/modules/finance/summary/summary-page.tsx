@@ -160,7 +160,7 @@ export function SummaryPage() {
                                             >
                                                 <Link
                                                     href={`${APP_ROUTES.dashboard}?month=${row.yearMonth}`}
-                                                    className="inline-flex min-h-11 items-center rounded outline-none hover:text-ft-primary hover:underline focus-visible:outline-2 focus-visible:outline-ft-focus lg:min-h-0"
+                                                    className="inline-flex min-h-11 items-center rounded hover:text-ft-primary hover:underline focus-ring lg:min-h-0"
                                                 >
                                                     {monthLabel(row.yearMonth)}
                                                 </Link>

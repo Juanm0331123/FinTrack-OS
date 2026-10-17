@@ -19,7 +19,7 @@ export function PageHeader({
         <div className="flex flex-wrap items-center justify-between gap-x-5 gap-y-3">
             <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-3">
-                    <h1 className={cn('text-2xl font-semibold tracking-[-0.02em] text-ft-ink sm:text-[26px]', titleClassName)}>
+                    <h1 className={cn('text-[1.375rem] font-semibold tracking-[-0.02em] text-ft-ink sm:text-2xl', titleClassName)}>
                         {title}
                     </h1>
                     {badge}

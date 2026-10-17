@@ -12,6 +12,7 @@ import {
     CardDescription,
     CardHeader,
 } from '@/shared/ui/card'
+import { TextLink } from '@/shared/ui/text-link'
 
 type AuthShellProps = {
     badgeLabel: string
@@ -36,8 +37,8 @@ export function AuthShell({
         <main className="bg-auth-soft relative min-h-dvh overflow-hidden text-foreground">
             <div aria-hidden="true" className="pointer-events-none absolute inset-0">
                 <div className="absolute left-[8%] top-[12%] size-52 rounded-full bg-primary/18 blur-3xl" />
-                <div className="absolute right-[10%] top-[16%] size-64 rounded-full bg-accent/16 blur-3xl" />
-                <div className="absolute bottom-[10%] right-[18%] size-72 rounded-full bg-(--brand-cyan)/14 blur-3xl" />
+                <div className="absolute right-[10%] top-[16%] size-64 rounded-full bg-(--brand-violet)/16 blur-3xl" />
+                <div className="absolute bottom-[10%] right-[18%] size-72 rounded-full bg-(--brand-pink)/14 blur-3xl" />
             </div>
 
             <div className="relative mx-auto flex min-h-dvh w-full max-w-6xl items-center justify-center px-5 py-8 sm:px-8 lg:px-10">
@@ -49,38 +50,29 @@ export function AuthShell({
                                 Volver al inicio
                             </Link>
                         </Button>
-                        <Badge className="h-8 bg-primary/10 px-3 text-primary hover:bg-primary/10">
+                        <Badge variant="accent" className="h-8 px-3">
                             {badgeLabel}
                         </Badge>
                     </div>
 
-                    <Card className="border border-white/72 bg-card/92 shadow-[0_24px_60px_-28px_oklch(0.58_0.19_252/0.24)] backdrop-blur-sm">
+                    <Card className="border border-border bg-card shadow-[0_24px_60px_-28px_oklch(0.58_0.19_252/0.24)]">
                         <CardHeader className="gap-4 px-6 pt-6 sm:px-8 sm:pt-8">
-                            <div className="flex items-center gap-3">
-                                <BrandLogo
-                                    width={184}
-                                    height={46}
-                                    priority
-                                    className="h-11 w-auto object-contain"
-                                />
-                                <div>
-                                    <p className="text-sm font-semibold leading-none">
-                                        FinTrack OS
-                                    </p>
-                                    <p className="mt-1 text-xs text-muted-foreground">
-                                        Tu acceso mensual a una mejor lectura financiera
-                                    </p>
-                                </div>
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                                {/* Sin enlace: "Volver al inicio" ya cubre ese destino en esta misma pantalla. */}
+                                <BrandLogo variant="full" size="sm" priority />
+                                <p className="min-w-0 text-xs text-muted-foreground">
+                                    Tu acceso mensual a una mejor lectura financiera
+                                </p>
                             </div>
                             <div>
-                                {/* Encabezado de la página (F-UI-07): mismo estilo que CardTitle, semántica h1. */}
+                                {/* Encabezado compacto de autenticación, con semántica h1. */}
                                 <h1
                                     data-slot="card-title"
-                                    className="font-heading text-balance text-3xl font-semibold leading-tight tracking-[-0.02em] sm:text-4xl"
+                                    className="font-heading text-balance text-[22px] font-semibold leading-tight tracking-[-0.02em] sm:text-2xl"
                                 >
                                     {title}
                                 </h1>
-                                <CardDescription className="mt-3 max-w-lg text-sm leading-6 text-muted-foreground sm:text-[0.95rem]">
+                                <CardDescription className="mt-3 max-w-lg text-sm leading-[22px] text-muted-foreground">
                                     {description}
                                 </CardDescription>
                             </div>
@@ -91,12 +83,9 @@ export function AuthShell({
 
                             <p className="text-center text-sm text-muted-foreground">
                                 {switchPrompt}{' '}
-                                <Link
-                                    href={switchHref}
-                                    className="font-semibold text-primary underline-offset-4 hover:underline"
-                                >
+                                <TextLink href={switchHref} className="font-semibold">
                                     {switchLabel}
-                                </Link>
+                                </TextLink>
                             </p>
                         </CardContent>
                     </Card>

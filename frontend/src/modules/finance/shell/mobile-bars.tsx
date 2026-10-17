@@ -7,13 +7,14 @@ import { useState } from 'react'
 
 import { APP_ROUTES } from '@/shared/config/routes'
 import { cn } from '@/shared/lib/utils'
+import { BrandLogo } from '@/shared/ui/brand-logo'
 import { isYearMonth, monthLabel, monthName, shiftYearMonth, yearOf } from '../domain/year-month'
 import { monthHref, useSelectedMonth } from '../hooks/use-selected-month'
 import { useSheets } from '../hooks/use-workbook-data'
 import { Drawer } from '../ui/drawer'
 import { NAV_ITEMS, navHref } from './nav-items'
 import { SaveIndicator } from './save-indicator'
-import { BrandMark, type ShellUser } from './sidebar'
+import type { ShellUser } from './sidebar'
 import { MONTH_STATUS_LABELS, useMonthStatuses, type MonthStatus } from './use-month-statuses'
 
 const MONTH_SCOPED = new Set<string>([APP_ROUTES.dashboard, APP_ROUTES.dashboardCalendar, APP_ROUTES.dashboardDebts])
@@ -48,7 +49,7 @@ function MonthPicker() {
             <button
                 type="button"
                 onClick={() => setOpen(true)}
-                className="inline-flex h-11 cursor-pointer items-center gap-1.5 rounded-lg px-1.5 text-[19px] font-semibold text-ft-ink outline-none focus-visible:outline-2 focus-visible:outline-ft-focus"
+                className="inline-flex h-11 cursor-pointer items-center gap-1.5 rounded-lg px-1.5 text-[19px] font-semibold text-ft-ink focus-ring"
             >
                 {monthLabel(yearMonth)}
                 <ChevronDown className="size-[18px] text-ft-ink-3" aria-hidden="true" />
@@ -107,7 +108,7 @@ function UserMenu({ onLogout, user }: { onLogout: () => void; user: ShellUser })
                 <button
                     type="button"
                     aria-label={`Menú de ${user.displayName}`}
-                    className="grid size-11 cursor-pointer place-items-center rounded-full outline-none focus-visible:outline-2 focus-visible:outline-ft-focus"
+                    className="grid size-11 cursor-pointer place-items-center rounded-full focus-ring"
                 >
                     <span className="grid size-9 place-items-center rounded-full bg-ft-primary-soft text-[13px] font-bold text-ft-primary">
                         {user.initials}
@@ -126,7 +127,7 @@ function UserMenu({ onLogout, user }: { onLogout: () => void; user: ShellUser })
                     <DropdownMenu.Item asChild>
                         <Link
                             href={APP_ROUTES.dashboardSettings}
-                            className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg px-2.5 text-sm text-ft-ink-2 outline-none data-highlighted:bg-ft-muted data-highlighted:text-ft-ink"
+                            className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg px-2.5 text-sm text-ft-ink-2 focus-ring-inset data-highlighted:bg-ft-muted data-highlighted:text-ft-ink"
                         >
                             <SlidersHorizontal className="size-4" aria-hidden="true" />
                             Configuración
@@ -134,7 +135,7 @@ function UserMenu({ onLogout, user }: { onLogout: () => void; user: ShellUser })
                     </DropdownMenu.Item>
                     <DropdownMenu.Item
                         onSelect={onLogout}
-                        className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg px-2.5 text-sm text-ft-neg outline-none data-highlighted:bg-ft-neg-soft"
+                        className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg px-2.5 text-sm text-ft-neg focus-ring-inset data-highlighted:bg-ft-neg-soft"
                     >
                         <LogOut className="size-4" aria-hidden="true" />
                         Cerrar sesión
@@ -153,10 +154,7 @@ export function MobileTopBar({ onLogout, user }: { onLogout: () => void; user: S
             {MONTH_SCOPED.has(pathname) ? (
                 <MonthPicker />
             ) : (
-                <Link href={APP_ROUTES.dashboard} className="flex h-11 items-center gap-2 px-1 text-base font-bold text-ft-ink">
-                    <BrandMark />
-                    FinTrack OS
-                </Link>
+                <BrandLogo variant="full" size="sm" href={APP_ROUTES.dashboard} />
             )}
             <div className="flex items-center gap-1">
                 <SaveIndicator compact className="sm:hidden" />
@@ -172,7 +170,7 @@ export function MobileTabBar() {
     const [month, calendar, debts, summary] = [NAV_ITEMS[0], NAV_ITEMS[3], NAV_ITEMS[2], NAV_ITEMS[1]]
     const linkClass = (active: boolean) =>
         cn(
-            'flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-lg text-[11.5px] font-medium outline-none focus-visible:outline-2 focus-visible:outline-ft-focus',
+            'flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-lg text-[11.5px] font-medium focus-ring',
             active ? 'text-ft-primary' : 'text-ft-ink-3',
         )
 
@@ -195,7 +193,7 @@ export function MobileTabBar() {
             <Link
                 href={yearMonth ? `${APP_ROUTES.dashboard}?month=${yearMonth}&nuevo=1` : APP_ROUTES.dashboard}
                 aria-label="Nuevo gasto"
-                className="mx-auto grid size-[52px] place-items-center rounded-full bg-ft-primary text-white shadow-[0_8px_16px_-8px_rgba(36,83,214,0.6)] outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ft-focus"
+                className="mx-auto grid size-[52px] place-items-center rounded-full bg-ft-primary text-white shadow-[0_8px_16px_-8px_rgba(36,83,214,0.6)] focus-ring"
             >
                 <Plus className="size-6" aria-hidden="true" />
             </Link>
