@@ -1,8 +1,22 @@
 # FinTrack OS — Dirección visual de la landing
 
-**Estado: propuesta del paso 1, pendiente del OK del Project Owner.**
+> **Propuesta histórica sustituida.** El mega prompt y esta dirección se preservan como referencias; no ordenan reactivar partículas ni esperar autorizaciones ya concedidas. El contrato actual está en [DESIGN.md](../DESIGN.md) y el estado en [design-tasks.md](design-tasks.md).
+
+**Estado histórico: propuesta del paso 1, pendiente del OK del Project Owner en ese corte.**
+
+**Seguimiento, 2026-10-12:** el Project Owner aceptó el contenido y la navbar/botones revisados como base. Encarga a Claude, mediante `/design`, un artifact con tres alternativas completas que respeten el mega prompt original, las reglas del proyecto y las referencias. La elección del diseño final sigue pendiente; esta maqueta estática es una referencia para ese trabajo.
 
 Fecha: 10 de octubre de 2026. Base evaluada: `1563233`. Este documento define la dirección y el contenido antes de programar. No modifica la landing, instala dependencias, cambia `DESIGN.md`, cierra incidencias del QA ni autoriza commits o despliegues.
+
+### Revisión de la maqueta — 11 de octubre de 2026
+
+El Project Owner rechazó la navegación anterior y el botón azul de «Crear mi cuenta». La maqueta revisada propone una cabecera con más espacio, marca a la izquierda, dos enlaces de exploración y accesos de cuenta separados. En móvil se distribuye en dos filas para conservar ambos accesos sin recortes.
+
+La [captura aportada](references/fintrack-os-button-reference.png) muestra «Crear cuenta» como enlace y «Iniciar sesión» como control claro, con borde fino gris azulado, radio aproximado de 18px e icono lineal. Esa familia se mantiene en la cabecera y se aplica al CTA «Crear mi cuenta» del hero: fondo claro, texto oscuro, icono sin círculo y sin relleno azul. Es una revisión propuesta a partir del feedback, pendiente de aprobación; no cambia todavía los componentes de la app.
+
+**La maqueta HTML es un storyboard estático.** Los dibujos de puntos muestran formaciones, sin ejecutar Three.js, bloom ni transiciones de scroll. La experiencia Three.js descrita en las secciones 6–8 sigue dentro del alcance futuro y se implementará después del OK a la dirección visual. Esta revisión no supone una aprobación de la propuesta completa.
+
+**Validación de esta revisión:** Chrome headless instalado, mediante el arnés CDP existente y servidor HTTP local; viewports 1440×900, 390×844, 375×844 y 768×900. Sin scroll horizontal, controles fuera del viewport, solapamientos de cabecera, anclas internas rotas ni caracteres de sustitución. Los accesos y enlaces de cabecera miden al menos 44px de alto. Se inspeccionaron visualmente las capturas de 1440 y 390px; evidencia local en `.local/landing-proposal-feedback/`. Esta comprobación de composición estática no mide WebGL, Lighthouse ni aprueba el diseño. Las restricciones del sandbox impidieron dos arranques del renderer; el recorrido final se ejecutó fuera del sandbox y terminó correctamente. No se instalaron herramientas.
 
 ## 1. Idea central
 
@@ -46,7 +60,7 @@ Se conserva la identidad reconocible y se propone una relación explícita entre
 | Superficie | `#FFFFFF` | Demostración de producto y controles secundarios. |
 | Tinta principal | `#0F172A` | Titulares sin gradiente, cifras y contenido. |
 | Tinta secundaria | `#475467` | Descripciones y ayudas. |
-| Acción | `#2453D6` | Crear cuenta, enlaces y selección; continuidad con el dashboard. |
+| Acción | `#2453D6` | Enlaces, foco y selección; continuidad con el dashboard. Los accesos propuestos de la landing usan la variante clara solicitada. |
 | Acción hover | `#1D43B3` | Estado de interacción, sin aclarar el texto de los botones. |
 | Azul de marca | `#2563EB` | Inicio del gradiente de marca y partículas. |
 | Violeta de marca | `#7C3AED` | Centro del gradiente y profundidad de la escena. |
@@ -58,7 +72,7 @@ Se conserva la identidad reconocible y se propone una relación explícita entre
 
 **Titular en gradiente:** la frase «tu mes, con claridad» podrá usar azul → violeta → rosa, como pidió el Project Owner. Se trata de una excepción explícita de marca frente a las recomendaciones genéricas de Impeccable. Se comprobará el contraste de los glifos sobre su fondo real, no solo de los extremos del gradiente. Si no alcanza 3:1 para el titular grande, se ajustarán esos tonos; cuerpos de texto y controles exigen 4,5:1. El canvas no se renderiza directamente detrás de letras o botones sin una zona de lectura controlada.
 
-**Botones:** misma familia de tamaños, radios, tipografía, foco y estados entre superficies, con variantes semánticas. Acción principal sólida azul, secundaria con borde; mínimo 44px de área táctil en móvil. Un enlace de navegación conserva semántica de enlace. El gradiente se concentra en el titular y la escena, de modo que el CTA es fácil de reconocer.
+**Botones:** misma familia de tamaños, radios, tipografía, foco y estados entre superficies, con variantes semánticas. Para los accesos de esta landing se propone la variante clara de la captura del Project Owner: fondo `#F7F9FD`, texto `#0F172A`, borde decorativo `#D0D8E8`, radio de 18px, icono lineal de 20px y altura mínima de 52px. La etiqueta y la superficie permiten reconocer la acción; el borde suave no será el único indicador. Hover `#EEF2FA`, activo `#E5ECF8` y foco visible azul. «Crear cuenta» permanece como enlace de cabecera; «Crear mi cuenta» destaca por su superficie en el hero. Mínimo 44px de área táctil. Esta preferencia no redefine por sí sola todos los controles del dashboard.
 
 ## 4. Tipografía y marca
 
@@ -98,7 +112,7 @@ Los enlaces de acceso tienen un destino real incluso antes de que la escena carg
 
 ### Primera vista
 
-En escritorio, un header compacto contiene el logo, enlaces internos a Producto / Cómo funciona / Preguntas y las acciones de cuenta. Debajo, el título y los CTAs ocupan la izquierda; el campo de partículas ocupa una región amplia a la derecha y acompaña el fondo. Una vista reconocible de la hoja mensual aparece en el siguiente tramo, no cuatro cifras gigantes aisladas.
+En escritorio, un header despejado contiene el logo a la izquierda, enlaces internos a Producto / Cómo funciona / Preguntas en el centro y las acciones de cuenta a la derecha. En la maqueta documental los enlaces se limitan a Referencias / Recorrido, que sí tienen contenido en ese archivo. Se elimina el subtítulo junto a la marca y el separador superior del hero. «Crear cuenta» es un enlace; «Iniciar sesión» usa el control claro de la captura. Debajo, el título y los CTAs ocupan la izquierda; el campo de partículas ocupa una región amplia a la derecha y acompaña el fondo. Una vista reconocible de la hoja mensual aparece en el siguiente tramo, no cuatro cifras gigantes aisladas.
 
 En móvil, header de logo y acceso con distribución propia; texto y CTAs preceden la escena. La formación se recorta dentro de su contenedor, jamás mediante overflow horizontal de la página. A 375px ambos accesos deben seguir visibles y usables. La escena no empuja el CTA más allá de varios viewports.
 

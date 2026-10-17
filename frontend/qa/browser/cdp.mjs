@@ -175,13 +175,15 @@ function connect(url) {
 const PAGE_HELPERS = `
 window.__qa = (() => {
     const text = (el) => (el.textContent || '').replace(/\\s+/g, ' ').trim()
+    // Como en el árbol de accesibilidad: el contenido aria-hidden no forma parte del nombre.
+    const nameText = (el) => { const copy = el.cloneNode(true); copy.querySelectorAll('[aria-hidden="true"]').forEach((node) => node.remove()); return text(copy) }
     function accessibleName(el) {
         const labelledby = el.getAttribute('aria-labelledby')
         if (labelledby) return labelledby.split(/\\s+/).map((id) => document.getElementById(id)).filter(Boolean).map(text).join(' ')
         if (el.getAttribute('aria-label')) return el.getAttribute('aria-label').trim()
         if (el.id) { const label = document.querySelector('label[for="' + CSS.escape(el.id) + '"]'); if (label) return text(label) }
         const wrapping = el.closest('label'); if (wrapping) return text(wrapping)
-        return text(el)
+        return nameText(el)
     }
     const ROLE_SELECTORS = {
         button: 'button, [role="button"], input[type="submit"], input[type="button"]',

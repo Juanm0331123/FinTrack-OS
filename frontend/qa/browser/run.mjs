@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url'
 import { decodeJwtSubject, ensureDir, launchChrome, network, newContext, openPage, pathJoin, sleep } from './cdp.mjs'
 import { contrastRatio, decodePng } from './png.mjs'
 import { createRemediationScenarios } from './remediation-scenarios.mjs'
+import { createDebtListScenarios } from './debt-list-scenarios.mjs'
 
 const BASE = process.env.QA_BASE ?? 'http://127.0.0.1:3300'
 const CONTROL = process.env.QA_CONTROL ?? 'http://127.0.0.1:4411'
@@ -856,7 +857,7 @@ const scenarios = {
                 await page.hover(button)
             }
 
-            const box = await page.evaluate(`(() => { const el = ${button}; el.scrollIntoView({ block: 'center' }); const r = el.getBoundingClientRect(); const range = document.createRange(); const label = [...el.childNodes].find((n) => n.nodeType === 3 && n.textContent.trim()); range.selectNodeContents(label); const t = range.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height, textLeft: t.left, textRight: t.right, textTop: t.top, textBottom: t.bottom, color: getComputedStyle(el).color } })()`)
+            const box = await page.evaluate(`(() => { const el = ${button}; el.scrollIntoView({ block: 'center' }); const r = el.getBoundingClientRect(); const range = document.createRange(); const shown = (n) => { for (let e = n.parentElement; e && e !== el.parentElement; e = e.parentElement) { const s = getComputedStyle(e); if (s.visibility === 'hidden' || s.opacity === '0' || s.display === 'none') return false } return true }; const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT); let label = null; while (!label && walker.nextNode()) { if (walker.currentNode.textContent.trim() && shown(walker.currentNode)) label = walker.currentNode } range.selectNodeContents(label); const t = range.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height, textLeft: t.left, textRight: t.right, textTop: t.top, textBottom: t.bottom, color: getComputedStyle(el).color } })()`)
 
             if (state === 'active') {
                 await page.send('Input.dispatchMouseEvent', { button: 'left', clickCount: 1, type: 'mousePressed', x: box.x + box.w / 2, y: box.y + box.h / 2 })
@@ -1005,6 +1006,7 @@ const scenarios = {
 // ——— Ejecución ———————————————————————————————————————————————————————————————
 
 Object.assign(scenarios, createRemediationScenarios({ qa, seededUser, login, q, result, OUT }))
+Object.assign(scenarios, createDebtListScenarios({ qa, seededUser, login, q, result, OUT }))
 
 const selected = Object.entries(scenarios).filter(([id]) => !only || only.includes(id))
 const unknown = only?.filter((id) => !Object.hasOwn(scenarios, id)) ?? []
