@@ -7,7 +7,7 @@ import { LandingHero } from './landing-hero'
 import { LandingProduct } from './landing-product'
 import { LandingSteps } from './landing-steps'
 import { LandingStructuredData } from './landing-structured-data'
-import { StoryMotion } from './story-motion'
+import { ProductMotion } from './product-motion'
 import './landing-cinema.css'
 
 // Public content is server rendered. Native scroll motion progressively enhances the product story.
@@ -24,11 +24,9 @@ export function HomePage() {
                 <LandingHeader />
             </div>
             <main id={LANDING_ANCHORS.main} tabIndex={-1} className="relative z-10 outline-none">
-                <div data-cinema-story>
-                    <LandingHero />
-                    <LandingProduct />
-                    <StoryMotion />
-                </div>
+                <LandingHero />
+                <LandingProduct />
+                <ProductMotion />
                 <LandingSteps />
                 <LandingAccess />
                 <LandingFaq />
