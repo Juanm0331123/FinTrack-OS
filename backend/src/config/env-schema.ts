@@ -91,6 +91,7 @@ const rawEnvSchema = z.object({
     SESSION_ABSOLUTE_TTL: durationValue('30d'),
     SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().min(1000).max(9000).default(8000),
     TRUST_PROXY: z.string().trim().optional(),
+    VERCEL: z.enum(['0', '1']).optional(),
 })
 
 export type RawEnv = z.input<typeof rawEnvSchema>
@@ -203,7 +204,7 @@ function collectProductionProblems(parsed: z.output<typeof rawEnvSchema>, allowe
     }
 
     if (parsed.TRUST_PROXY === 'true') {
-        problems.push('TRUST_PROXY=true confía en cualquier X-Forwarded-For; usa el número de saltos (Cloud Run: 1).')
+        problems.push('TRUST_PROXY=true confía en cualquier X-Forwarded-For; en Vercel usa false y la IP autenticada por el proxy del frontend.')
     }
 
     if (parsed.COOKIE_SAME_SITE === 'none') {
@@ -254,6 +255,22 @@ export function parseEnv(source: Record<string, string | undefined>) {
 
     if (parsed.NODE_ENV === 'production') {
         problems.push(...collectProductionProblems(parsed, allowedOrigins))
+    }
+
+    if (parsed.VERCEL === '1' && parsed.TRUST_PROXY && parsed.TRUST_PROXY !== 'false') {
+        problems.push('En Vercel usa TRUST_PROXY=false: la IP del visitante llega en una cabecera autenticada, no contando saltos.')
+    }
+
+    if (parsed.VERCEL === '1' && parsed.NODE_ENV !== 'production' && (!parsed.EDGE_PROXY_SECRET || parsed.EDGE_PROXY_SECRET.length < 32)) {
+        problems.push('En Vercel EDGE_PROXY_SECRET debe tener al menos 32 caracteres, también fuera de producción.')
+    }
+
+    if (parsed.VERCEL === '1' && parsed.DB_POOL_MAX < 2) {
+        problems.push('En Vercel DB_POOL_MAX debe ser al menos 2 para compartir el pool con Fluid compute.')
+    }
+
+    if (parsed.VERCEL === '1' && parsed.DB_STARTUP_TIMEOUTS) {
+        problems.push('En Vercel con el pooler de Neon usa DB_STARTUP_TIMEOUTS=false; los límites se aplican dentro de las transacciones.')
     }
 
     let trustProxy: TrustProxySetting = false

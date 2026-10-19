@@ -199,7 +199,7 @@ describe('origin protection and client IP (OPS-06)', () => {
     })
 
     it('keys limits on the client IP forwarded by the edge, ignoring spoofed X-Forwarded-For', async () => {
-        const server = await startServerProcess({ API_RATE_LIMIT_MAX: '3', EDGE_PROXY_SECRET: edgeSecret, TRUST_PROXY: '1' })
+        const server = await startServerProcess({ API_RATE_LIMIT_MAX: '3', EDGE_PROXY_SECRET: edgeSecret, TRUST_PROXY: 'false', VERCEL: '1' })
 
         try {
             const statuses = []
@@ -217,6 +217,15 @@ describe('origin protection and client IP (OPS-06)', () => {
             }
 
             assert.deepEqual(statuses, [401, 401, 401, 429])
+
+            const differentVisitor = await fetch(`${server.baseUrl}/api/auth/me`, {
+                headers: {
+                    'x-fintrack-edge-auth': edgeSecret,
+                    'x-fintrack-client-ip': '203.0.113.78',
+                    'x-forwarded-for': '198.51.100.1',
+                },
+            })
+            assert.equal(differentVisitor.status, 401, 'the shared second-hop socket does not merge different visitors')
         } finally {
             await server.stop()
         }
@@ -229,7 +238,7 @@ describe('origin protection and client IP (OPS-06)', () => {
             const statuses = []
 
             for (let attempt = 0; attempt < 4; attempt += 1) {
-                // Simula Cloud Run: el cliente pone un valor falso y el balanceador añade la IP real al final.
+                // Alternativa Docker con un balanceador controlado que añade la IP real al final.
                 const response = await fetch(`${server.baseUrl}/api/auth/me`, {
                     headers: { 'X-Forwarded-For': `198.51.100.${attempt}, 203.0.113.88` },
                 })

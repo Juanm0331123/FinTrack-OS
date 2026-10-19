@@ -1,5 +1,6 @@
 import { PrismaPg } from '@prisma/adapter-pg'
 import { Prisma, PrismaClient } from '@prisma/client'
+import { attachDatabasePool } from '@vercel/functions'
 import { Pool, type PoolConfig } from 'pg'
 import { env } from './env.ts'
 import { describeError, logger } from './logger.ts'
@@ -7,7 +8,9 @@ import { metrics } from './metrics.ts'
 
 // Presupuestos de base de datos (ver docs/qa-backend-remediacion.md, sección Prisma/Neon):
 // - connectionTimeoutMillis acota la espera por una conexión del pool y la conexión nueva.
-// - DB_POOL_MAX conexiones por réplica: con Cloud Run máximo 2 réplicas, como mucho 2 × max.
+// - DB_POOL_MAX conexiones por instancia: Fluid compute reutiliza el pool entre peticiones
+//   concurrentes. El runbook fija 2 conexiones y 5 s de inactividad contra el pooler de Neon;
+//   el número de instancias lo decide Vercel, por lo que no es un tope global de conexiones.
 // - statement/lock timeouts se aplican con SET LOCAL al iniciar cada transacción, que sí
 //   funciona con el pooler de Neon (PgBouncer en modo transacción rechaza enviarlos como
 //   parámetros de arranque). Las consultas sueltas quedan cubiertas por los valores por
@@ -30,6 +33,11 @@ function createPoolConfig(): PoolConfig {
 }
 
 export const pool = new Pool(createPoolConfig())
+
+if (process.env.VERCEL === '1') {
+    // Cierra conexiones ociosas antes de suspender la instancia, sin cerrar el pool por petición.
+    attachDatabasePool(pool)
+}
 
 pool.on('acquire', () => metrics.recordDbAcquire())
 pool.on('error', (error) => {
