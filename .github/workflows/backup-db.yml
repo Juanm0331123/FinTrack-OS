@@ -1,9 +1,8 @@
 name: Backup cifrado de la base (manual)
 
-# pg_dump de producción → gzip → cifrado AES-256 (gpg simétrico) → Cloud Storage.
-# El repositorio es público: el volcado nunca se publica como artifact ni sin cifrar.
-# La programación semanal queda comentada hasta el aval del despliegue; para activarla,
-# descomentar `schedule` (docs/despliegue.md, sección Backups).
+# pg_dump → gzip → AES-256 → asset de Release en OTRO repositorio PRIVADO.
+# Nunca publicar el volcado sin cifrar ni usar actions/upload-artifact.
+# Activar el schedule solo después de verificar backup Y restauración reales.
 on:
   workflow_dispatch:
   # schedule:
@@ -11,39 +10,121 @@ on:
 
 permissions:
   contents: read
-  id-token: write
+
+# Evita que una migración de deploy-backend interrumpa el volcado/cleanup-auth.
+concurrency:
+  group: fintrack-production-database
+  cancel-in-progress: false
 
 jobs:
   backup:
+    if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    env:
+      # Fine-grained PAT: solo repo privado de backups, Contents read/write + Metadata read.
+      GH_TOKEN: ${{ secrets.BACKUP_REPO_TOKEN }}
+      BACKUP_REPO: ${{ vars.BACKUP_REPO }}
     steps:
-      - uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_BACKUP_SERVICE_ACCOUNT }}
-      - uses: google-github-actions/setup-gcloud@v2
+      - name: Verificar repositorio de destino privado antes de leer la base
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN" || { echo '::error::Falta BACKUP_REPO_TOKEN.'; exit 1; }
+          [[ "$BACKUP_REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo '::error::BACKUP_REPO debe tener formato owner/repo.'; exit 1; }
+          test "${BACKUP_REPO,,}" != "${GITHUB_REPOSITORY,,}" || { echo '::error::Los backups deben guardarse en otro repositorio privado.'; exit 1; }
+          test "$(gh api "repos/$BACKUP_REPO" --jq '.private')" = true || { echo '::error::El repositorio de backups no es privado.'; exit 1; }
+          # Debe tener un commit inicial; el Release crea su tag sobre esa rama.
+          gh api "repos/$BACKUP_REPO/commits?per_page=1" --jq '.[0].sha' > /dev/null
 
-      - name: Volcado cifrado y subida
+      - name: Volcado cifrado, Release privado y retención de 90 días
         env:
           BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
           DIRECT_URL: ${{ secrets.PRODUCTION_BACKUP_URL }}
-          BUCKET: ${{ secrets.BACKUP_BUCKET }}
         run: |
           set -euo pipefail
           umask 077
-          FILE="fintrack-$(date -u +%Y%m%dT%H%M%SZ).dump.gz.gpg"
-          # pg_dump debe coincidir con la versión mayor del servidor (Neon PG18).
-          docker run --rm -e DIRECT_URL postgres:18 \
-            pg_dump --format=custom --no-owner --no-privileges "$DIRECT_URL" \
+          test -n "$DIRECT_URL" || { echo '::error::Falta PRODUCTION_BACKUP_URL.'; exit 1; }
+          test "${#BACKUP_PASSPHRASE}" -ge 32 || { echo '::error::BACKUP_PASSPHRASE debe contener al menos 32 caracteres aleatorios.'; exit 1; }
+          WORK_DIR="$(mktemp -d "$RUNNER_TEMP/fintrack-backup.XXXXXX")"
+          trap 'rm -rf -- "$WORK_DIR"' EXIT
+          export GNUPGHOME="$WORK_DIR/gnupg"
+          mkdir "$GNUPGHOME"
+          STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+          TAG="fintrack-backup-${STAMP}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          FILE="${TAG}.dump.gz.gpg"
+          # libpq NO interpreta una URI en PGDATABASE como cadena de conexión.
+          # Separar parámetros con la librería estándar sin escribir credenciales ni ponerlas en argv.
+          # PostgreSQL 18 coincide con la versión mayor de Neon de este proyecto.
+          python3 - <<'PY' \
             | gzip -9 \
             | gpg --batch --yes --symmetric --cipher-algo AES256 --pinentry-mode loopback \
-                --passphrase-fd 3 3<<<"$BACKUP_PASSPHRASE" -o "$RUNNER_TEMP/$FILE"
-          test -s "$RUNNER_TEMP/$FILE"
-          gcloud storage cp "$RUNNER_TEMP/$FILE" "gs://$BUCKET/$FILE"
-          rm -f "$RUNNER_TEMP/$FILE"
-          echo "Backup subido: $FILE"
+                --passphrase-fd 3 3<<<"$BACKUP_PASSPHRASE" --output "$WORK_DIR/$FILE"
+          import os
+          from urllib.parse import parse_qs, unquote, urlsplit
+
+          try:
+              url = urlsplit(os.environ['DIRECT_URL'])
+              query = parse_qs(url.query, keep_blank_values=True, strict_parsing=True)
+              host = url.hostname or ''
+              port = url.port or 5432
+              user = unquote(url.username or '', errors='strict')
+              password = unquote(url.password or '', errors='strict')
+              database = unquote(url.path.removeprefix('/'), errors='strict')
+              binding = query.get('channel_binding', ['prefer'])
+              if (url.scheme not in {'postgres', 'postgresql'} or not host or '-pooler' in host
+                      or not user or not password or not database or url.fragment
+                      or query.get('sslmode') != ['verify-full']
+                      or query.get('sslrootcert', ['system']) != ['system']
+                      or set(query) - {'sslmode', 'sslrootcert', 'channel_binding'}
+                      or len(binding) != 1 or binding[0] not in {'disable', 'prefer', 'require'}
+                      or any('\x00' in value for value in [host, user, password, database])):
+                  raise ValueError('invalid connection parameters')
+          except (KeyError, ValueError, UnicodeError):
+              raise SystemExit('PRODUCTION_BACKUP_URL debe ser una URL PostgreSQL directa con sslmode=verify-full y parámetros admitidos.') from None
+
+          connection = {
+              'PGHOST': host, 'PGPORT': str(port), 'PGUSER': user,
+              'PGPASSWORD': password, 'PGDATABASE': database,
+              'PGSSLMODE': 'verify-full', 'PGSSLROOTCERT': 'system',
+              'PGCHANNELBINDING': binding[0], 'PGCONNECT_TIMEOUT': '15',
+          }
+          environment = os.environ.copy()
+          environment.pop('DIRECT_URL', None)
+          environment.pop('BACKUP_PASSPHRASE', None)
+          environment.update(connection)
+          command = ['docker', 'run', '--rm']
+          for key in connection:
+              command.extend(['-e', key])
+          command.extend(['postgres:18', 'pg_dump', '--format=custom', '--no-owner', '--no-privileges'])
+          os.execvpe(command[0], command, environment)
+          PY
+          unset DIRECT_URL BACKUP_PASSPHRASE
+          test -s "$WORK_DIR/$FILE"
+          # Cada asset de GitHub Releases debe ser menor de 2 GiB.
+          test "$(stat -c '%s' "$WORK_DIR/$FILE")" -lt 2147483648 || { echo '::error::El volcado supera el límite gratuito por asset de Release.'; exit 1; }
+          (cd "$WORK_DIR" && sha256sum "$FILE" > "$FILE.sha256")
+          test "$(gh api "repos/$BACKUP_REPO" --jq '.private')" = true || { echo '::error::El destino dejó de ser privado; se cancela la subida.'; exit 1; }
+          gh release create "$TAG" "$WORK_DIR/$FILE" "$WORK_DIR/$FILE.sha256" \
+            --repo "$BACKUP_REPO" --draft --latest=false --title "FinTrack OS · $STAMP" \
+            --notes 'managed-by: FinTrack OS backup-db.yml. Volcado PostgreSQL cifrado AES-256; restaurar solo en una base aislada.'
+          # Publicar dentro del repo privado solo cuando ambos assets están subidos.
+          gh release edit "$TAG" --repo "$BACKUP_REPO" --draft=false --latest=false
+          CUTOFF="$(date -u -d '90 days ago' +%Y-%m-%dT%H:%M:%SZ)"
+          # --paginate recorre TODOS los resultados, no solo los primeros 100.
+          # Capturar primero la lista evita saltarse páginas al borrar releases.
+          # published_at mide la edad del backup; created_at puede reflejar el commit del README.
+          gh api --paginate "repos/$BACKUP_REPO/releases?per_page=100" \
+            --jq ".[] | select((.tag_name | test(\"^fintrack-backup-[0-9]{8}T[0-9]{6}Z-[0-9]+-[0-9]+$\")) and (.body // \"\" | startswith(\"managed-by: FinTrack OS backup-db.yml.\")) and .published_at != null and .published_at < \"$CUTOFF\") | .tag_name" \
+            > "$WORK_DIR/expired-tags.txt"
+          while IFS= read -r expired_tag; do
+            test -n "$expired_tag" || continue
+            gh release delete "$expired_tag" --repo "$BACKUP_REPO" --yes --cleanup-tag
+          done < "$WORK_DIR/expired-tags.txt"
+          echo "Backup cifrado guardado y retención aplicada: $TAG"
 
   cleanup-auth:
     runs-on: ubuntu-latest
@@ -52,9 +133,12 @@ jobs:
     timeout-minutes: 10
     defaults:
       run:
+        shell: bash
         working-directory: backend
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 24.16.0

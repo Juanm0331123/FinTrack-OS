@@ -81,6 +81,28 @@ describe('parseEnv in development', () => {
 })
 
 describe('parseEnv in production', () => {
+    it('disables Express forwarded-IP trust on Vercel instead of counting two proxy hops', () => {
+        const env = parseEnv({ ...SAFE_PRODUCTION, TRUST_PROXY: undefined, VERCEL: '1' })
+
+        assert.equal(env.VERCEL, '1')
+        assert.equal(env.trustProxy, false)
+        assert.throws(() => parseEnv({ ...SAFE_PRODUCTION, TRUST_PROXY: '2', VERCEL: '1' }), /TRUST_PROXY=false/)
+        assert.throws(() => parseEnv({ ...SAFE_PRODUCTION, TRUST_PROXY: 'loopback', VERCEL: '1' }), /TRUST_PROXY=false/)
+        assert.throws(() => parseEnv({ ...SAFE_PRODUCTION, VERCEL: 'true' }), /VERCEL/)
+    })
+
+    it('requires the proxy secret on Vercel even when NODE_ENV was configured incorrectly', () => {
+        assert.throws(() => parseEnv({ ...DEVELOPMENT, VERCEL: '1' }), /EDGE_PROXY_SECRET/)
+    })
+
+    it('rejects pool settings incompatible with Fluid compute or the Neon pooler', () => {
+        const vercel = { ...SAFE_PRODUCTION, TRUST_PROXY: 'false', VERCEL: '1' }
+
+        assert.throws(() => parseEnv({ ...vercel, DB_POOL_MAX: '1' }), /DB_POOL_MAX/)
+        assert.throws(() => parseEnv({ ...vercel, DB_STARTUP_TIMEOUTS: 'true' }), /DB_STARTUP_TIMEOUTS=false/)
+        assert.equal(parseEnv({ ...vercel, DB_POOL_MAX: '2', DB_STARTUP_TIMEOUTS: 'false' }).DB_POOL_MAX, 2)
+    })
+
     it('starts with a safe production configuration', () => {
         const env = parseEnv(SAFE_PRODUCTION)
 
