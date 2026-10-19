@@ -1,9 +1,8 @@
 name: Deploy backend (manual)
 
-# Solo manual y contra el environment `production`, que debe configurarse en GitHub con revisión
-# obligatoria. No se dispara con push: el despliegue automático queda desactivado hasta el aval
-# independiente del QA (docs/qa-backend-remediacion.md). Las variables y secretos del servicio
-# se configuran una vez en Cloud Run; este flujo solo publica una imagen nueva.
+# Producción solo desde main y después de aprobar el environment `production`.
+# El proyecto Vercel tiene Root Directory=backend y git.deploymentEnabled=false.
+# No añadir push, pull_request ni migraciones al build de Vercel.
 on:
   workflow_dispatch:
     inputs:
@@ -13,29 +12,38 @@ on:
 
 permissions:
   contents: read
-  id-token: write
+
+# Comparte el bloqueo con los backups para no migrar durante un volcado/limpieza.
+concurrency:
+  group: fintrack-production-database
+  cancel-in-progress: false
 
 env:
   NODE_VERSION: 24.16.0
   PNPM_VERSION: 11.27.1
-  REGION: us-east4
-  SERVICE: fintrack-backend
+  # Versión exacta publicada el 2026-10-19: https://vercel.com/docs/cli/release-notes
+  VERCEL_CLI_VERSION: 64.7.0
+  VERCEL_TELEMETRY_DISABLED: '1'
+  NO_COLOR: '1'
 
 jobs:
   deploy:
-    if: ${{ inputs.confirm == 'DESPLEGAR' }}
+    if: ${{ inputs.confirm == 'DESPLEGAR' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 30
     defaults:
       run:
+        shell: bash
         working-directory: backend
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - run: npm install --global pnpm@${{ env.PNPM_VERSION }}
+      - run: npm install --global pnpm@${{ env.PNPM_VERSION }} vercel@${{ env.VERCEL_CLI_VERSION }}
       - run: pnpm install --frozen-lockfile
       - name: prisma generate
         run: pnpm prisma:generate
@@ -44,47 +52,83 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
 
-      - uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_DEPLOY_SERVICE_ACCOUNT }}
-      - uses: google-github-actions/setup-gcloud@v2
-
-      - name: Build y push a Artifact Registry
+      - name: Comprobar configuración del despliegue
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID_BACKEND }}
+          BACKEND_PRODUCTION_URL: ${{ vars.BACKEND_PRODUCTION_URL }}
+          PRODUCTION_DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL }}
         run: |
-          IMAGE="${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/fintrack/backend:${GITHUB_SHA}"
-          gcloud auth configure-docker "${{ env.REGION }}-docker.pkg.dev" --quiet
-          docker build -t "$IMAGE" .
-          docker push "$IMAGE"
-          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          set -euo pipefail
+          for key in VERCEL_TOKEN VERCEL_ORG_ID VERCEL_PROJECT_ID BACKEND_PRODUCTION_URL PRODUCTION_DIRECT_URL; do
+            if test -z "${!key}"; then
+              echo "::error::Falta configurar $key en el environment production."
+              exit 1
+            fi
+          done
+          node --input-type=module <<'NODE'
+          const url = new URL(process.env.BACKEND_PRODUCTION_URL)
+          if (url.protocol !== 'https:' || url.username || url.password || url.port || url.pathname !== '/' || url.search || url.hash) {
+            throw new Error('BACKEND_PRODUCTION_URL debe ser el origen HTTPS estable del backend, sin ruta ni credenciales.')
+          }
+          NODE
 
       - name: Verificación previa de la migración (solo lectura)
         run: node scripts/check-migration-conflicts.ts
         env:
           DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL }}
 
-      - name: Migraciones (prisma migrate deploy con DIRECT_URL)
-        run: node node_modules/prisma/build/index.js migrate deploy
+      - name: Migraciones (prisma migrate deploy con URL directa)
+        run: pnpm prisma:migrate:deploy
         env:
           DATABASE_URL: ${{ secrets.PRODUCTION_DIRECT_URL }}
           DIRECT_URL: ${{ secrets.PRODUCTION_DIRECT_URL }}
 
-      - name: Deploy a Cloud Run
-        run: |
-          gcloud run deploy "${{ env.SERVICE }}" \
-            --image "$IMAGE" \
-            --region "${{ env.REGION }}" \
-            --min-instances 0 \
-            --max-instances 2 \
-            --concurrency 20 \
-            --timeout 35 \
-            --cpu 1 \
-            --memory 512Mi \
-            --cpu-boost \
-            --quiet
+      # La CLI se ejecuta desde la raíz del monorepo, no desde backend/.
+      # https://vercel.com/docs/monorepos#add-a-monorepo-through-vercel-cli
+      - name: Descargar configuración de producción del proyecto backend
+        working-directory: ${{ github.workspace }}
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID_BACKEND }}
+        run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
 
-      - name: Smoke de producción
+      - name: Construir el backend para producción
+        working-directory: ${{ github.workspace }}
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID_BACKEND }}
+        run: vercel build --prod --token="$VERCEL_TOKEN"
+
+      - name: Publicar exclusivamente el build verificado
+        working-directory: ${{ github.workspace }}
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID_BACKEND }}
+        run: vercel deploy --prebuilt --prod --yes --token="$VERCEL_TOKEN"
+
+      - name: Smoke del dominio estable de producción
+        env:
+          BACKEND_PRODUCTION_URL: ${{ vars.BACKEND_PRODUCTION_URL }}
         run: |
-          URL="$(gcloud run services describe "${{ env.SERVICE }}" --region "${{ env.REGION }}" --format 'value(status.url)')"
-          test "$(curl -s -o /dev/null -w '%{http_code}' "$URL/api/health/ready")" = "200"
-          test "$(curl -s -o /dev/null -w '%{http_code}' "$URL/api/auth/me")" = "403"
+          set -euo pipefail
+          URL="${BACKEND_PRODUCTION_URL%/}"
+          # Reintentos solo de readiness: no seguir redirects ni enviar secretos de proxy.
+          READY=000
+          for attempt in 1 2 3 4 5; do
+            READY="$(curl --silent --show-error --connect-timeout 10 --max-time 40 -o /dev/null -w '%{http_code}' "$URL/api/health/ready")"
+            if test "$READY" = 200; then break; fi
+            sleep 3
+          done
+          test "$READY" = 200 || { echo "::error::Readiness no devuelve 200 (HTTP $READY)."; exit 1; }
+          DENIED="$(curl --silent --show-error --connect-timeout 10 --max-time 40 -o /dev/null -w '%{http_code}' "$URL/api/auth/me")"
+          test "$DENIED" = 403 || { echo "::error::El acceso directo sin secreto no devuelve 403 (HTTP $DENIED)."; exit 1; }
+
+      - name: Eliminar configuración local descargada con secretos
+        if: always()
+        working-directory: ${{ github.workspace }}
+        run: rm -rf -- .vercel
