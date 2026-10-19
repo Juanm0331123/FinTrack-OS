@@ -1,3 +1,5 @@
+import { isIP } from 'node:net'
+
 // Cabeceras que el proxy de Next reenvía al backend (lista blanca). Las cabeceras propias del
 // proxy (`x-fintrack-*`) nunca se aceptan del navegador: se descartan y se fijan aquí.
 
@@ -17,13 +19,17 @@ const FORWARDED_HEADERS = [
     'x-request-id',
 ]
 
-// En Vercel, x-real-ip y x-forwarded-for los fija la plataforma con la IP del visitante (no los
-// controla el cliente). Fuera de Vercel no son confiables: por eso solo se usan aquí, en el borde.
-export function clientIpFrom(headers: Headers) {
-    const realIp = headers.get('x-real-ip')?.trim()
-    const forwarded = headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+// Vercel sobrescribe x-forwarded-for en la entrada al proyecto público para evitar spoofing.
+// No contamos saltos ni tomamos un prefijo: el salto al segundo proyecto tendrá otra IP.
+// Fuera de Vercel estas cabeceras las puede enviar el cliente y nunca son una identidad fiable.
+export function clientIpFrom(headers: Headers, isVercel = false) {
+    if (!isVercel) {
+        return null
+    }
 
-    return realIp || forwarded || null
+    const forwarded = headers.get('x-forwarded-for')?.trim()
+
+    return forwarded && !forwarded.includes('%') && isIP(forwarded) ? forwarded : null
 }
 
 export function buildUpstreamHeaders(incoming: Headers, options: { clientIp: string | null; secret: string }) {

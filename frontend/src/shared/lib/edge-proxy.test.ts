@@ -30,17 +30,28 @@ describe('buildUpstreamHeaders', () => {
 })
 
 describe('clientIpFrom', () => {
-    it('prefers x-real-ip and falls back to the first x-forwarded-for entry', () => {
-        expect(clientIpFrom(new Headers({ 'x-real-ip': '203.0.113.7', 'x-forwarded-for': '1.1.1.1' }))).toBe('203.0.113.7')
-        expect(clientIpFrom(new Headers({ 'x-forwarded-for': '203.0.113.8, 10.0.0.1' }))).toBe('203.0.113.8')
+    it('uses the single platform-overwritten IP, never an alternate client header', () => {
+        expect(clientIpFrom(new Headers({ 'x-real-ip': '203.0.113.7', 'x-forwarded-for': '203.0.113.8' }), true)).toBe('203.0.113.8')
+        expect(clientIpFrom(new Headers({ 'x-forwarded-for': '2001:db8::7' }), true)).toBe('2001:db8::7')
+    })
+
+    it('does not trust forwarded headers outside Vercel', () => {
+        expect(clientIpFrom(new Headers({ 'x-forwarded-for': '203.0.113.8' }), false)).toBeNull()
         expect(clientIpFrom(new Headers())).toBeNull()
+    })
+
+    it('rejects missing, repeated, malformed or port-qualified IPs instead of selecting a prefix', () => {
+        for (const value of ['203.0.113.8, 10.0.0.1', 'invalid', '203.0.113.8:443', '[2001:db8::7]', 'fe80::1%eth0', '']) {
+            expect(clientIpFrom(new Headers({ 'x-forwarded-for': value }), true)).toBeNull()
+        }
+        expect(clientIpFrom(new Headers({ 'x-real-ip': '203.0.113.7' }), true)).toBeNull()
     })
 })
 
 describe('upstreamUrl', () => {
     it('keeps the path and query on the backend origin', () => {
-        expect(upstreamUrl('https://api.run.app/', '/api/auth/oauth/google/callback', '?code=1&state=2').toString()).toBe(
-            'https://api.run.app/api/auth/oauth/google/callback?code=1&state=2',
+        expect(upstreamUrl('https://fintrack-api.vercel.app/', '/api/auth/oauth/google/callback', '?code=1&state=2').toString()).toBe(
+            'https://fintrack-api.vercel.app/api/auth/oauth/google/callback?code=1&state=2',
         )
     })
 })
