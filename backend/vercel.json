@@ -4,7 +4,8 @@
     "fluid": true,
     "regions": ["iad1"],
     "installCommand": "pnpm install --frozen-lockfile",
-    "buildCommand": "pnpm prisma:generate",
+    "buildCommand": "pnpm prisma:generate && mkdir -p public",
+    "outputDirectory": "public",
     "git": {
         "deploymentEnabled": false
     },
