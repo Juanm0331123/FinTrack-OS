@@ -103,6 +103,9 @@ test('Vercel uses one explicitly routed API entry instead of detecting app.ts or
     assert.deepEqual(configuration.regions, ['iad1'])
     assert.equal(configuration.fluid, true)
     assert.equal(configuration.git.deploymentEnabled, false)
+    // Con buildCommand propio, Vercel exige un directorio de salida aunque la API no sirva estáticos.
+    assert.equal(configuration.outputDirectory, 'public')
+    assert.match(configuration.buildCommand, /mkdir -p public$/)
     assert.deepEqual(Object.keys(configuration.functions), ['api/index.ts'])
     assert.equal(configuration.functions['api/index.ts'].maxDuration, 35)
     assert.deepEqual(configuration.rewrites, [{ source: '/(.*)', destination: '/api/index' }])
