@@ -373,7 +373,9 @@ describe('database budgets (DATA-01, OPS-08)', () => {
         const token = await login(client, user)
         const held = []
 
-        while (pool.totalCount < 5 || pool.idleCount > 0) {
+        // Retener todas las conexiones del pool desde la prueba: contar totalCount/idleCount incluye
+        // conexiones que otra operación aún no ha devuelto y que podrían liberarse durante la petición.
+        while (held.length < (pool.options.max ?? 5)) {
             held.push(await pool.connect())
         }
 
