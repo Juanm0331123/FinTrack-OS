@@ -96,8 +96,11 @@ status() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
 [ "$(status "http://127.0.0.1:$API_PORT/api/health/ready")" = "200" ] || fail "readiness con TLS verify-full"
 [ "$(status "http://127.0.0.1:$API_PORT/api/auth/me")" = "403" ] || fail "tráfico directo sin secreto de borde debe ser 403"
 [ "$(status -H "x-fintrack-edge-auth: $EDGE_SECRET" "http://127.0.0.1:$API_PORT/api/auth/me")" = "401" ] || fail "con secreto de borde debe llegar a la API (401)"
-docker logs "$API" 2>&1 | grep -q '"message":"http_request"' || fail "logs JSON estructurados"
-if docker logs "$API" 2>&1 | grep -q 'prisma:warn'; then
+# Leer los logs completos antes de buscar: con pipefail, grep -q cierra la tubería al primer
+# acierto y docker logs puede morir por SIGPIPE, lo que hacía fallar el smoke de forma intermitente.
+API_LOGS="$(docker logs "$API" 2>&1)"
+grep -q '"message":"http_request"' <<<"$API_LOGS" || fail "logs JSON estructurados"
+if grep -q 'prisma:warn' <<<"$API_LOGS"; then
     fail "el runtime emite advertencias de Prisma"
 fi
 
@@ -108,6 +111,7 @@ ELAPSED=$(( $(date +%s) - START ))
 EXIT_CODE="$(docker inspect "$API" --format '{{.State.ExitCode}}')"
 [ "$EXIT_CODE" = "0" ] || fail "código de salida $EXIT_CODE tras SIGTERM"
 [ "$ELAPSED" -lt 10 ] || fail "el cierre tardó ${ELAPSED}s"
-docker logs "$API" 2>&1 | grep -q 'shutdown_completed' || fail "no registró shutdown_completed"
+API_LOGS="$(docker logs "$API" 2>&1)"
+grep -q 'shutdown_completed' <<<"$API_LOGS" || fail "no registró shutdown_completed"
 
 echo "SMOKE OK: migraciones, TLS verify-full, salud, protección de origen, logs y SIGTERM (${ELAPSED}s)."
