@@ -65,7 +65,7 @@ El secreto bloquea negocio directo; no evita que un rechazo consuma recursos. Re
 
 `backend/api/index.ts` exporta Express sin abrir puerto ni instalar señales de cierre. No importa `src/server.ts`. Local/Docker siguen usando este último con `pnpm dev`/`pnpm start` y cierre SIGTERM/SIGINT. Las Functions no dependen de señales ni temporizadores persistentes; los logs estructurados salen a stdout.
 
-El build ejecuta `pnpm prisma:generate` e incluye el cliente generado; **no migra**. `DATABASE_URL`: URL **pooled** Neon (`-pooler`), **`sslmode=verify-full`**, no `require`. Pool: `DB_POOL_MAX=2`, `DB_IDLE_TIMEOUT_MS=5000`, `DB_STARTUP_TIMEOUTS=false`. Vercel decide cuántas instancias abre: **2 conexiones por instancia no es un tope global**.
+El build ejecuta `pnpm prisma:generate` e incluye el cliente generado; **no migra**. `public/robots.txt` mantiene la salida estática no vacía y bloquea la indexación; no hay `index.html`, por lo que `/` conserva el rewrite a Express. `DATABASE_URL`: URL **pooled** Neon (`-pooler`), **`sslmode=verify-full`**, no `require`. Pool: `DB_POOL_MAX=2`, `DB_IDLE_TIMEOUT_MS=5000`, `DB_STARTUP_TIMEOUTS=false`. Vercel decide cuántas instancias abre: **2 conexiones por instancia no es un tope global**.
 
 Mantener `DB_CONNECTION_TIMEOUT_MS=5000`, `DB_LOCK_TIMEOUT_MS=3000`, `DB_STATEMENT_TIMEOUT_MS=8000`, `DB_TRANSACTION_TIMEOUT_MS=10000`. Transacciones usan `SET LOCAL`; el pooler rechaza parámetros de arranque. Para consultas sueltas, un administrador debe configurar defaults del rol runtime por conexión directa (pendiente del Owner, no ejecutado por esta tarea):
 

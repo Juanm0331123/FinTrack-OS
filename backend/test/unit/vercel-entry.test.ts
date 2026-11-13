@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -103,10 +103,18 @@ test('Vercel uses one explicitly routed API entry instead of detecting app.ts or
     assert.deepEqual(configuration.regions, ['iad1'])
     assert.equal(configuration.fluid, true)
     assert.equal(configuration.git.deploymentEnabled, false)
-    // Con buildCommand propio, Vercel exige un directorio de salida aunque la API no sirva estáticos.
+    // Con buildCommand propio, Vercel exige un directorio de salida con al menos un archivo estático.
     assert.equal(configuration.outputDirectory, 'public')
-    assert.match(configuration.buildCommand, /mkdir -p public$/)
+    assert.equal(configuration.buildCommand, 'pnpm prisma:generate')
     assert.deepEqual(Object.keys(configuration.functions), ['api/index.ts'])
     assert.equal(configuration.functions['api/index.ts'].maxDuration, 35)
     assert.deepEqual(configuration.rewrites, [{ source: '/(.*)', destination: '/api/index' }])
+})
+
+test('Vercel has a nonempty static output that blocks indexing without shadowing API routes', () => {
+    const configuration = JSON.parse(readFileSync(new URL('../../vercel.json', import.meta.url), 'utf8'))
+    const outputDirectory = resolve(backendRoot, configuration.outputDirectory)
+
+    assert.deepEqual(readdirSync(outputDirectory), ['robots.txt'])
+    assert.equal(readFileSync(join(outputDirectory, 'robots.txt'), 'utf8').replace(/\r\n/g, '\n'), 'User-agent: *\nDisallow: /\n')
 })
